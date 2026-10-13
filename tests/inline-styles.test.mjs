@@ -88,11 +88,11 @@ test('inline declarations a stylesheet would report are reported when set', asyn
       ),
   );
   await svelte(
-    '<div id="a" style="-webkit-text-fill-color: transparent">A</div><button id="b" onclick={() => {}}>B</button>',
+    '<div id="a" style="-webkit-text-stroke: 1px red">A</div><button id="b" onclick={() => {}}>B</button>',
     async root =>
       assert.match(
         reported((await lowered(root)).ir, click),
-        /-webkit-text-fill-color: transparent \(Blitz's style engine \(Stylo\) does not support it\)/,
+        /-webkit-text-stroke: 1px red \(Blitz's style engine \(Stylo\) does not support it\)/,
       ),
   );
   // Known only at run time: when the value is set, whatever its kind.

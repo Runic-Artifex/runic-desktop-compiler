@@ -575,7 +575,7 @@ mod tests {
         // drops (measured) and any value Stylo cannot be shown to agree on.
         assert_eq!(
             kinds(
-                "z-index: undefined; width: undefinedpx; -webkit-text-fill-color: undefined; width: -webkit-max-content; word-break: break-word; transform: translate(NaNpx)",
+                "z-index: undefined; width: undefinedpx; -webkit-text-stroke: undefined; width: -webkit-max-content; word-break: break-word; transform: translate(NaNpx)",
                 div
             ),
             [
@@ -597,11 +597,11 @@ mod tests {
         );
         assert_eq!(
             kinds(
-                "position: sticky; top: 0; color: red; -webkit-text-fill-color: red; text-shadow: 1px 1px red",
+                "position: sticky; top: 0; color: red; -webkit-text-stroke: 1px red; text-shadow: 1px 1px red",
                 div
             ),
             [
-                (Kind::Report, "-webkit-text-fill-color: red".into()),
+                (Kind::Report, "-webkit-text-stroke: 1px red".into()),
                 (Kind::Report, "text-shadow: 1px 1px red".into()),
             ]
         );
