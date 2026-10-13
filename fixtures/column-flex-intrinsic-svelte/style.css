@@ -1,0 +1,32 @@
+@font-face { font-family: RunicFixture; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+html, body { margin: 0; font-family: RunicFixture; }
+html, body { background: #eae6dc; color: #252c28; font-size: 14px; line-height: 20px; }
+body { padding: 8px; }
+main { max-width: 520px; margin: 0 auto; padding: 12px 16px; background: #faf8f1; border: 1px solid #b7b7a9; border-radius: 12px; }
+.controls { display: flex; gap: 8px; margin: 0 0 8px; }
+button { font-family: RunicFixture; font-size: 13px; line-height: 16px; padding: 3px 8px; border: 1px solid #52665b; border-radius: 6px; background: #e2e8df; color: #252c28; }
+/* shadcn-svelte's InputGroup with a block addon: an auto-height column flex
+   container whose control grows (`flex: 1 1 0%`, a content flex basis). */
+.group { display: flex; flex-direction: column; align-items: center; width: 100%; margin: 0 0 10px; border: 1px solid #52665b; border-radius: 6px; background: #ffffff; }
+.addon { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 6px 12px; color: #5b625c; }
+.grow { flex: 1 1 0%; }
+.auto { flex: 1 1 auto; }
+.rigid { flex: 0 0 auto; }
+textarea, input { font-family: RunicFixture; font-size: 14px; line-height: 20px; margin: 0; border: 0; border-radius: 0; background: transparent; color: #252c28; outline: none; }
+.area { width: 100%; min-height: 64px; padding: 12px; resize: none; }
+.content { field-sizing: content; }
+.tall { min-height: 96px; }
+/* A fixed `height` above the line height: Chromium's inner editor then has
+   `line-height: normal`, which sizes the input when its flex basis is its
+   content. */
+.field { width: 100%; min-width: 0; height: 36px; padding: 4px 12px; }
+.end { padding-top: 12px; }
+.start { padding-bottom: 12px; }
+::placeholder { color: #7a8079; }
+.scroller { width: 100%; padding: 4px 12px; overflow: hidden; }
+.min { min-height: 56px; background: #eef2ea; }
+.max { max-height: 48px; background: #f3ece2; }
+.plain { margin-bottom: 48px; }
+.basis { flex: 1 1 24px; min-height: 0; width: 100%; padding: 0 12px; background: #e8eef3; }
+#after { margin: 0; }

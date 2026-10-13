@@ -16,13 +16,13 @@ rust-version = "1.98"
 license = "MIT"
 
 [workspace.dependencies]
-blitz-dom = { git = "https://github.com/Runic-Artifex/blitz", rev = "fa7be70362e314416d4d7d50417f46a3681b5adb", default-features = false, features = ["woff"] }
-blitz-html = { git = "https://github.com/Runic-Artifex/blitz", rev = "fa7be70362e314416d4d7d50417f46a3681b5adb", default-features = false }
-blitz-shell = { git = "https://github.com/Runic-Artifex/blitz", rev = "fa7be70362e314416d4d7d50417f46a3681b5adb", default-features = false, features = ["data-uri"] }
+blitz-dom = { git = "https://github.com/Runic-Artifex/blitz", rev = "a12c37e376a33fe0714dd93b4f0ee8395407459e", default-features = false, features = ["woff"] }
+blitz-html = { git = "https://github.com/Runic-Artifex/blitz", rev = "a12c37e376a33fe0714dd93b4f0ee8395407459e", default-features = false }
+blitz-shell = { git = "https://github.com/Runic-Artifex/blitz", rev = "a12c37e376a33fe0714dd93b4f0ee8395407459e", default-features = false, features = ["data-uri"] }
 # Element state bits for checkbox state changes (the version Blitz uses).
 style_dom = { version = "=0.22.0", package = "stylo_dom" }
-blitz-traits = { git = "https://github.com/Runic-Artifex/blitz", rev = "fa7be70362e314416d4d7d50417f46a3681b5adb", default-features = false }
-blitz-paint = { git = "https://github.com/Runic-Artifex/blitz", rev = "fa7be70362e314416d4d7d50417f46a3681b5adb", default-features = false }
+blitz-traits = { git = "https://github.com/Runic-Artifex/blitz", rev = "a12c37e376a33fe0714dd93b4f0ee8395407459e", default-features = false }
+blitz-paint = { git = "https://github.com/Runic-Artifex/blitz", rev = "a12c37e376a33fe0714dd93b4f0ee8395407459e", default-features = false }
 anyrender = "=0.14.0"
 kurbo = "=0.13.1"
 peniko = "=0.6.1"
@@ -84,9 +84,10 @@ to_shmem = { git = "https://github.com/Runic-Artifex/stylo", rev = "6d5808735d89
 to_shmem_derive = { git = "https://github.com/Runic-Artifex/stylo", rev = "6d5808735d89e3c149844addb1185adb8b2dacff" }
 
 # The Taffy fork (docs/BLITZ-GAPS.md): Blitz's Taffy revision plus a
-# percentage flex basis against an indefinite main size used as `content`.
+# percentage flex basis against an indefinite main size used as `content`, and
+# an auto-height column sized by its items' hypothetical main sizes.
 [patch."https://github.com/DioxusLabs/taffy"]
-taffy = { git = "https://github.com/Runic-Artifex/taffy", rev = "e7be3d5b2f58e3af868d90d18be6b96e89e1d8fb" }
+taffy = { git = "https://github.com/Runic-Artifex/taffy", rev = "e767d037f8adb8bcdcbbce65e21b8296811932c8" }
 
 [profile.dev]
 debug = 0
