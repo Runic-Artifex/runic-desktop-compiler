@@ -1,0 +1,17 @@
+{
+  "description": "-webkit-line-clamp as Chromium 153 lays it out (Tailwind 4's line-clamp-N: overflow hidden, display -webkit-box, vertical orientation): text clamped after 1, 2 and 3 lines with an ellipsis, in a card with padding and a border, text shorter than its clamp (not clamped), and a clamp through nested blocks (a title, the text, a block after the clamp); a text change to a short text and back moves or lifts the clamps, and a narrower width clamps at other points",
+  "fixtures": ["line-clamp-svelte"],
+  "viewports": [
+    [800, 600],
+    [420, 600]
+  ],
+  "pixelRegions": ["one-box", "two-box", "three-box", "short-box", "nested-box"],
+  "actions": [
+    { "kind": "click", "id": "change" },
+    { "kind": "click", "id": "change" },
+    { "kind": "click", "id": "resize" },
+    { "kind": "click", "id": "change" },
+    { "kind": "click", "id": "change" },
+    { "kind": "click", "id": "resize" }
+  ]
+}

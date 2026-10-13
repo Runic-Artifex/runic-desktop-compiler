@@ -129,6 +129,10 @@ mod tests {
         assert!(!declaration_parses("line-clamp", "2"));
         // Parsed in servo builds by the Stylo fork.
         assert!(declaration_parses("field-sizing", "content"));
+        assert!(declaration_parses("-webkit-line-clamp", "2"));
+        assert!(declaration_parses("-webkit-box-orient", "vertical"));
+        assert!(declaration_parses("display", "-webkit-box"));
+        assert!(declaration_parses("display", "-webkit-inline-box"));
         assert!(declaration_parses("--tw-ring", ""));
     }
 

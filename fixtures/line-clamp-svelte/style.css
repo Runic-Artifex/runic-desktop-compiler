@@ -1,0 +1,18 @@
+@font-face { font-family: RunicFixture; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+html, body { margin: 0; font-family: RunicFixture; }
+html, body { background: #eae6dc; color: #252c28; font-size: 15px; line-height: 20px; }
+body { padding: 8px; }
+main { max-width: 520px; margin: 0 auto; padding: 12px 16px; background: #faf8f1; border: 1px solid #b7b7a9; border-radius: 12px; }
+.controls { display: flex; gap: 8px; margin: 0 0 8px; }
+button { font-family: RunicFixture; font-size: 13px; line-height: 16px; padding: 3px 8px; border: 1px solid #52665b; border-radius: 6px; background: #e2e8df; color: #252c28; }
+.box { margin: 0 0 8px; }
+.narrow .box { width: 70%; }
+p { margin: 0; }
+/* Tailwind 4's line-clamp-N. */
+.line-clamp-1 { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; }
+.line-clamp-2 { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.line-clamp-3 { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.card { padding: 6px 10px; border: 1px solid #b7b7a9; border-radius: 6px; background: #ffffff; }
+.item { padding: 2px 0; border-bottom: 1px solid #d6d3c8; }
+#nested-title { font-weight: 700; }

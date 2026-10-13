@@ -103,9 +103,14 @@ async function splitStyleSource(root, splits) {
 // properties without effect on desktop or next to their standard property.
 const EQUIVALENT_DROPPED_RULE =
   /::?-(webkit|moz)-|\((forced-colors|prefers-contrast|prefers-reduced-motion)\b/;
-// Declarations of the legacy `display: -webkit-box` that have no effect
-// unless it applies (measured in Chromium 153).
-const WEBKIT_BOX_ONLY = new Set(['-webkit-line-clamp', '-webkit-box-orient']);
+// Stylo parses `-webkit-line-clamp`, `-webkit-box-orient` and `display:
+// -webkit-box` as Chromium 153 does, and Blitz lays out the line clamp roots
+// they make as Chromium does and reports the rest when it constructs their
+// boxes (a legacy flexible box, a clamp root that is a button) or lays them
+// out. Properties Stylo applies and Chromium does not parse are reported:
+// `-moz-box-orient` (`-webkit-box-orient`'s Gecko name) would make a clamp
+// root of a box Chromium lays out as a legacy flexible box.
+const CHROMIUM_IGNORED = new Set(['-moz-box-orient']);
 const EQUIVALENT_DROPPED_PROPERTY = new Set([
   '-webkit-text-size-adjust',
   '-webkit-tap-highlight-color',
@@ -866,7 +871,7 @@ function checkWithStylo(code, file, pending) {
   // that does (the property is inherited).
   const textWrap = (d, keyword) =>
     /^text-wrap(-style)?$/.test(d.prop) && possibleKeywords(d.value, customValues).has(keyword);
-  const reported = result.invalid.map(i => decls[i]);
+  const reported = decls.filter(d => invalid.has(d) || CHROMIUM_IGNORED.has(d.prop));
   const scored = d => !invalid.has(d) && (textWrap(d, 'balance') || textWrap(d, 'pretty'));
   for (const d of decls.filter(scored)) {
     const verb = textWrap(d, 'balance') ? 'balance' : 'lay out text-wrap: pretty in';
@@ -918,7 +923,7 @@ function checkWithStylo(code, file, pending) {
   for (const d of reported) {
     const unsupported = invalid.has(d)
       ? "Blitz's style engine (Stylo) does not support"
-      : 'Blitz does not lay out as Chromium does';
+      : "Chromium ignores and Blitz's style engine (Stylo) applies";
     if (EQUIVALENT_DROPPED_PROPERTY.has(d.prop)) continue;
     if (EQUIVALENT_DROPPED_VALUE.get(d.prop) === d.value.trim().toLowerCase()) continue;
     // Blitz draws no resize grip whatever `resize` says; Chromium's default
@@ -932,19 +937,7 @@ function checkWithStylo(code, file, pending) {
       selectors.length &&
       !selectors.some(x => /::|:(before|after|first-line|first-letter)\b/i.test(x))
     ) {
-      // The legacy box's line clamping and orientation only apply where the
-      // rule's `display: -webkit-box` does (Chromium 153: with a block, flex
-      // or grid display winning they have no effect).
-      const box =
-        WEBKIT_BOX_ONLY.has(d.prop) &&
-        d.parent.nodes.find(
-          x => x.type === 'decl' && x.prop === 'display' && /^-webkit-(inline-)?box$/.test(x.value),
-        );
-      const unless = box
-        ? overriding(box)
-        : WEBKIT_BOX_ONLY.has(d.prop)
-          ? undefined
-          : overriding(d);
+      const unless = overriding(d);
       guards.push({
         selector: selectors.join(', '),
         ...(unless ? { unless } : {}),
@@ -963,7 +956,7 @@ function checkWithStylo(code, file, pending) {
       d,
       new Diagnostic(
         'E_CSS_PROPERTY',
-        `Unsupported CSS declaration ${d.prop}: ${d.value}${rule ? ` (in ${rule})` : ''}: ${invalid.has(d) ? "Blitz's style engine (Stylo) does not support it" : 'Blitz does not lay it out as Chromium does'}`,
+        `Unsupported CSS declaration ${d.prop}: ${d.value}${rule ? ` (in ${rule})` : ''}: ${invalid.has(d) ? "Blitz's style engine (Stylo) does not support it" : "Chromium ignores it and Blitz's style engine (Stylo) applies it"}`,
         at(d.source.start.line, d.source.start.column),
       ),
     );
