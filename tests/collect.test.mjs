@@ -247,10 +247,30 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
     /field-sizing: content \(s\.css, line 1\) applies to a select, search, number, password or file input through \.a,/,
   );
   assert.deepEqual((await guards('.a { field-sizing: fixed }')) ?? [], []);
-  assert.match(
-    (await guards('p { -webkit-line-clamp: 2 }'))[0].message,
-    /-webkit-line-clamp: 2 \(s\.css, line 1\)/,
+  // The legacy line clamp parses, and Blitz reports the boxes it does not
+  // lay out as Chromium does; `-moz-box-orient`, which Stylo applies and
+  // Chromium ignores, is reported where it applies.
+  assert.deepEqual(
+    (await guards(
+      '.a { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2 }\n' +
+        '.b { display: -webkit-inline-box; -webkit-box-orient: horizontal; -webkit-line-clamp: none }',
+    )) ?? [],
+    [],
   );
+  assert.deepEqual(
+    (await guards('.a { -moz-box-orient: vertical }\n.a { -moz-box-orient: horizontal }')).map(
+      g => [g.selector, g.unless],
+    ),
+    [
+      ['.a', '.a'],
+      ['.a', undefined],
+    ],
+  );
+  assert.match(
+    (await guards('p { -moz-box-orient: vertical }'))[0].message,
+    /-moz-box-orient: vertical \(s\.css, line 1\), which Chromium ignores and Blitz's style engine \(Stylo\) applies/,
+  );
+  await check('p::before { -moz-box-orient: vertical }', 'E_CSS_PROPERTY', 1);
   // Grayscale font smoothing is what both renderers draw: no guard. Values
   // asking for subpixel or no antialiasing are reported where they apply.
   assert.deepEqual(
@@ -333,32 +353,22 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
   await check('p::before { text-wrap: pretty }', undefined);
   await check('p::before { text-wrap: balance; text-wrap-style: stable }', undefined);
   // Not where a later rule of at least its specificity sets the property
-  // (`unless`); the legacy box's clamping and orientation not where its
-  // `display: -webkit-box` is overridden. Scroll margins are recognized
-  // by the patched Stylo and applied by Blitz's scrollIntoView primitive.
+  // (`unless`). Scroll margins are recognized by the patched Stylo and
+  // applied by Blitz's scrollIntoView primitive.
   const fields = gs => (gs ?? []).map(g => [g.selector, g.unless, g.when]);
   assert.deepEqual(
     fields(
       await guards(
-        '.a { -webkit-line-clamp: 1; -webkit-box-orient: vertical; display: -webkit-box }\n' +
-          '.a { display: flex }\n.b { scroll-margin-top: 4px }',
+        '.a { container-type: scroll-state }\n' +
+          '.a { container-type: size }\n.b { scroll-margin-top: 4px }',
       ),
     ),
-    [
-      ['.a', '.a', undefined],
-      ['.a', '.a', undefined],
-      ['.a', '.a', undefined],
-    ],
+    [['.a', '.a', undefined]],
   );
   // (A later rule of lower specificity overrides nothing.)
   assert.deepEqual(
-    fields(
-      await guards('.x .a { display: -webkit-box; -webkit-line-clamp: 1 }\n.a { display: flex }'),
-    ),
-    [
-      ['.x .a', undefined, undefined],
-      ['.x .a', undefined, undefined],
-    ],
+    fields(await guards('.x .a { container-type: scroll-state }\n.a { container-type: size }')),
+    [['.x .a', undefined, undefined]],
   );
   // Scroll padding is recognized, including logical properties and calc.
   assert.deepEqual(
