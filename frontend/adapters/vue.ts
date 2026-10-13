@@ -4961,6 +4961,7 @@ export async function lowerVue(graph: Graph): Promise<Lowering> {
     schedule: { checkpoint: 'listener', mount: 'sync' },
   };
   lower.checkStyleSpreads(ir);
+  lower.checkKeyOrders();
   (ir as Program & { irHash?: string }).irHash = hash(ir);
   // The image URLs image objects can load (M6 images, `new Image()`).
   return lower.imageUrls.length ? { ir, imageUrls: lower.imageUrls } : { ir };

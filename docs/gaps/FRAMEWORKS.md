@@ -65,7 +65,7 @@ Part of the [gap register](../GAPS.md). Locations as of commit `9add179` (2026-1
 | Nested prop destructuring; object/array prop defaults; children/render-prop defaults | E_PROPS | — | — | react.ts:913-967 |
 | Events outside the list (`onSubmit`, `onKeyPress`, `onInput`, touch, drag, animation/transition end, paste); capture handlers; `onWheel` | E_EVENT | Passive root listener for wheel | — | react.ts:1783,1789,2370 |
 | Style strings, computed keys, spreads in style objects | E_JSX | — | — | react.ts:1805-1927 |
-| `select multiple`, `defaultValue`, uncontrolled controls, controlled controls without `onChange` | E_JSX | "planned for later / M5" | — | react.ts:2376-2547 |
+| `select multiple`, `defaultValue`, uncontrolled controls, controlled controls without `onChange` | E_JSX | "planned for later / M5" | Uncontrolled checkboxes and radios: lower them as the Svelte adapter does (the IR has them since 2026-10-13) | react.ts:2376-2547 |
 | Recursive components; region unmount order; continuous-lane cases (timers from scroll listeners, window scroll/resize listeners) | E_COMPONENT / E_EVENT | — | — | react.ts:802,3342-3846 |
 | Prop domains (class through the parent) | — | The React adapter does not analyse sites | Port the Svelte site analysis | design/M6-LIBRARIES |
 | Builds with `babel-plugin-react-compiler` | — | Render counts would differ | Detect and reject (planned, not implemented) | research/REACT-REGIONS |
@@ -83,7 +83,7 @@ Part of the [gap register](../GAPS.md). Locations as of commit `9add179` (2026-1
 | Runtime `defineProps`/`defineEmits`; `defineModel` options; rest props; dynamic slot names, `$slots`; `v-bind="obj"` other than `$attrs`; reading fallthrough attributes by name | E_PROPS / E_EMITS / E_MODEL / E_SLOTS / E_ATTRS | — | — | vue.ts:561-739,912,1358,3464-3501 |
 | `v-for` over objects, ranges, maps; destructured items | E_TEMPLATE | "planned for later" | — | vue.ts:3514-3526 |
 | Event options `.passive`/`.once`/`.capture`; dynamic event names; events outside the list | E_EVENT | — | — | vue.ts:4338-4357 |
-| `v-model` on inputs other than text/checkbox/radio, true-value/false-value, arrays; uncontrolled checkboxes/radios | E_TEMPLATE | "planned for a later milestone" | — | vue.ts:4485-4629 |
+| `v-model` on inputs other than text/checkbox/radio, true-value/false-value, arrays; uncontrolled checkboxes/radios | E_TEMPLATE | "planned for a later milestone" | Uncontrolled checkboxes and radios: lower them as the Svelte adapter does (the IR has them since 2026-10-13) | vue.ts:4485-4629 |
 | Template refs: function refs, refs in `v-for` or slots, refs read in render | E_REF | — | — | vue.ts:2065,2167-2188 |
 | Entries other than `createApp(App).mount("#root")` (no plugins, `app.use`) | E_BOOTSTRAP | — | — | vue.ts:446-470 |
 | A raw object captured before it was stored in a ref is tracked natively | deviation | Low priority | — | results/m4 |

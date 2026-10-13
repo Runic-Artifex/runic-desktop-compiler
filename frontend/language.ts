@@ -3756,6 +3756,63 @@ export class Lowerer {
   private readonly styleSpreadChecks: { record: number; fn: number; at: ts.Node }[] = [];
   /** Record spreads keeping an earlier value where the spread's is undefined (`byName`). */
   private readonly recordSpreadChecks: { record: number; field: string; at: ts.Node }[] = [];
+  /** Calls of key-observing built-ins, with the type of the argument (`checkKeyOrder`). */
+  private readonly keyObservations: { name: string; type: Type; at: ts.Node }[] = [];
+
+  /**
+   * Rejects a key-observing built-in (`JSON.stringify`, `Object.keys`, …)
+   * of a record whose key order is not tracked (`packageRecords`): the
+   * argument's own record, and for JSON.stringify every record it holds.
+   */
+  private checkKeyOrder(name: string, type: Type, at: ts.Node): void {
+    const seen = new Set<number>();
+    const find = (t: Type, deep: boolean): number | undefined => {
+      if (typeof t !== 'object') return undefined;
+      if ('maybe' in t) return find(t.maybe, deep);
+      if ('record' in t) {
+        if (this.types.packageRecords.has(t.record)) return t.record;
+        if (!deep || seen.has(t.record)) return undefined;
+        seen.add(t.record);
+        for (const f of this.types.records[t.record].fields) {
+          const r = find(f.type, deep);
+          if (r !== undefined) return r;
+        }
+        return undefined;
+      }
+      if (!deep) return undefined;
+      if ('array' in t) return find(t.array, deep);
+      if ('map' in t) return find(t.map[1], deep);
+      return undefined;
+    };
+    const record = find(type, name === 'JSON.stringify');
+    if (record !== undefined)
+      this.fail(
+        at,
+        'E_OBJECT',
+        `${name} of ${this.types.records[record].name === 'Object' ? 'an object' : `a ${this.types.records[record].name}`} is unsupported: its key order is not tracked (a package declares its type, or its objects list their keys in different orders)`,
+      );
+  }
+
+  /**
+   * Checks the key-observing built-in calls again with the finished
+   * program: a record may have lost its tracked key order (`object`, an
+   * array of literals in different key orders) after a call was lowered.
+   */
+  checkKeyOrders(): void {
+    for (let changed = true; changed;) {
+      changed = false;
+      for (const s of this.spreadOrders)
+        if (this.types.packageRecords.has(s.from) && !this.types.packageRecords.has(s.to)) {
+          this.types.packageRecords.add(s.to);
+          changed = true;
+        }
+    }
+    for (const o of this.keyObservations) this.checkKeyOrder(o.name, o.type, o.at);
+  }
+
+  /** Object literals that spread a record: `from` gives `to` its key order. */
+  private readonly spreadOrders: { from: number; to: number }[] = [];
+
   /** The key order of the object literal a record expression builds (`byName`). */
   private readonly literalOrder = {
     set: (e: Expr, order: string[]) => void EXPR_TAGS.set(e, { ...EXPR_TAGS.get(e), order }),
@@ -5488,6 +5545,21 @@ export class Lowerer {
         return this.expr((e as ts.ParenthesizedExpression).expression, b);
       case K.NonNullExpression: {
         const inner = (e as ts.NonNullExpression).expression;
+        // `null!` (shadcn-svelte's `$state<HTMLButtonElement>(null!)`,
+        // filled later by `bind:ref`): `!` only silences TypeScript, so the
+        // value is null, of the nullable type the holder has in the IR
+        // (`expected`); reads that TypeScript accepts through the `!` are
+        // unwrapped, throwing a TypeError while it is null.
+        if (skipParens(inner).kind === K.NullKeyword) {
+          const want = this.expected.get(e);
+          if (want !== undefined && maybeInner(want) !== undefined)
+            return { op: 'null', type: want };
+          return this.fail(
+            e,
+            'E_TYPE_UNSUPPORTED',
+            'null! is null at run time; it is supported where the IR type there holds null (a $state or variable of an element type, which bind:this or bind:ref sets later; reads before then throw a TypeError), not here',
+          );
+        }
         const t = this.types.of(inner);
         const v = this.expr(inner, b);
         return (typeof t === 'object' && 'maybe' in t) || maybeInner(this.irType(v, b))
@@ -9357,17 +9429,13 @@ export class Lowerer {
           this.fail(at, 'E_OBJECT', `${name} of a tuple of different types is unsupported`);
         // (A copy keeps its source's key order, which only what observes keys
         // needs: `$state.snapshot` of bits-ui's Command state.)
-        if (
-          name !== 'structuredClone' &&
-          typeof t === 'object' &&
-          'record' in t &&
-          this.types.packageRecords.has(t.record)
-        )
-          this.fail(
-            at,
-            'E_OBJECT',
-            `${name} of a ${this.types.records[t.record].name} (an options type a package declares) is unsupported: its key order is not tracked`,
-          );
+        // (JSON.stringify observes the keys of nested objects too. A record
+        // may lose its key order after this call is lowered: checked again
+        // with the finished program, `checkKeyOrders`.)
+        if (name !== 'structuredClone') {
+          this.keyObservations.push({ name, type: t, at });
+          this.checkKeyOrder(name, t, at);
+        }
       }
     }
     // A nullable item looked up in an array whose items are never nullish
@@ -12307,6 +12375,14 @@ export class Lowerer {
             .map(f => f.name)
             .join(', ')}); key order is observable, so write them in declaration order`,
         );
+      // (Where this record is expected, an element of an array literal
+      // whose objects list their keys in different orders, shadcn-svelte's
+      // combobox-popup `countries`: the values by name, and the record's
+      // key order is not tracked, so key-observing built-ins reject it.)
+      if (recordType.record === wantRecord) {
+        this.types.packageRecords.add(recordType.record);
+        return this.byName(e, recordType.record, b);
+      }
       recordType.record = this.types.reordered(recordType.record, order);
     }
     const record = this.types.records[recordType.record];
@@ -12325,6 +12401,12 @@ export class Lowerer {
           );
         const source = b.local('$spread', st);
         const src = this.types.records[(st as { record: number }).record];
+        // (The literal's keys are in the source's order: untracked when
+        // the source's is, `checkKeyOrders`.)
+        this.spreadOrders.push({
+          from: (st as { record: number }).record,
+          to: recordType.record,
+        });
         // Each field that exists in the source overrides earlier values.
         // (An optional one over an earlier spread's field where the
         // literal's type has it present, `{ ...defaults, ...options }`: the
@@ -12367,9 +12449,16 @@ export class Lowerer {
             : this.fail(p, 'E_OBJECT', 'Computed keys are unsupported');
         const i = this.types.fieldIndex(recordType.record, name, p);
         // (A function for an optional property is present.)
-        if (ts.isArrowFunction(p.initializer) || ts.isFunctionExpression(p.initializer))
-          value = this.fitValue(this.closure(p.initializer, b, name), record.fields[i].type, b);
-        else value = this.coerce(p.initializer, b, record.fields[i].type);
+        if (ts.isArrowFunction(p.initializer) || ts.isFunctionExpression(p.initializer)) {
+          // (A function of fewer parameters than the property's type,
+          // `{ on: () => {} }` for `on: (v: number) => void`: adapted.)
+          let fn = this.closure(p.initializer, b, name);
+          const have = this.irType(fn, b);
+          const want = maybeInner(record.fields[i].type) ?? record.fields[i].type;
+          if (JSON.stringify(have) !== JSON.stringify(want))
+            fn = this.adaptFunction(fn, have, want) ?? fn;
+          value = this.fitValue(fn, record.fields[i].type, b);
+        } else value = this.coerce(p.initializer, b, record.fields[i].type);
       } else if (ts.isShorthandPropertyAssignment(p)) {
         name = p.name.text;
         const i = this.types.fieldIndex(recordType.record, name, p);

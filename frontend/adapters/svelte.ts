@@ -3860,6 +3860,14 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
             const call = skipParens(value);
             if (d.type && ts.isCallExpression(call) && !lower.expected.has(call))
               lower.expected.set(call, type);
+            // `$state<HTMLButtonElement>(null!)`: null, of the cell's
+            // nullable element type (the element is bound later).
+            if (
+              ts.isNonNullExpression(call) &&
+              skipParens(call.expression).kind === ts.SyntaxKind.NullKeyword &&
+              JSON.stringify(type) === JSON.stringify({ maybe: 'element' })
+            )
+              lower.expected.set(call, type);
             // A literal of a constant typed by the prop it is passed to
             // (`passedTypes`): that type.
             if (
@@ -4902,6 +4910,11 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
             // A function of a compatible type (fewer parameters, a result
             // where none is expected) is adapted to the prop's.
             let from = typeOf(e, v);
+            // (A function is what it was lowered as: an arrow whose body is
+            // an expression, `() => (open = !open)` for a `() => void`
+            // prop, discards its value where TypeScript types the result.)
+            const lowered = lower.irType(v, tb);
+            if (typeof lowered === 'object' && 'fn' in lowered) from = lowered;
             // A prop whose default is not lowered (no site leaves it
             // undefined) takes a nullable value only where TypeScript has
             // narrowed it to present (`{#if el}<Target to={el} />`).
@@ -5842,6 +5855,7 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
   };
   lower.widenRecords(ir);
   lower.checkStyleSpreads(ir);
+  lower.checkKeyOrders();
   // A bound optional prop the child writes: only present values (`some`),
   // which the parent's variable of the present type can hold.
   // A `bind:` setter passes on what its own child writes.

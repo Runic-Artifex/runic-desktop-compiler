@@ -4029,6 +4029,7 @@ export async function lowerReact(graph: Graph): Promise<Lowering> {
     root: rootIndex,
   };
   lower.checkStyleSpreads(ir);
+  lower.checkKeyOrders();
   const stripEventInstanceOf = (node: unknown) => {
     if (Array.isArray(node)) return node.forEach(stripEventInstanceOf);
     if (!node || typeof node !== 'object') return;

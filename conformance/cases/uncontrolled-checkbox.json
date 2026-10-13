@@ -1,0 +1,18 @@
+{
+  "description": "Svelte checkboxes and radio buttons without bind:checked or checked={…}: their checked state is the DOM's. A plain checkbox toggled by a click, by Space on the focused box and through its label; a checkbox with a static checked attribute; one whose onchange reads e.currentTarget.checked, toggled by click and Space, keeping its state across an unrelated update; two radio buttons of a group without bind:group, checked by click and arrow keys",
+  "fixtures": ["uncontrolled-checkbox-svelte"],
+  "actions": [
+    { "kind": "click", "id": "plain" },
+    { "kind": "press", "key": "Space" },
+    { "kind": "click", "id": "plain-label" },
+    { "kind": "click", "id": "preset" },
+    { "kind": "click", "id": "watched" },
+    { "kind": "click", "id": "other" },
+    { "kind": "focus", "id": "watched" },
+    { "kind": "press", "key": "Space" },
+    { "kind": "press", "key": "Space" },
+    { "kind": "click", "id": "small" },
+    { "kind": "press", "key": "ArrowDown" },
+    { "kind": "click", "id": "other" }
+  ]
+}
