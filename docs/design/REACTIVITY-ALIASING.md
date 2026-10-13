@@ -73,7 +73,7 @@ For every template expression of an accepted program: whenever the value it comp
 3. **R6/R7**: proxied props from raw sources, raw targets of Vue refs and untracked template reads (fixtures `prop-raw-svelte`, `raw-target-vue`, `untrack-template-svelte` as expected rejections). Done ([results](../../conformance/results/reactivity.md#step-3-raw-props-raw-ref-targets-and-untracked-template-reads-r6-r7)).
 4. **R3**: overlays in `runic_js::heap`, for the interpreter and generated code alike (cases `proxy-target`, `proxy-lazy`; `ownership`, `ownership-cycles` without its known gap). Done ([results](../../conformance/results/reactivity.md#step-4-proxies-as-overlays-r3)).
 5. **R5**: before-images for teardowns (case `teardown-proxy`). Done ([results](../../conformance/results/reactivity.md#step-5-teardowns-read-deep-state-as-before-the-flush-r5)).
-6. **R8**: aliases of deep state as proxies (case `alias-writes`).
+6. **R8**: aliases of deep state as proxies (case `alias-writes`). Done ([results](../../conformance/results/reactivity.md#step-6-writes-through-aliases-of-deep-state-r8)).
 7. React and Vue audit (below; case `staleness` for React).
 
 Each step runs the node and Rust tests, the differential on the affected fixtures, conformance with pixels on the new and the existing reactivity cases, and the example census where it can reject programs.

@@ -137,10 +137,34 @@ test('a Vue shallowRef mutated in place is rejected', async () => {
   );
 });
 
-test("writes through a constant holding a context's $state object stay rejected (gap R8)", async () => {
-  await assert.rejects(
-    lowered('fixtures/alias-writes-svelte'),
-    failWith('E_REACTIVITY', 'Writer.svelte', /ctx is mutated in place/),
+test("writes through a constant holding a context's $state object are writes through its proxy (R8)", async () => {
+  // The context's value comes through a module function's parameter and
+  // another's result (case alias-writes in Chromium).
+  const steps = interpret(
+    (await lowered('fixtures/alias-writes-svelte')).ir,
+    ['bump', 'add', 'bump', 'add', 'clear'].map(click),
+    {},
+  );
+  assert.equal(shown(steps[1], 'owner'), '1');
+  assert.equal(shown(steps[4], 'owner'), '2 1,2');
+  assert.equal(shown(steps[4], 'seen'), '2 2');
+  assert.equal(shown(steps[5], 'seen'), '2 0');
+  // A constant of a raw object mutated in place stays rejected.
+  await withApp(
+    'raw-const',
+    {
+      'App.svelte': `<script lang="ts">
+  const raw = { count: 0 };
+  const alias = raw;
+</script>
+<button onclick={() => (alias.count += 1)}>{alias.count}</button>
+`,
+    },
+    root =>
+      assert.rejects(
+        lowered(root),
+        failWith('E_REACTIVITY', 'App.svelte', /alias is mutated in place/),
+      ),
   );
 });
 

@@ -15,7 +15,7 @@ Adversarial fixtures, first run in Chromium and the reference interpreter
 |---|---|---|---|
 | `alias-reads` (Svelte) | every alias of the context's `$state` object updates | interpreter agrees; native: every reader but the owner stays 0 (7 elements) | fixed, step 1 |
 | `alias-vue` | every alias of a deep ref's proxy updates | interpreter agrees | covered by step 1 (deep refs) |
-| `alias-writes` (Svelte), writes through `const ctx = getContext(…)` | owner and readers update | `E_REACTIVITY` (`ctx is mutated in place`) | gap (R8) |
+| `alias-writes` (Svelte), writes through `const ctx = getContext(…)` | owner and readers update | `E_REACTIVITY` (`ctx is mutated in place`) | fixed, step 6 (R8) |
 | `proxy-target` | `$state(INITIAL)` leaves `INITIAL` untouched; a reset to it shows the original items; defaults and nested raw objects stay | interpreter (and native: same heap model) write through to the raw object | fixed, step 4 (R3) |
 | `proxy-lazy` | a raw write after the proxy read the property stays invisible | interpreter shows it at the next render | fixed, step 4 (R3) |
 | `effect-self` (Svelte) | effects writing what they read re-run: `len 5 \| … \| len 4 \| … \| len 3`, also through proxies; one writing back the value it read runs once more | cells re-run, proxies never (`len 5`, values `4 3 4`) | fixed, step 2 (R4) |
@@ -179,3 +179,18 @@ re-executes a derived value that depends on old values).
 - `tests/reactivity.test.mjs` checks the case in the interpreter;
   `npm test` 487/487, `cargo test --workspace` (182) pass. Native
   conformance and the differential: with step 6.
+
+## Step 6: writes through aliases of deep state (R8)
+
+The validator proves values proxies where every source is deep state:
+constants never set, `context.get` of keys every `context.set` of which
+stores one, results and parameters of functions every return and direct
+call of which give one (a fixpoint from none); writes through them are
+writes through the proxy.
+
+- `alias-writes`: lowers and passes (before: `E_REACTIVITY`, `ctx is
+  mutated in place`); a constant of a raw object mutated in place stays
+  rejected.
+- `tests/reactivity.test.mjs` checks the case in the interpreter and that a
+  constant of a raw object mutated in place stays rejected; `npm test`
+  487/487, `cargo test --workspace` (182) pass.

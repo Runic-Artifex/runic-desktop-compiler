@@ -1,7 +1,7 @@
 //! Structural, typing and resource validation for schema 5 programs.
 
 use crate::*;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 pub const MAX_NODES: usize = 4096;
 pub const MAX_CELLS: usize = 1024;
@@ -3561,6 +3561,22 @@ struct Mutations {
     /// (Vue refs): their raw in-place mutations change what a deep ref holds
     /// without going through its reactive proxy (R6).
     stored_deep: HashSet<Root>,
+    /// Values that are deep state proxies wherever they come from (R8,
+    /// `proxy_facts`): constants never set whose initial value is one,
+    /// functions every return of which is one, parameters every direct call
+    /// passes one, context keys every `context.set` of which stores one.
+    proxy_cells: HashSet<(usize, usize)>,
+    proxy_returns: HashSet<usize>,
+    proxy_params: HashSet<(usize, usize)>,
+    proxy_contexts: HashSet<String>,
+    /// What a walk saw for the next round of `proxy_facts`.
+    returns: HashMap<usize, Vec<Origin>>,
+    call_args: HashMap<(usize, usize), Vec<Origin>>,
+    context_values: HashMap<String, Vec<Origin>>,
+    /// Functions used as values (their parameters' sources are unknown).
+    escaped: HashSet<usize>,
+    /// Cells set anywhere (any tracking).
+    cell_writes: HashSet<(usize, usize)>,
 }
 
 /// The RegExp whose `lastIndex` a built-in may change (global and sticky
@@ -3804,8 +3820,19 @@ impl Origins<'_> {
                 Origin::Reactive
             }
             Expr::Cell { cell, .. } => match self.scope.component {
+                // (A constant holding deep state from elsewhere: R8.)
+                Some(k) if self.out.proxy_cells.contains(&(k, *cell)) => Origin::Reactive,
                 Some(k) => Origin::Root(Root::Cell(k, *cell)),
                 None => Origin::Unknown,
+            },
+            Expr::Call { function, .. } if self.out.proxy_returns.contains(function) => {
+                Origin::Reactive
+            }
+            Expr::Builtin { name, args, .. } if name == "context.get" => match args.first() {
+                Some(Expr::Lit {
+                    value: Value::String(k),
+                }) if self.out.proxy_contexts.contains(k) => Origin::Reactive,
+                _ => Origin::Unknown,
             },
             Expr::Global { global } => Origin::Root(Root::Global(*global)),
             Expr::Local { local } => bound
@@ -3940,6 +3967,39 @@ impl Origins<'_> {
     }
 
     fn expr(&mut self, e: &Expr) {
+        // What flows where, for `proxy_facts` (R8).
+        match e {
+            Expr::Call { function, args } => {
+                for (i, a) in args.iter().enumerate() {
+                    let o = self.origin(a);
+                    self.out
+                        .call_args
+                        .entry((*function, i))
+                        .or_default()
+                        .push(o);
+                }
+            }
+            Expr::Closure { function, .. } => {
+                self.out.escaped.insert(*function);
+            }
+            Expr::Builtin { name, args, .. } if name == "context.set" => {
+                if let (
+                    Some(Expr::Lit {
+                        value: Value::String(k),
+                    }),
+                    Some(v),
+                ) = (args.first(), args.get(1))
+                {
+                    let o = self.origin(v);
+                    self.out
+                        .context_values
+                        .entry(k.clone())
+                        .or_default()
+                        .push(o);
+                }
+            }
+            _ => {}
+        }
         if let Expr::Builtin { name, args, .. } = e {
             if let Some(re) = regexp_written(name, args) {
                 let o = self.origin(re);
@@ -4105,6 +4165,10 @@ impl Origins<'_> {
             Stmt::Return { value, .. } => {
                 if let Some(v) = value {
                     self.expr(v);
+                    if let Site::Function(f) = self.site {
+                        let o = self.origin(v);
+                        self.out.returns.entry(f).or_default().push(o);
+                    }
                 }
             }
             Stmt::If {
@@ -4163,6 +4227,9 @@ impl Origins<'_> {
     }
 
     fn written(&mut self, cell: usize) {
+        if let Some(k) = self.scope.component {
+            self.out.cell_writes.insert((k, cell));
+        }
         if let Some(k) = self.scope.component {
             if self.p.components[k].cells[cell].tracking == Tracking::None {
                 self.out.written.insert((k, cell));
@@ -4595,7 +4662,9 @@ fn stmt_source(s: &Stmt) -> Option<&Source> {
 /// such prop, a site leaving the prop to a default object, or an imperative
 /// mount makes it hold a raw object, whose mutation Svelte does not track.
 /// (A value of unknown origin, a function's result, is not told apart.)
-fn raw_capable_props(p: &Program) -> HashSet<(usize, usize)> {
+/// `facts`: the values known to be deep state proxies (R8), which a site
+/// passing them does not make raw.
+fn raw_capable_props(p: &Program, facts: &Mutations) -> HashSet<(usize, usize)> {
     let heap = crate::reactive::ReactiveHeap::of(p);
     let candidate = |k: usize, i: usize| {
         let c = &p.components[k].cells[i];
@@ -4723,7 +4792,13 @@ fn raw_capable_props(p: &Program) -> HashSet<(usize, usize)> {
     loop {
         let mut found = vec![];
         for (k, c) in p.components.iter().enumerate() {
-            let mut scratch = Mutations::default();
+            let mut scratch = Mutations {
+                proxy_cells: facts.proxy_cells.clone(),
+                proxy_returns: facts.proxy_returns.clone(),
+                proxy_params: facts.proxy_params.clone(),
+                proxy_contexts: facts.proxy_contexts.clone(),
+                ..Mutations::default()
+            };
             let mut scope = Scope::new(p, Some(k));
             scope.locals = c.template_locals.clone();
             let mut o = Origins {
@@ -4753,9 +4828,184 @@ fn raw_capable_props(p: &Program) -> HashSet<(usize, usize)> {
     }
 }
 
+/// Whether `o` is surely a proxy of deep state (R6, R8).
+fn proxy_origin(p: &Program, m: &Mutations, o: Origin) -> bool {
+    match o {
+        Origin::Reactive => true,
+        Origin::Root(Root::Cell(k, c)) => {
+            let cell = &p.components[k].cells[c];
+            cell.tracking == Tracking::Proxied
+                && (cell.prop.is_none() || !m.raw_props.contains(&(k, c)))
+        }
+        _ => false,
+    }
+}
+
+/// Walks every function (parameters bound from `m`'s facts), handler, cell
+/// initialiser and template expression of the program into `m`; `None`
+/// or the first in-place mutation of a read-only cell.
+fn walk_program(p: &Program, m: &mut Mutations) -> Option<Diagnostic> {
+    for (i, f) in p.functions.iter().enumerate() {
+        let mut scope = Scope::new(p, f.component);
+        scope.locals = f
+            .captures
+            .iter()
+            .chain(&f.params)
+            .chain(&f.locals)
+            .cloned()
+            .collect();
+        let mut locals = vec![Origin::Unknown; f.captures.len() + f.params.len()];
+        for j in 0..f.params.len() {
+            if m.proxy_params.contains(&(i, j)) {
+                locals[f.captures.len() + j] = Origin::Reactive;
+            }
+        }
+        let mut o = Origins {
+            p,
+            scope,
+            locals,
+            out: m,
+            source: f.source.clone(),
+            error: None,
+            site: Site::Function(i),
+        };
+        o.block(&f.body);
+        if let Some(d) = o.error {
+            return Some(d);
+        }
+    }
+    for (k, c) in p.components.iter().enumerate() {
+        for h in &c.handlers {
+            let mut scope = Scope::new(p, Some(k));
+            scope.locals = h.params.iter().chain(&h.locals).cloned().collect();
+            scope.payload = h.event.payload();
+            let mut o = Origins {
+                p,
+                scope,
+                locals: vec![],
+                out: m,
+                source: h.source.clone(),
+                error: None,
+                site: Site::Handler,
+            };
+            o.block(&h.body);
+            if let Some(d) = o.error {
+                return Some(d);
+            }
+        }
+        // Initialisers call functions too (`const ctx = getContext(…)`;
+        // what they write is checked where it is written, as handlers').
+        for cell in &c.cells {
+            let mut o = Origins {
+                p,
+                scope: Scope::new(p, Some(k)),
+                locals: vec![],
+                out: m,
+                source: cell.source.clone(),
+                error: None,
+                site: Site::Handler,
+            };
+            o.expr(&cell.init);
+        }
+        // Functions templates call have arguments of template scope, not
+        // followed here: their parameters' sources stay unknown.
+        let nodes = c.template_and_mounts();
+        let mut exprs = vec![];
+        template_exprs(&nodes, &mut exprs);
+        let mut calls = vec![];
+        for e in exprs {
+            direct_calls(e, &mut calls);
+        }
+        m.escaped.extend(calls);
+    }
+    None
+}
+
+/// The values that are deep state proxies wherever they flow (R8): a
+/// fixpoint from none, over constants, function results and parameters and
+/// context keys, each of a plain object or array type proxies wrap.
+fn proxy_facts(p: &Program, raw_props: &HashSet<(usize, usize)>) -> Mutations {
+    let heap = crate::reactive::ReactiveHeap::of(p);
+    let plain = |t: &Type| heap.is(p, t) && p.class_members(t).is_none();
+    let mut facts = Mutations::default();
+    loop {
+        let mut m = Mutations {
+            raw_props: raw_props.clone(),
+            proxy_cells: facts.proxy_cells.clone(),
+            proxy_returns: facts.proxy_returns.clone(),
+            proxy_params: facts.proxy_params.clone(),
+            proxy_contexts: facts.proxy_contexts.clone(),
+            ..Mutations::default()
+        };
+        if walk_program(p, &mut m).is_some() {
+            return facts;
+        }
+        let all = |os: &Vec<Origin>| !os.is_empty() && os.iter().all(|&o| proxy_origin(p, &m, o));
+        let mut next = Mutations::default();
+        for (i, f) in p.functions.iter().enumerate() {
+            if m.returns.get(&i).is_some_and(all) && plain(&f.result) {
+                next.proxy_returns.insert(i);
+            }
+            if m.escaped.contains(&i) {
+                continue;
+            }
+            for (j, param) in f.params.iter().enumerate() {
+                if m.call_args.get(&(i, j)).is_some_and(all) && plain(&param.ty) {
+                    next.proxy_params.insert((i, j));
+                }
+            }
+        }
+        for (k, values) in &m.context_values {
+            if all(values) {
+                next.proxy_contexts.insert(k.clone());
+            }
+        }
+        for (k, c) in p.components.iter().enumerate() {
+            for (i, cell) in c.cells.iter().enumerate() {
+                if cell.prop.is_none()
+                    && matches!(cell.tracking, Tracking::Identity | Tracking::None)
+                    && !m.cell_writes.contains(&(k, i))
+                    && plain(&cell.ty)
+                {
+                    let o = Origins {
+                        p,
+                        scope: Scope::new(p, Some(k)),
+                        locals: vec![],
+                        out: &mut m,
+                        source: None,
+                        error: None,
+                        site: Site::Template(k),
+                    };
+                    if proxy_origin(p, o.out, o.origin(&cell.init)) {
+                        next.proxy_cells.insert((k, i));
+                    }
+                }
+            }
+        }
+        let same = next.proxy_cells == facts.proxy_cells
+            && next.proxy_returns == facts.proxy_returns
+            && next.proxy_params == facts.proxy_params
+            && next.proxy_contexts == facts.proxy_contexts;
+        if same {
+            return facts;
+        }
+        facts = next;
+    }
+}
+
 fn untracked_template_reads(p: &Program) -> Result<()> {
+    // (Props that may be raw, then the proxy facts given them, then the
+    // props again given the facts: a constant of a proxy passed as a prop
+    // keeps it deep state.)
+    let raw_props = raw_capable_props(p, &Mutations::default());
+    let facts = proxy_facts(p, &raw_props);
+    let raw_props = raw_capable_props(p, &facts);
     let mut m = Mutations {
-        raw_props: raw_capable_props(p),
+        raw_props,
+        proxy_cells: facts.proxy_cells,
+        proxy_returns: facts.proxy_returns,
+        proxy_params: facts.proxy_params,
+        proxy_contexts: facts.proxy_contexts,
         ..Mutations::default()
     };
     // What deep refs start with: a root whose value one holds shares it.
@@ -4775,48 +5025,8 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
             }
         }
     }
-    for (i, f) in p.functions.iter().enumerate() {
-        let mut scope = Scope::new(p, f.component);
-        scope.locals = f
-            .captures
-            .iter()
-            .chain(&f.params)
-            .chain(&f.locals)
-            .cloned()
-            .collect();
-        let mut o = Origins {
-            p,
-            scope,
-            locals: vec![],
-            out: &mut m,
-            source: f.source.clone(),
-            error: None,
-            site: Site::Function(i),
-        };
-        o.block(&f.body);
-        if let Some(d) = o.error {
-            return Err(d);
-        }
-    }
-    for (k, c) in p.components.iter().enumerate() {
-        for h in &c.handlers {
-            let mut scope = Scope::new(p, Some(k));
-            scope.locals = h.params.iter().chain(&h.locals).cloned().collect();
-            scope.payload = h.event.payload();
-            let mut o = Origins {
-                p,
-                scope,
-                locals: vec![],
-                out: &mut m,
-                source: h.source.clone(),
-                error: None,
-                site: Site::Handler,
-            };
-            o.block(&h.body);
-            if let Some(d) = o.error {
-                return Err(d);
-            }
-        }
+    if let Some(d) = walk_program(p, &mut m) {
+        return Err(d);
     }
     unsafe_mutations(p, &mut m)?;
     // Untracked reads while rendering (docs/design/REACTIVITY-ALIASING.md,
