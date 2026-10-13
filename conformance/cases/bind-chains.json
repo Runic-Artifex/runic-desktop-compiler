@@ -1,0 +1,23 @@
+{
+  "description": "bind:value through wrapper chains in the shapes of shadcn-svelte's Slider and DropdownMenu.RadioGroup over bits-ui (fixture bind-chain-svelte): number arrays of the present type bound to a wrapper's `value = $bindable()` without a default, bound on (`as never`) to a component that writes it only through a svelte-toolbelt box setter called with present values; a string bound to a wrapper's `value = $bindable()` bound on to a component's `value = $bindable(\"\")`, and a second site passing a literal. The thumbs are moved by their buttons (clamped at the maximum and at 0), the range is reset and narrowed from outside, the radio choice is changed by its items and from outside, and the unbound site's choice changes locally",
+  "fixtures": ["bind-chain-svelte"],
+  "viewports": [[800, 600], [420, 600]],
+  "actions": [
+    { "kind": "click", "id": "range-up-0" },
+    { "kind": "click", "id": "range-up-1" },
+    { "kind": "click", "id": "range-up-1" },
+    { "kind": "click", "id": "range-up-1" },
+    { "kind": "click", "id": "range-up-1" },
+    { "kind": "click", "id": "range-up-1" },
+    { "kind": "click", "id": "range-down-0" },
+    { "kind": "click", "id": "range-reset" },
+    { "kind": "click", "id": "range-down-0" },
+    { "kind": "click", "id": "range-narrow" },
+    { "kind": "click", "id": "range-up-0" },
+    { "kind": "click", "id": "position-right" },
+    { "kind": "click", "id": "outside-top" },
+    { "kind": "click", "id": "position-bottom" },
+    { "kind": "click", "id": "position-bottom" },
+    { "kind": "click", "id": "fixed-left" }
+  ]
+}
