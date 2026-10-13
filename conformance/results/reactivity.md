@@ -28,6 +28,8 @@ Adversarial fixtures, first run in Chromium and the reference interpreter
 | `shallow-vue` | a `shallowRef` mutated in place shows at the next render | rejected (`E_REACTIVITY`) | expected rejection |
 | `collections-vue` | Maps, Sets and arrays a deep ref holds are reactive, nested too | interpreter agrees | regression case |
 | `keyed-replace`, `derived-arrays`, `shared-state` (Svelte) | keyed blocks keep child state when an item is replaced; derived values over arrays changed in place; module state shared by instances | interpreter agrees | regression cases |
+| `deep-tracking` (Svelte), after step 4 | an effect reading `items[0].done` runs again when the item is toggled | the proxy of `items[0]`, made by the effect's first read, was no dependency of it (R3 with R4) | fixed |
+| `alias-writes-vue` | writes through a constant, a parameter and a result holding a ref's contents update its readers | `E_REACTIVITY` (`alias is mutated in place`) | fixed (R8 for Vue) |
 | `staleness` (React) | immutable updates, effects keeping their render's props, a mount timeout reading the mount's state, bail-out on equal state, value updates vs updaters | interpreter agrees | regression case |
 
 ## Step 1: reads through aliases (R1/R2)
@@ -161,7 +163,7 @@ reported (`RunicUnsupportedError`, the interpreter `E_UNSUPPORTED`).
 - `tests/reactivity.test.mjs` checks both cases in the interpreter and the
   report of an array changed in place under its proxy; `npm test` 486/486,
   `cargo test --workspace` (181) pass after rebasing onto main 092e1ca.
-  Native conformance and the differential: with steps 5 and 6 (step 6).
+  Native conformance and the differential: [final verification](#final-verification).
 
 ## Step 5: teardowns read deep state as before the flush (R5)
 
@@ -178,7 +180,7 @@ re-executes a derived value that depends on old values).
   derived value's cache, `d0` throughout).
 - `tests/reactivity.test.mjs` checks the case in the interpreter;
   `npm test` 487/487, `cargo test --workspace` (182) pass. Native
-  conformance and the differential: with step 6.
+  conformance and the differential: [final verification](#final-verification).
 
 ## Step 6: writes through aliases of deep state (R8)
 
@@ -194,3 +196,66 @@ writes through the proxy.
 - `tests/reactivity.test.mjs` checks the case in the interpreter and that a
   constant of a raw object mutated in place stays rejected; `npm test`
   487/487, `cargo test --workspace` (182) pass.
+
+## Lazy proxies an effect takes are its dependencies
+
+The first native run of steps 4–6 (`artifacts/reactivity/final`, stopped
+after 38 runs, 34 passing) failed case `deep-tracking` (Svelte) at both
+viewports: the effect reading `items[0].done` did not run again when the
+item was toggled (Chromium logs `first true`; native and the interpreter
+nothing). Its first
+run made the proxy of `items[0]` at the element's first access (R3), and
+R4's rule that objects a run created are not its dependencies dropped the
+read. Svelte creates a proxy's lazy sources in the reaction that created
+the proxy (`with_parent` in `proxy.js`); a proxy made while another takes a
+slot now counts as created with that one. The same run failed case
+`alias-writes` on two text expectations only (`1` where the owner shows
+`1 `, its items empty: Chromium and native agree); the expectations now
+hold the space.
+
+## R8 for Vue: writes through aliases of a ref's contents
+
+What a Vue deep ref holds is its reactive proxy, so writes through a
+constant, a function's parameter or its result holding it are tracked
+(case `alias-writes-vue` in Chromium: owner and alias update; after the ref
+is given a new object the constant keeps the old one, whose writes update
+its own readers only). They were rejected (`E_REACTIVITY`, `alias is
+mutated in place`); R8's proof now counts a `deep` cell that is not a prop
+as a proxy source. A raw object a ref holds and changed through another
+reference stays rejected (R6). Vue refs in plain modules (a `.ts` module
+importing `vue`, state shared by components) are `E_DEPENDENCY`: a gap
+row.
+
+## Final verification
+
+On the branch rebased onto main 092e1ca, with every step:
+
+- Conformance with pixels at 800x600 and 420x600 (98 runs,
+  `artifacts/reactivity/final2`): `deep-tracking`, `alias-writes`,
+  `alias-writes-vue`, `proxy-target`, `proxy-lazy`, `teardown-proxy`,
+  `ownership`, `ownership-cycles` (without its known gap), `alias-reads`,
+  `alias-vue`, `symbol-context`, `effect-self`, `push-effect`, `effects`,
+  `effect-root`, `effect-order`, `derived-timing`, `derived-equality`,
+  `reactive-classes`, `class-hierarchy`, `unions`, `dyn-values`,
+  `bind-chains`, `id-counter`, `keyed-replace`, `derived-arrays`,
+  `shared-state`, `collections-vue`, `staleness`, `todomvc`, `7guis-crud`,
+  `7guis-cells`, `bits-dialog`, `bits-select`, `bits-tooltip`,
+  `bits-dropdown-menu`, `portal`: all 98 pass.
+- Differential (interpreter vs native, 20 traces x 25 actions):
+  `deep-tracking-svelte`, `proxy-target-svelte`, `proxy-lazy-svelte`,
+  `teardown-proxy-svelte`, `alias-writes-svelte`, `alias-writes-vue`,
+  `ownership-svelte`, `alias-reads-svelte`, `symbol-context-svelte`,
+  `effect-self-svelte`, `reactive-class-svelte`: 5720 steps, complete, no
+  failure.
+- `npm test` 489/489, `cargo test --workspace` (182) pass.
+- Example census: 404 examples, the same 280 lowered with the same first
+  blockers as main's latest census (`artifacts/script-dom/census-2`), after
+  steps 4–6 (`census-4`) and after the two fixes (`census-5`): nothing
+  gained, nothing lost.
+
+Rebased again onto main f9aaada (script DOM slice 2, defaulted parameters,
+package constants): `npm test` 506/506 and `cargo test --workspace` (183)
+pass, and conformance with pixels passes all 24 runs of `deep-tracking`,
+`proxy-target`, `proxy-lazy`, `teardown-proxy`, `alias-writes`,
+`alias-writes-vue`, `effect-self`, `push-effect`, `ownership-cycles`,
+`script-dom-announcer` and `script-dom-nodes` (`artifacts/reactivity/rebase2`).
