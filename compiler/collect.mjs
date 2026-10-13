@@ -114,6 +114,10 @@ const EQUIVALENT_DROPPED_PROPERTY = new Set([
   '-webkit-text-decoration',
   '-webkit-backdrop-filter',
 ]);
+// The controls `field-sizing: content` sizes in Chromium 153 that Blitz does
+// not size as it does (see checkWithStylo).
+const FIELD_SIZING_UNSUPPORTED =
+  'select, input[type=search i], input[type=number i], input[type=password i], input[type=file i]';
 // Font smoothing values asking for what the renderers always do: grayscale
 // antialiasing. Both of Blitz's renderers fill glyph outlines as paths with
 // one coverage value per pixel and have no subpixel (LCD) path (vello_cpu
@@ -882,6 +886,33 @@ function checkWithStylo(code, file, pending) {
     guards.push({
       selector: selectors.flatMap(s => [`${s}:is(textarea)`, `${s} textarea`]).join(', '),
       message: `the CSS declaration ${d.prop}: ${d.value} (${file}, line ${d.source.start.line}) applies to a text area through ${rule}, and Blitz does not ${verb} the text of a text area`,
+    });
+  }
+  // Blitz sizes text areas and text, email, tel and url inputs by their
+  // content as Chromium 153 does (`field-sizing: content`, in the Stylo and
+  // Blitz forks); the other controls it applies to in Chromium are reported
+  // where the rule matches one: a select, a search input (Chromium sizes its
+  // cancel button in), a number input (its spin button), a password input
+  // (Blitz's masking is not verified against Chromium's) and a file input.
+  // The property is not inherited, except through `inherit`. It does not
+  // apply to pseudo-elements.
+  for (const d of decls.filter(
+    d =>
+      !invalid.has(d) &&
+      d.prop === 'field-sizing' &&
+      ['content', 'inherit'].some(k => possibleKeywords(d.value, customValues).has(k)),
+  )) {
+    const selectors = d.parent?.type === 'rule' ? fullSelectors(d.parent) : [];
+    if (
+      !selectors.length ||
+      selectors.some(x => /::|:(before|after|first-line|first-letter)\b/i.test(x))
+    )
+      continue;
+    const unless = overriding(d);
+    guards.push({
+      selector: selectors.map(s => `${s}:is(${FIELD_SIZING_UNSUPPORTED})`).join(', '),
+      ...(unless ? { unless } : {}),
+      message: `the CSS declaration ${d.prop}: ${d.value} (${file}, line ${d.source.start.line}) applies to a select, search, number, password or file input through ${selectors.join(', ')}, and Blitz does not size that control by its content as Chromium does`,
     });
   }
   for (const d of reported) {

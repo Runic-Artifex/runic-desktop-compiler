@@ -112,7 +112,7 @@ mod tests {
 
     #[test]
     fn reports_dropped_rules_and_declarations() {
-        let css = ".a { color: red }\n.b::-webkit-scrollbar { display: none }\n@starting-style { .c { color: red } }\n.d:has(> svg) { color: red }\n.e { field-sizing: content }\n@container card (width > 1px) { .f { color: red } }\n";
+        let css = ".a { color: red }\n.b::-webkit-scrollbar { display: none }\n@starting-style { .c { color: red } }\n.d:has(> svg) { color: red }\n.e { line-clamp: 2 }\n@container card (width > 1px) { .f { color: red } }\n";
         let found = dropped(css);
         let lines: Vec<u32> = found.iter().map(|d| d.line).collect();
         assert!(lines.contains(&2), "{found:?}");
@@ -126,7 +126,9 @@ mod tests {
             "-webkit-tap-highlight-color",
             "transparent"
         ));
-        assert!(!declaration_parses("field-sizing", "content"));
+        assert!(!declaration_parses("line-clamp", "2"));
+        // Parsed in servo builds by the Stylo fork.
+        assert!(declaration_parses("field-sizing", "content"));
         assert!(declaration_parses("--tw-ring", ""));
     }
 
