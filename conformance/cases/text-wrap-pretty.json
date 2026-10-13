@@ -1,0 +1,17 @@
+{
+  "description": "text-wrap: pretty as Chromium 153 lays it out (Blink's LineBreakStrategy: the score line breaker on the last four lines of each paragraph whose greedy last line is a single word shorter than a third of the width): a centred heading, a long paragraph (only its end rebroken), one line (unchanged), justified text (no line penalty), a text-indent, forced breaks (pre-line: each paragraph on its own), preserved spaces (pre-wrap), bold, larger and bordered inline elements, the text-wrap-style longhand with letter spacing, a long last line in a narrow box (greedy), a pretty span in a greedy paragraph (ignored: the block container decides), and text and class changed at run time, then scrolled so that every paragraph is on screen in some step. Chromium breaks 7 of the 12 pretty paragraphs differently from greedy wrapping at 420px and 7 at 800px. The last word of each paragraph has an id, so geometry checks where the lines break",
+  "fixtures": ["text-wrap-pretty-svelte"],
+  "viewports": [
+    [800, 600],
+    [420, 600]
+  ],
+  "pixelRegions": ["heading", "fox", "long", "one", "justify", "indent", "forced", "preserved", "inline", "longhand", "narrow", "span-only", "dynamic"],
+  "actions": [
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "scrollIntoView", "id": "indent", "block": "start" },
+    { "kind": "scrollIntoView", "id": "dynamic", "block": "end" }
+  ]
+}

@@ -248,11 +248,10 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
       ['.b', 'none'],
     ],
   );
-  // Blitz breaks lines as Chromium 153 does for `balance` and `stable`
-  // (greedy, as `auto`): no guard, except that a balancing rule is reported
-  // where it reaches a text area, whose text Blitz does not balance.
-  // `pretty` (which Stylo drops) is reported where it applies, also through
-  // a var().
+  // Blitz breaks lines as Chromium 153 does for `balance`, `pretty` and
+  // `stable` (greedy, as `auto`): no guard, except that a balancing or pretty
+  // rule is reported where it reaches a text area, whose text Blitz breaks
+  // greedily, also through a var().
   assert.deepEqual(
     (
       (await guards(
@@ -282,20 +281,32 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
       )
     ).map(g => [
       g.selector,
-      /\(s\.css, line (\d)\), which (.*), applies/.exec(g.message)?.slice(1),
+      /\(s\.css, line (\d)\) applies to a text area through .*, and (.*)$/
+        .exec(g.message)
+        ?.slice(1),
     ]),
     [
-      ['.a', ['1', "Blitz's style engine (Stylo) does not support"]],
-      ['.e', ['4', "Blitz's style engine (Stylo) does not support"]],
-      ['.d', ['3', 'Blitz does not lay out as Chromium does']],
+      [
+        '.a:is(textarea), .a textarea',
+        ['1', 'Blitz does not lay out text-wrap: pretty in the text of a text area'],
+      ],
+      [
+        '.d:is(textarea), .d textarea',
+        ['3', 'Blitz does not lay out text-wrap: pretty in the text of a text area'],
+      ],
+      [
+        '.e:is(textarea), .e textarea',
+        ['4', 'Blitz does not lay out text-wrap: pretty in the text of a text area'],
+      ],
     ],
   );
-  await check('p { color: red }\np::before { text-wrap: pretty }', 'E_CSS_PROPERTY', 2);
   await check(
     'p { color: red }\ntextarea::placeholder { text-wrap: balance }',
     'E_CSS_PROPERTY',
     2,
   );
+  await check('textarea::placeholder { text-wrap-style: pretty }', 'E_CSS_PROPERTY', 1);
+  await check('p::before { text-wrap: pretty }', undefined);
   await check('p::before { text-wrap: balance; text-wrap-style: stable }', undefined);
   // Not where a later rule of at least its specificity sets the property
   // (`unless`); the legacy box's clamping and orientation not where its

@@ -855,25 +855,23 @@ function checkWithStylo(code, file, pending) {
     return later.length ? later.map(r => fullSelectors(r).join(', ')).join(', ') : undefined;
   };
   // Blitz breaks lines as Chromium 153 does for `text-wrap-style: auto`,
-  // `stable` (greedy in both) and `balance` (Blink's balancing, in the Blitz and
-  // Parley forks), except in a text area, whose text Chromium balances too and
-  // Blitz's text editor does not: balance is reported where a text area
-  // matches the rule or is inside an element that does (the property is
-  // inherited). `pretty` is reported as Stylo's drops are; Stylo drops it, but
-  // not through a `var()`.
+  // `stable` (greedy in both), `balance` and `pretty` (Blink's score line
+  // breaker, in the Blitz and Parley forks), except in a text area, whose text
+  // Chromium breaks so too and Blitz's text editor does not: balance and pretty
+  // are reported where a text area matches the rule or is inside an element
+  // that does (the property is inherited).
   const textWrap = (d, keyword) =>
     /^text-wrap(-style)?$/.test(d.prop) && possibleKeywords(d.value, customValues).has(keyword);
-  const reported = [
-    ...result.invalid.map(i => decls[i]),
-    ...decls.filter(d => !invalid.has(d) && textWrap(d, 'pretty')),
-  ];
-  for (const d of decls.filter(d => !invalid.has(d) && textWrap(d, 'balance'))) {
+  const reported = result.invalid.map(i => decls[i]);
+  const scored = d => !invalid.has(d) && (textWrap(d, 'balance') || textWrap(d, 'pretty'));
+  for (const d of decls.filter(scored)) {
+    const verb = textWrap(d, 'balance') ? 'balance' : 'lay out text-wrap: pretty in';
     const selectors = d.parent?.type === 'rule' ? fullSelectors(d.parent) : [];
     const rule = selectors.join(', ');
     if (selectors.some(x => /::placeholder\b/i.test(x)))
       throw new Diagnostic(
         'E_CSS_PROPERTY',
-        `Unsupported CSS declaration ${d.prop}: ${d.value} (in ${d.parent.selector}): Blitz does not balance the text of a text area`,
+        `Unsupported CSS declaration ${d.prop}: ${d.value} (in ${d.parent.selector}): Blitz does not ${verb} the text of a text area`,
         at(d.source.start.line, d.source.start.column),
       );
     if (
@@ -883,7 +881,7 @@ function checkWithStylo(code, file, pending) {
       continue;
     guards.push({
       selector: selectors.flatMap(s => [`${s}:is(textarea)`, `${s} textarea`]).join(', '),
-      message: `the CSS declaration ${d.prop}: ${d.value} (${file}, line ${d.source.start.line}) applies to a text area through ${rule}, and Blitz does not balance the text of a text area`,
+      message: `the CSS declaration ${d.prop}: ${d.value} (${file}, line ${d.source.start.line}) applies to a text area through ${rule}, and Blitz does not ${verb} the text of a text area`,
     });
   }
   for (const d of reported) {
