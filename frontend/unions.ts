@@ -753,7 +753,24 @@ export class Unions {
           : undefined;
     const sf = decl.getSourceFile();
     if (!key || this.propsPattern(sf)?.byKey.get(key) !== decl) return false;
-    if (!decl.initializer && this.mayBeAbsent(sf, key, 0)) return false;
+    // (A default replaces an absent value, unless it may be null or
+    // undefined itself: `label = undefined`, `$bindable()`, whose values the
+    // trace below holds nothing for.)
+    if (this.mayBeAbsent(sf, key, 0)) {
+      const given = decl.initializer && defaultOf(decl.initializer);
+      const x = given && skipAll(given);
+      if (
+        !x ||
+        (ts.isCallExpression(x) && x.expression.getText() === '$bindable') ||
+        (() => {
+          const t = this.checker.getTypeAtLocation(x);
+          return (t.isUnion() ? t.types : [t]).some(
+            p => p.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Null | ts.TypeFlags.Void),
+          );
+        })()
+      )
+        return false;
+    }
     // (A value the trace does not follow, such as an `{#each}` item's
     // field: its TypeScript type, which the IR types it by.)
     this.typedLeaves = true;

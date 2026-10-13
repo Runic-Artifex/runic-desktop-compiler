@@ -236,3 +236,56 @@ test('a value typed only by a class the program does not reach is rejected, nami
       ),
   );
 });
+
+test('a prop default that is undefined keeps the prop optional in a discriminated member', async () => {
+  await withApp(
+    {
+      'Picker.svelte': `<script lang="ts">
+  type Props =
+    | { type: 'single'; id: string; min?: number; label?: string }
+    | { type: 'multiple'; id: string; min?: number; label?: string };
+  let { id, type, min = undefined, label = $bindable(undefined) }: Props = $props();
+</script>
+<p {id}>{type} {min === undefined ? 'no min' : \`min \${min}\`} {label ?? 'no label'}</p>
+`,
+      'App.svelte': `<script lang="ts">
+  import Picker from './Picker.svelte';
+</script>
+<Picker id="a" type="single" />
+<Picker id="b" type="single" min={3} label="x" />
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const [step] = interpret(ir, []);
+      assert.equal(shown(step, 'a'), 'single no min no label');
+      assert.equal(shown(step, 'b'), 'single min 3 x');
+    },
+  );
+});
+
+// (`x ?? y` of a prop that is present wherever it has a value: the value,
+// unless a site leaves it out and its default is undefined itself.)
+test('a prop whose default is undefined stays nullish where a site leaves it out', async () => {
+  await withApp(
+    {
+      'Label.svelte': `<script lang="ts">
+  let { id, label = undefined, title = $bindable() }: { id: string; label?: string; title?: string } = $props();
+</script>
+<p {id}>{label ?? 'no label'} {title ?? 'no title'}</p>
+`,
+      'App.svelte': `<script lang="ts">
+  import Label from './Label.svelte';
+</script>
+<Label id="a" />
+<Label id="b" label="x" title="y" />
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const [step] = interpret(ir, []);
+      assert.equal(shown(step, 'a'), 'no label no title');
+      assert.equal(shown(step, 'b'), 'x y');
+    },
+  );
+});
