@@ -43,6 +43,9 @@ pub struct EventData {
     pub cancelable: bool,
     /// A `MediaQueryList` change event: whether the query matches now.
     pub matches: bool,
+    /// A `MediaQueryList` change event (its target is the list, not an
+    /// element handle).
+    pub media: bool,
     /// Created by script (`new CustomEvent(type, { cancelable })`, M6
     /// overlays): only its type, cancellation and propagation are covered
     /// (dispatched by script with `dispatchEvent` where its type is not a
@@ -181,6 +184,12 @@ impl Event {
             .get()
             .then(|| Element(self.0.current.get()))
     }
+    /// `composedPath()[0]`: the first entry of the event's path, which is
+    /// the target where there are no shadow roots (the runtime has none);
+    /// none once the dispatch is over (the path is cleared, `[]`).
+    pub fn path_target(&self) -> Option<Element> {
+        self.0.dispatching.get().then_some(self.0.data.target)
+    }
     /// Whether a listener can run, without changing the current target or
     /// starting a task/checkpoint for a suppressed callback.
     pub fn can_enter(&self, current: Element) -> bool {
@@ -297,5 +306,21 @@ mod submission_tests {
         event.finish();
         assert!(held.default_prevented());
         assert_eq!(held.current_target(), None);
+    }
+
+    /// `composedPath()[0]`: the target during the dispatch, also while a
+    /// listener on an ancestor runs; nothing once it is over.
+    #[test]
+    fn path_target_is_the_target_while_dispatching() {
+        let event = Event::new(EventData {
+            kind: JsString::from("pointerdown"),
+            target: Element(7),
+            ..Default::default()
+        });
+        assert_eq!(event.path_target(), Some(Element(7)));
+        assert!(event.enter(Element(3)));
+        assert_eq!(event.path_target(), Some(Element(7)));
+        event.finish();
+        assert_eq!(event.path_target(), None);
     }
 }

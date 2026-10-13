@@ -2215,6 +2215,9 @@ impl<'p> Machine<'p> {
         let nums = |from: usize| a[from..].iter().map(Val::num).collect::<Vec<_>>();
         let (ns, method) = name.split_once('.').unwrap_or(("", name));
         let v = match (ns, method) {
+            ("Math", "min-of") => Val::Num(js::math::min_of(&a[0].array())),
+            ("Math", "max-of") => Val::Num(js::math::max_of(&a[0].array())),
+            ("Math", "hypot-of") => Val::Num(js::math::hypot_of(&a[0].array())),
             ("Math", m) => Val::Num(math(m, &nums(0))),
             ("Number", "MAX_SAFE_INTEGER") => Val::Num(9007199254740991.0),
             ("Number", "MIN_SAFE_INTEGER") => Val::Num(-9007199254740991.0),
@@ -3786,6 +3789,15 @@ impl<'p> Machine<'p> {
                     "target" => Val::Element(d.target),
                     "relatedTarget" => d.related.map_or(Val::Null, Val::Element),
                     "currentTarget" => e.current_target().map_or(Val::Null, Val::Element),
+                    "path-target" => {
+                        if d.media {
+                            return Err(Throw::new(
+                                "RunicUnsupportedError",
+                                "composedPath() of a MediaQueryList change event",
+                            ));
+                        }
+                        e.path_target().map_or(Val::Undefined, Val::Element)
+                    }
                     "preventDefault" => {
                         e.prevent_default();
                         Val::Undefined
@@ -6636,6 +6648,7 @@ impl<'p> Machine<'p> {
             let event = js::Event::new(js::EventData {
                 kind: "change".into(),
                 matches,
+                media: true,
                 ..Default::default()
             });
             let listeners = self

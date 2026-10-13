@@ -1022,6 +1022,25 @@ pub mod math {
         xs.iter()
             .fold(f64::NEG_INFINITY, |acc, &x| super::max(acc, x))
     }
+    /// The arguments of a call spreading an array (`Math.min(...xs)`):
+    /// ToNumber of each element, in order. The elements are primitives or
+    /// dates (the IR catalogue), whose conversion has no side effects, so
+    /// converting all before comparing is the specification's order.
+    fn arguments<T: crate::ToNumber>(xs: &crate::JsArray<T>) -> Vec<f64> {
+        xs.borrow().iter().map(crate::ToNumber::to_number).collect()
+    }
+    /// `Math.min(...xs)`: +Infinity for an empty array.
+    pub fn min_of<T: crate::ToNumber>(xs: &crate::JsArray<T>) -> f64 {
+        min(&arguments(xs))
+    }
+    /// `Math.max(...xs)`: -Infinity for an empty array.
+    pub fn max_of<T: crate::ToNumber>(xs: &crate::JsArray<T>) -> f64 {
+        max(&arguments(xs))
+    }
+    /// `Math.hypot(...xs)`: +0 for an empty array.
+    pub fn hypot_of<T: crate::ToNumber>(xs: &crate::JsArray<T>) -> f64 {
+        hypot(&arguments(xs))
+    }
     pub fn pow(a: f64, b: f64) -> f64 {
         super::pow(a, b)
     }
