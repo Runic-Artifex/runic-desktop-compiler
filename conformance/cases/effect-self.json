@@ -1,0 +1,42 @@
+{
+  "description": "Svelte effects that write what they read run again, for cells and for proxies alike, in passes (docs/design/REACTIVITY-ALIASING.md, R4); one writing back the value it read runs once more and stops (a write of an equal value changes nothing). Before R4, natively an effect ran again only for cells written after its read. (The Vue fixture, whose watchEffect does not re-run for its own writes, is an expected rejection: tests/reactivity.test.mjs.)",
+  "fixtures": [
+    "effect-self-svelte"
+  ],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "dump"
+    },
+    {
+      "kind": "click",
+      "id": "grow"
+    },
+    {
+      "kind": "click",
+      "id": "dump"
+    }
+  ],
+  "expectedText": [
+    {
+      "step": 0,
+      "id": "values",
+      "text": "3 3 3 1 1"
+    },
+    {
+      "step": 1,
+      "id": "log",
+      "text": "len 5 | count 5 | box 5 | mirror 0 0 | len 4 | count 4 | box 4 | mirror 1 1 | len 3 | count 3 | box 3"
+    },
+    {
+      "step": 2,
+      "id": "values",
+      "text": "3 3 3 2 2"
+    },
+    {
+      "step": 3,
+      "id": "log",
+      "text": "len 5 | count 6 | box 6 | mirror 1 1 | len 4 | count 5 | box 5 | mirror 2 2 | len 3 | count 4 | box 4 | count 3 | box 3"
+    }
+  ]
+}

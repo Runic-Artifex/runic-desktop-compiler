@@ -90,6 +90,11 @@ fn array_index(i: f64) -> Option<usize> {
     }
 }
 
+/// The array index a number names, if it is one (see [`set`]).
+pub fn element_index(i: f64) -> Option<usize> {
+    array_index(i)
+}
+
 /// HasProperty + Get of index `k` on a dense array, copying the element so no
 /// borrow is held while a callback runs.
 fn element<T: Clone>(a: &JsArray<T>, k: usize) -> Option<T> {

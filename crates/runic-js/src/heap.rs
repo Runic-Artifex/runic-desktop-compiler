@@ -20,9 +20,19 @@ thread_local! {
     /// A reactive class field changed, or deep state through a proxy, since
     /// [`take_signal_writes`].
     static SIGNAL_WRITES: Cell<bool> = const { Cell::new(false) };
+    /// The stamp of the last heap write: every write stamps the slots it
+    /// writes with a new one, so a reader can tell whether a slot was
+    /// written after a point in time (an effect's own writes, R4 of
+    /// docs/design/REACTIVITY-ALIASING.md).
+    static STAMP: Cell<u64> = const { Cell::new(0) };
 }
 
-/// Write counters of one heap object (shared by its proxies), for all writes
+/// The stamp of the last heap write (see [`HeapRead::written_since`]).
+pub fn heap_stamp() -> u64 {
+    STAMP.with(Cell::get)
+}
+
+/// Write stamps of one heap object (shared by its proxies), for all writes
 /// and for writes through proxies (`[all, owned]`). A slot is a record field
 /// or, for arrays, the length (slot 0) or element `i` (slot `i + 1`).
 #[derive(Default)]
@@ -31,9 +41,9 @@ struct Counts {
     reactive: Cell<bool>,
     /// When the object was created (see [`HeapFrame`]).
     born: u64,
-    /// Every write.
+    /// The last write.
     any: [Cell<u64>; 2],
-    /// Writes of the whole object (all slots).
+    /// The last write of the whole object (all slots).
     whole: [Cell<u64>; 2],
     slots: [RefCell<Vec<u64>>; 2],
 }
@@ -46,18 +56,22 @@ impl Counts {
             .copied()
             .unwrap_or(0)
     }
-    /// The counts a read of `slot` (`None`: the whole object) depends on.
+    /// The stamps a read of `slot` (`None`: the whole object) depends on.
     fn seen(&self, side: usize, slot: Option<u32>) -> (u64, u64) {
         match slot {
             None => (self.any[side].get(), 0),
             Some(s) => (self.whole[side].get(), self.slot(side, s)),
         }
     }
-    fn write(&self, side: usize, slots: Option<&[u32]>) {
-        let bump = |c: &Cell<u64>| c.set(c.get() + 1);
-        bump(&self.any[side]);
+    /// Whether what a read of `slot` depends on was written after `stamp`.
+    fn written_since(&self, side: usize, slot: Option<u32>, stamp: u64) -> bool {
+        let (a, b) = self.seen(side, slot);
+        a > stamp || b > stamp
+    }
+    fn write(&self, side: usize, slots: Option<&[u32]>, stamp: u64) {
+        self.any[side].set(stamp);
         match slots {
-            None => bump(&self.whole[side]),
+            None => self.whole[side].set(stamp),
             Some(slots) => {
                 let mut v = self.slots[side].borrow_mut();
                 for &s in slots {
@@ -65,11 +79,19 @@ impl Counts {
                     if v.len() <= s {
                         v.resize(s + 1, 0);
                     }
-                    v[s] += 1;
+                    v[s] = stamp;
                 }
             }
         }
     }
+}
+
+/// A new write stamp.
+fn next_stamp() -> u64 {
+    STAMP.with(|s| {
+        s.set(s.get() + 1);
+        s.get()
+    })
 }
 
 struct Storage<T> {
@@ -91,6 +113,12 @@ pub struct HeapRead {
 impl HeapRead {
     pub fn changed(&self) -> bool {
         self.storage.seen(usize::from(self.owned), self.slot) != self.seen
+    }
+    /// Whether the slot read was written after `stamp` (see [`heap_stamp`]):
+    /// by the reader itself when `stamp` is taken as it starts.
+    pub fn written_since(&self, stamp: u64) -> bool {
+        self.storage
+            .written_since(usize::from(self.owned), self.slot, stamp)
     }
 }
 
@@ -189,8 +217,10 @@ impl<T> JsRef<T> {
     fn record_read(&self, slot: Option<u32>) {
         HEAP_READS.with(|t| {
             if let Some(frame) = &mut *t.borrow_mut() {
+                // Through proxies (Svelte), the signals of a proxy the
+                // running computation created are not its dependencies.
                 let tracked = if frame.owned_only {
-                    self.0.owned
+                    self.0.owned && self.0.storage.counts.born <= frame.start
                 } else {
                     self.0.storage.counts.reactive.get()
                 };
@@ -208,11 +238,12 @@ impl<T> JsRef<T> {
     fn record_write(&self, slots: Option<&[u32]>) {
         EPOCH.with(|e| e.set(e.get() + 1));
         let c = &self.0.storage.counts;
-        c.write(0, slots);
+        let stamp = next_stamp();
+        c.write(0, slots, stamp);
         if self.0.owned {
             OWNED_EPOCH.with(|e| e.set(e.get() + 1));
             SIGNAL_WRITES.with(|w| w.set(true));
-            c.write(1, slots);
+            c.write(1, slots, stamp);
         }
     }
     /// Shared access to read reactive class field `slot`: a dependency of
@@ -239,9 +270,17 @@ impl<T> JsRef<T> {
         EPOCH.with(|e| e.set(e.get() + 1));
         SIGNAL_WRITES.with(|w| w.set(true));
         let c = &self.0.storage.counts;
-        c.write(0, Some(&[slot]));
-        c.write(1, Some(&[slot]));
+        let stamp = next_stamp();
+        c.write(0, Some(&[slot]), stamp);
+        c.write(1, Some(&[slot]), stamp);
         self.0.storage.value.borrow_mut()
+    }
+    /// Whether writing slot `slot` would change nothing: a proxy whose slot
+    /// already holds a value `same` finds `===` to the new one. Svelte's
+    /// sources ignore such writes (an effect writing what it read is not
+    /// invalidated by them, R4); a raw value is always written.
+    pub fn unchanged(&self, _slot: u32, same: impl FnOnce(&T) -> bool) -> bool {
+        self.0.owned && same(&self.0.storage.value.borrow())
     }
     /// Shared access that is not a read of the program (caches, probes).
     pub fn peek(&self) -> Ref<'_, T> {
@@ -534,6 +573,29 @@ mod tests {
         assert!(weak.upgrade().is_some_and(|f| f == fresh));
         drop(fresh);
         assert!(weak.upgrade().is_none());
+    }
+
+    #[test]
+    fn reads_tell_writes_after_a_point() {
+        // R4: a reader can tell whether what it read was written after it
+        // started (its own writes); proxies a computation creates are not
+        // its dependencies.
+        let items = array(vec![1.0, 2.0]).proxy();
+        let start = heap_stamp();
+        let frame = begin_heap_reads(Some(true));
+        let _ = items.read_slot(0).len();
+        let fresh = array(vec![3.0]).proxy();
+        let _ = fresh.read_slot(0).len();
+        let reads = end_heap_reads(frame);
+        assert_eq!(reads.len(), 1);
+        assert!(!reads[0].written_since(start));
+        // Writing another element is not a write of the length read.
+        items.write_slots(&[2])[1] = 5.0;
+        assert!(!reads[0].written_since(start) && !reads[0].changed());
+        items.borrow_mut().pop();
+        assert!(reads[0].written_since(start) && reads[0].changed());
+        // A later start point does not see the write.
+        assert!(!reads[0].written_since(heap_stamp()));
     }
 
     #[test]

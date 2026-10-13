@@ -620,6 +620,8 @@ struct RootScope {
 struct EffectState {
     /// Dependencies are recorded (the effect is mounted).
     started: bool,
+    /// Its last run changed what it read: due again (R4).
+    rerun: bool,
     /// The effect whose run created this one (M6 overlays: bits-ui's
     /// `TimeoutFn` made in a `watch` callback): destroyed before that one
     /// runs again or is destroyed.
@@ -2231,9 +2233,14 @@ impl<'p> Machine<'p> {
                 Val::Record(r) => {
                     let reactive = self.program.records[r.peek().record].fields[*field].reactive;
                     match reactive {
+                        // (A proxy's field already `===` the value: nothing
+                        // changes, as in Svelte's sources.)
                         Option::None => {
                             let v = js::own_into(&r, v);
-                            r.write_slots(&[*field as u32]).fields[*field] = v
+                            if !r.unchanged(*field as u32, |b| strict_equal(&b.fields[*field], &v))
+                            {
+                                r.write_slots(&[*field as u32]).fields[*field] = v
+                            }
                         }
                         // A reactive class field: `$state` proxies plain objects
                         // and arrays; a value `===` the old one changes nothing.
@@ -2256,7 +2263,14 @@ impl<'p> Machine<'p> {
                 let a = self.eval(array, f)?.array();
                 let i = self.eval(index, f)?.num();
                 let v = js::own_into(&a, v);
-                js::array_ops::set(&a, i, v)?;
+                let same = js::array_ops::element_index(i).is_some_and(|k| {
+                    a.unchanged(k as u32 + 1, |b| {
+                        b.get(k).is_some_and(|x| strict_equal(x, &v))
+                    })
+                });
+                if !same {
+                    js::array_ops::set(&a, i, v)?;
+                }
             }
         }
         Ok(())
@@ -7351,7 +7365,7 @@ impl<'p> Machine<'p> {
             EffectDeps::Once => !started,
             EffectDeps::Always => !started || updated.get(i).copied().unwrap_or(true),
             EffectDeps::Tracked => {
-                !started || {
+                !started || self.instances[i].effects[e].rerun || {
                     let state = &self.instances[i].effects[e];
                     let reads = state.reads.clone();
                     state.heap.iter().any(js::HeapRead::changed)
@@ -7412,6 +7426,24 @@ impl<'p> Machine<'p> {
         }
     }
 
+    /// Whether a tracked effect run that started at `start` (the version
+    /// clock and the heap write stamp) changed a cell or a heap slot it read
+    /// in that run or in its previous one: it is due again, as an effect
+    /// writing what it reads is in Svelte (docs/design/REACTIVITY-ALIASING.md,
+    /// R4). Derived values are not written.
+    fn self_invalidated<'a>(
+        &self,
+        start: (u64, u64),
+        mut reads: impl Iterator<Item = &'a Read_>,
+        mut heap: impl Iterator<Item = &'a js::HeapRead>,
+    ) -> bool {
+        reads.any(|r| {
+            r.derived.is_none()
+                && r.field.is_none()
+                && self.instances[r.instance].versions[r.cell] > start.0
+        }) || heap.any(|h| h.written_since(start.1))
+    }
+
     /// Run effect `e` of instance `i` (its cleanup already ran).
     fn run_effect(&mut self, i: usize, e: usize) {
         let effect = self.effect_at(i, e);
@@ -7450,6 +7482,7 @@ impl<'p> Machine<'p> {
             self.tracking.take()
         };
         let heap_outer = js::begin_heap_reads(tracked.then_some(self.tracks_owned));
+        let start = (self.version_clock, js::heap_stamp());
         let saved = std::mem::replace(&mut self.current, i);
         let saved_snap = self.snap.take();
         let effect_outer = std::mem::replace(&mut self.in_effect, tracked);
@@ -7464,11 +7497,21 @@ impl<'p> Machine<'p> {
         self.snap = saved_snap;
         let heap = js::end_heap_reads(heap_outer);
         let reads = std::mem::replace(&mut self.tracking, outer);
+        let reads = reads.unwrap_or_default();
+        let again = tracked && {
+            let state = &self.instances[i].effects[e];
+            self.self_invalidated(
+                start,
+                state.reads.iter().chain(&reads),
+                state.heap.iter().chain(&heap),
+            )
+        };
         let state = &mut self.instances[i].effects[e];
         state.started = true;
         if tracked {
             state.heap = heap;
-            state.reads = reads.unwrap_or_default();
+            state.reads = reads;
+            state.rerun = again;
         }
         match result {
             Ok(Val::Closure(c)) => state.cleanup = Some(Val::Closure(c)),
@@ -7504,6 +7547,7 @@ impl<'p> Machine<'p> {
         let run = self.roots[r].effects[e].1.clone();
         let outer = self.tracking.replace(vec![]);
         let heap_outer = js::begin_heap_reads(Some(self.tracks_owned));
+        let start = (self.version_clock, js::heap_stamp());
         let saved = std::mem::replace(&mut self.current, self.roots[r].current);
         let saved_snap = self.snap.take();
         let effect_outer = std::mem::replace(&mut self.in_effect, true);
@@ -7512,11 +7556,20 @@ impl<'p> Machine<'p> {
         self.current = saved;
         self.snap = saved_snap;
         let heap = js::end_heap_reads(heap_outer);
-        let reads = std::mem::replace(&mut self.tracking, outer);
+        let reads = std::mem::replace(&mut self.tracking, outer).unwrap_or_default();
+        let again = {
+            let state = &self.roots[r].states[e];
+            self.self_invalidated(
+                start,
+                state.reads.iter().chain(&reads),
+                state.heap.iter().chain(&heap),
+            )
+        };
         let state = &mut self.roots[r].states[e];
         state.started = true;
         state.heap = heap;
-        state.reads = reads.unwrap_or_default();
+        state.reads = reads;
+        state.rerun = again;
         match result {
             Ok(Val::Closure(c)) => state.cleanup = Some(Val::Closure(c)),
             Ok(_) => {}
@@ -7546,7 +7599,7 @@ impl<'p> Machine<'p> {
                         continue;
                     }
                     let state = &self.roots[r].states[e];
-                    let due = !state.started || {
+                    let due = !state.started || state.rerun || {
                         let reads = state.reads.clone();
                         state.heap.iter().any(js::HeapRead::changed)
                             || reads.iter().any(|x| self.read_changed(x))

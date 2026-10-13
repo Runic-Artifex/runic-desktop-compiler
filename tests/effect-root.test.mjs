@@ -52,21 +52,30 @@ const byId = (nodes, id) => {
 test('$effect.root: its effects track state until the root is destroyed', async () => {
   await withApp(
     {
-      'log.svelte.ts': `export let log = $state<string[]>([]);
+      // (The log is written untracked, as in case effect-root: push reads
+      // the length, and an effect writing what it read runs again in
+      // Svelte, case effect-self.)
+      'log.svelte.ts': `import { untrack } from 'svelte';
+export let log = $state<string[]>([]);
 let count = $state(0);
+function note(line: string) {
+  untrack(() => {
+    log.push(line);
+  });
+}
 export function bump() {
   count++;
 }
 export function start(): () => void {
   return $effect.root(() => {
     $effect(() => {
-      log.push('run ' + count);
+      note('run ' + count);
       return () => {
-        log.push('cleanup');
+        note('cleanup');
       };
     });
     return () => {
-      log.push('root destroyed');
+      note('root destroyed');
     };
   });
 }

@@ -175,7 +175,7 @@ pub(crate) fn media_preferences(env: &css::MediaEnv) -> blitz_dom::MediaPreferen
 pub fn media_env() -> css::MediaEnv {
     MEDIA.with(|m| m.get())
 }
-pub use jobs::{CellVersions, Dep, Derived, Fx, Job, Jobs, Phase, Versions};
+pub use jobs::{CellVersions, Dep, Derived, Fx, Job, Jobs, Phase, Versions, self_invalidated};
 pub use promises::Microtasks;
 pub use serde_json::Value as Json;
 pub use storage::{Storage, seed as seed_storage};
