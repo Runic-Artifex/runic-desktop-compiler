@@ -7,6 +7,7 @@ import ts from 'typescript';
 import path from 'node:path';
 import { skipParens, type Lowerer } from './language.ts';
 import { bindPackImport, bindPackReexport, bindPackWrapper, type Edge } from './packs.ts';
+import { symbolKeyConstant } from './svelte-context.ts';
 
 export interface ModuleGraph {
   root: string;
@@ -441,6 +442,8 @@ export function lowerModules(
           }
           // Intl and pack constants have no runtime value (their uses are lowered).
           if (lower.isIntlConstant(d) || lower.isPackConstant(d)) continue;
+          // A symbol used only as a context key (frontend/svelte-context.ts).
+          if (symbolKeyConstant(d, lower)) continue;
           const sym = checker.getSymbolAtLocation(d.name)!;
           const name = (d.name as ts.Identifier).text;
           const init = skipParens(d.initializer!);

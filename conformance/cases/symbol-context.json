@@ -1,0 +1,166 @@
+{
+  "description": "Svelte contexts keyed by module-level symbols, as shadcn-svelte's carousel keys its context (`const EMBLA_CAROUSEL_CONTEXT = Symbol(…)` with setContext, getContext guarded by hasContext): a provider's object of getters over its $state set under one symbol and read by the nearest provider's consumers (nested providers), a second symbol of the same description that is another context, hasContext outside every provider and of a symbol nothing sets. Clicks bump and reset each provider's count through the context. (A $state object read through a constant, the carousel's own value, is rejected: E_REACTIVITY, tests/symbol-context.test.mjs.)",
+  "fixtures": [
+    "symbol-context-svelte"
+  ],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "a-bump"
+    },
+    {
+      "kind": "click",
+      "id": "b-bump"
+    },
+    {
+      "kind": "click",
+      "id": "c-bump"
+    },
+    {
+      "kind": "click",
+      "id": "d-bump"
+    },
+    {
+      "kind": "click",
+      "id": "b-bump"
+    },
+    {
+      "kind": "click",
+      "id": "inner-reset"
+    },
+    {
+      "kind": "click",
+      "id": "a-bump"
+    },
+    {
+      "kind": "click",
+      "id": "outer-reset"
+    },
+    {
+      "kind": "click",
+      "id": "third-reset"
+    }
+  ],
+  "expectedText": [
+    {
+      "step": 0,
+      "id": "a-text",
+      "text": "outer: 0"
+    },
+    {
+      "step": 0,
+      "id": "b-text",
+      "text": "inner: 0"
+    },
+    {
+      "step": 0,
+      "id": "c-text",
+      "text": "inner: 0"
+    },
+    {
+      "step": 0,
+      "id": "d-text",
+      "text": "third: 0"
+    },
+    {
+      "step": 3,
+      "id": "a-text",
+      "text": "outer: 1"
+    },
+    {
+      "step": 3,
+      "id": "b-text",
+      "text": "inner: 2"
+    },
+    {
+      "step": 3,
+      "id": "c-text",
+      "text": "inner: 2"
+    },
+    {
+      "step": 3,
+      "id": "d-text",
+      "text": "third: 0"
+    },
+    {
+      "step": 4,
+      "id": "a-text",
+      "text": "outer: 1"
+    },
+    {
+      "step": 4,
+      "id": "b-text",
+      "text": "inner: 2"
+    },
+    {
+      "step": 4,
+      "id": "c-text",
+      "text": "inner: 2"
+    },
+    {
+      "step": 4,
+      "id": "d-text",
+      "text": "third: 1"
+    },
+    {
+      "step": 6,
+      "id": "a-text",
+      "text": "outer: 1"
+    },
+    {
+      "step": 6,
+      "id": "b-text",
+      "text": "inner: 0"
+    },
+    {
+      "step": 6,
+      "id": "c-text",
+      "text": "inner: 0"
+    },
+    {
+      "step": 6,
+      "id": "d-text",
+      "text": "third: 1"
+    },
+    {
+      "step": 9,
+      "id": "a-text",
+      "text": "outer: 0"
+    },
+    {
+      "step": 9,
+      "id": "b-text",
+      "text": "inner: 0"
+    },
+    {
+      "step": 9,
+      "id": "c-text",
+      "text": "inner: 0"
+    },
+    {
+      "step": 9,
+      "id": "d-text",
+      "text": "third: 0"
+    },
+    {
+      "step": 0,
+      "id": "p1",
+      "text": "tone · other: none · unset: false"
+    },
+    {
+      "step": 0,
+      "id": "p2",
+      "text": "no tone · other: other value · unset: false"
+    },
+    {
+      "step": 0,
+      "id": "p3",
+      "text": "tone · other: other value · unset: false"
+    },
+    {
+      "step": 0,
+      "id": "p4",
+      "text": "no tone · other: none · unset: false"
+    }
+  ]
+}
