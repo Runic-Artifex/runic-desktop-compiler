@@ -121,6 +121,55 @@ pub(crate) fn set_media_env(env: css::MediaEnv) {
     MEDIA.with(|m| m.set(env));
 }
 
+thread_local! {
+    static DESKTOP_QUERIES_REPORTED: std::cell::RefCell<Vec<String>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// `matchMedia(query).matches` (generated code). Chromium 153 on Linux takes
+/// `prefers-reduced-motion` and `prefers-contrast` from the desktop (GTK's
+/// animation setting and theme name), which a native app cannot read: a
+/// query testing one is reported once natively; probes answer it as their
+/// actions emulate the preference.
+pub fn media_matches(query: &str, env: &css::MediaEnv) -> Option<bool> {
+    if !probe_mode() {
+        let lower = query.to_ascii_lowercase();
+        if (lower.contains("prefers-reduced-motion") || lower.contains("prefers-contrast"))
+            && DESKTOP_QUERIES_REPORTED.with(|r| {
+                let mut r = r.borrow_mut();
+                let first = !r.contains(&lower);
+                if first {
+                    r.push(lower.clone());
+                }
+                first
+            })
+        {
+            unsupported(&format!(
+                "matchMedia({query:?}) tests a desktop preference the runtime cannot read"
+            ));
+        }
+    }
+    css::media_matches(query, env)
+}
+
+/// The user preferences of `env` as Blitz's media queries see them
+/// (`prefers-reduced-motion`, `prefers-contrast`; the color scheme is part
+/// of the viewport).
+pub(crate) fn media_preferences(env: &css::MediaEnv) -> blitz_dom::MediaPreferences {
+    blitz_dom::MediaPreferences {
+        reduced_motion: if env.reduced_motion {
+            blitz_dom::PrefersReducedMotion::Reduce
+        } else {
+            blitz_dom::PrefersReducedMotion::NoPreference
+        },
+        contrast: if env.contrast_more {
+            blitz_dom::PrefersContrast::More
+        } else {
+            blitz_dom::PrefersContrast::NoPreference
+        },
+    }
+}
+
 /// What media queries see: the viewport and the user preferences (light,
 /// no contrast or motion preference, as the probe emulates them).
 pub fn media_env() -> css::MediaEnv {

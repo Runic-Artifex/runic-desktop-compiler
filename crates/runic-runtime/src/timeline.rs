@@ -114,7 +114,15 @@ fn guarded(doc: &BaseDocument, (selector, unless, _, _): &Guard) -> Vec<NodeId> 
 /// reported as unsupported (once). Guards of scroll targets wait for one
 /// (`check_scroll_target`).
 fn check_style_guards(doc: &BaseDocument) {
-    report(doc, |g| g.2.is_empty(), |_| true);
+    // Rules of media queries on a desktop preference (`when` `"native"`):
+    // probes set the preference as their actions emulate it; a native app
+    // cannot read the desktop's.
+    let native = !crate::probe_mode();
+    report(
+        doc,
+        |g| g.2.is_empty() || (native && g.2 == "native"),
+        |_| true,
+    );
 }
 
 /// A declaration that only affects an element scrolled into view (its

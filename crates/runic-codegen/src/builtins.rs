@@ -965,15 +965,15 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             }
         }
         ("media", "matches") => format!(
-            "runic_runtime::css::media_matches(&{}.to_rust(), &cx.media).unwrap_or(false)",
+            "runic_runtime::media_matches(&{}.to_rust(), &cx.media).unwrap_or(false)",
             t[0]
         ),
         ("media", "query") => format!(
-            "{{ let q = {}.to_rust(); let m = runic_runtime::css::media_matches(&q, &cx.media).unwrap_or(false); js::MediaQueryList::new(&q, m) }}",
+            "{{ let q = {}.to_rust(); let m = runic_runtime::media_matches(&q, &cx.media).unwrap_or(false); js::MediaQueryList::new(&q, m) }}",
             t[0]
         ),
         ("media-query", "matches") => format!(
-            "runic_runtime::css::media_matches({}.query(), &cx.media).unwrap_or(false)",
+            "runic_runtime::media_matches({}.query(), &cx.media).unwrap_or(false)",
             t[0]
         ),
         // Change listeners, identified by their function value.

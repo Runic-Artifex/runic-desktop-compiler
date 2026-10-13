@@ -1,0 +1,35 @@
+@charset "UTF-8";
+@font-face { font-family: RunicFixture; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #eae6dc; color: #252c28; font-family: RunicFixture; font-size: 15px; line-height: 20px; }
+body { padding: 8px; }
+main { max-width: 520px; margin: 0 auto; padding: 12px 16px; background: #faf8f1; border: 1px solid #b7b7a9; border-radius: 12px; }
+.box { width: 60px; height: 24px; margin: 0 0 8px; padding: 2px 6px; background: #c9d3c4; border: 1px solid #52665b; }
+/* Bootstrap 5.3 and Tailwind's motion-safe: rules that apply without a preference. */
+@media (prefers-reduced-motion: no-preference) {
+  #motion-safe { width: 180px; background: #9fc59a; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #motion-reduce { width: 240px; background: #d7a49a; }
+}
+@media (prefers-reduced-motion) {
+  #motion-any { width: 300px; }
+}
+@media (prefers-contrast: no-preference) {
+  #contrast-none { width: 150px; background: #a4b7d6; }
+}
+@media (prefers-contrast: more) {
+  #contrast-more { width: 210px; background: #22303d; color: #ffffff; }
+}
+@media (prefers-contrast) {
+  #contrast-any { width: 270px; }
+}
+@media (forced-colors: none) {
+  #forced-none { width: 120px; background: #d6c3a4; }
+}
+@media (forced-colors: active) {
+  #forced-active { width: 330px; }
+}
+@media not all and (prefers-reduced-motion: reduce) {
+  #not-reduce { width: 200px; }
+}

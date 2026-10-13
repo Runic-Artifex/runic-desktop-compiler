@@ -292,6 +292,69 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
       ['.b', 'none'],
     ],
   );
+  // Chromium 153 parses no -moz-, -o- or -ms- property, and a vendor
+  // declaration followed in its rule by the property it names (or by the
+  // same property) at least as important is overridden there (Bootstrap's
+  // fallbacks): no guard. One that is not overridden stays reported.
+  assert.deepEqual(
+    (await guards(
+      '.a { -moz-column-gap: 1px; column-gap: 2px; -o-object-fit: cover; object-fit: cover }\n' +
+        '.b { position: -webkit-sticky; position: relative; width: -webkit-max-content; width: max-content }\n' +
+        '.c { -webkit-text-decoration-color: red !important; text-decoration-color: red !important }\n' +
+        '.d::file-selector-button { -webkit-margin-end: 1px; margin-inline-end: 1px }\n' +
+        '.e { -moz-osx-font-smoothing: auto; -ms-overflow-style: none }',
+    )) ?? [],
+    [],
+  );
+  assert.deepEqual(
+    (
+      await guards(
+        '.a { -webkit-text-decoration-color: red !important; text-decoration-color: blue }\n' +
+          '.b { text-decoration-color: blue; -webkit-text-decoration-color: red }\n' +
+          '.c { th { text-align: inherit; text-align: -webkit-match-parent } }',
+      )
+    ).map(g => g.selector),
+    ['.a', '.b', '.c th'],
+  );
+  // Blitz paints no text shadows: reported where the rule applies (the
+  // element of a pseudo-element), rejected in keyframes.
+  assert.deepEqual(
+    (
+      await guards(
+        '.a { text-shadow: 0 1px 2px red }\n.b::before { text-shadow: 1px 1px }\n' +
+          '.c { text-shadow: none }\n.d { text-shadow: initial }',
+      )
+    ).map(g => [g.selector, /^Blitz does not paint text shadows/.test(g.message)]),
+    [
+      ['.a', true],
+      ['.b', true],
+    ],
+  );
+  await check('@keyframes k { to { text-shadow: 0 0 2px red } }', 'E_CSS_PROPERTY', 1);
+  // `@charset "UTF-8"` changes nothing for a stylesheet read as UTF-8.
+  await check('@charset "UTF-8";\np { color: red }', undefined);
+  await check('@charset "iso-8859-15";\np { color: red }', 'E_CSS', 1);
+  // `prefers-reduced-motion` and `prefers-contrast` are evaluated (no
+  // preference unless a probe emulates one); a native app, which cannot read
+  // the desktop's, reports their rules where they apply. `forced-colors` is
+  // `none` on Linux.
+  assert.deepEqual(
+    (
+      await guards(
+        '@media (prefers-reduced-motion: no-preference) { :root { scroll-behavior: smooth } }\n' +
+          '@media (prefers-contrast: more) { .a, .b::after { color: red } .c { @media (prefers-reduced-motion) { color: blue } } }\n' +
+          '@media (prefers-reduced-motion: reduce) { @keyframes k { to { opacity: 0 } } }\n' +
+          '@media (forced-colors: active) { .f { color: red } }',
+      )
+    ).map(g => [g.selector, g.when, /depends on the desktop's (\S+) setting/.exec(g.message)?.[1]]),
+    [
+      [':root', 'native', 'prefers-reduced-motion'],
+      ['.a, .b', 'native', 'prefers-contrast'],
+      ['.c', 'native', 'prefers-contrast'],
+      ['.c', 'native', 'prefers-reduced-motion'],
+      [':root', 'native', 'prefers-reduced-motion'],
+    ],
+  );
   // Blitz breaks lines as Chromium 153 does for `balance`, `pretty` and
   // `stable` (greedy, as `auto`): no guard, except that a balancing or pretty
   // rule is reported where it reaches a text area, whose text Blitz breaks
