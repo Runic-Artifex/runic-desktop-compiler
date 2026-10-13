@@ -224,6 +224,18 @@ export const SR_ONLY_STYLES: Readonly<Record<string, string>> = Object.freeze({
   transform: 'translateX(-100%)',
 });
 
+/**
+ * `srOnlyStylesString` (dist/utils/sr-only-styles.js, `styleToString` of
+ * `srOnlyStyles`): `name: value;` per property, camelCase names in kebab
+ * case, joined by newlines of which the first is a space (bits-ui's
+ * announcer sets it as `style.cssText`). tests/bits.test.mjs checks it
+ * against the package.
+ */
+export const SR_ONLY_STYLES_STRING: string = Object.entries(SR_ONLY_STYLES)
+  .map(([k, v]) => `${k.replace(/[A-Z]/g, c => '-' + c.toLowerCase())}: ${v};`)
+  .join('\n')
+  .replace('\n', ' ');
+
 /** `boxWith(getter, setter?)`. */
 function boxWith(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
   const [getter, setter] = node.arguments;
@@ -1045,6 +1057,8 @@ export const svelteToolbeltPack: Pack = {
         return { kind: 'function', call: contains };
       case 'srOnlyStyles':
         return { kind: 'constant', value: SR_ONLY_STYLES };
+      case 'srOnlyStylesString':
+        return { kind: 'constant', value: SR_ONLY_STYLES_STRING };
       // styleToString(style) (dist/utils/style.js): the style object's
       // `name: value;` text (`attrs.style-text`).
       case 'styleToString':
@@ -1085,7 +1099,7 @@ export const svelteToolbeltPack: Pack = {
           construct: newDomContext,
         };
     }
-    return `${LABEL} covers box, simpleBox, boxFrom, boxWith, mergeProps, attachRef, afterTick, afterSleep, executeCallbacks, composeHandlers, contains, onMountEffect, onDestroyEffect, srOnlyStyles, styleToString, getWindow, getDocument and DOMContext, not ${imported}`;
+    return `${LABEL} covers box, simpleBox, boxFrom, boxWith, mergeProps, attachRef, afterTick, afterSleep, executeCallbacks, composeHandlers, contains, onMountEffect, onDestroyEffect, srOnlyStyles, srOnlyStylesString, styleToString, getWindow, getDocument and DOMContext, not ${imported}`;
   },
   type(t, at, lower) {
     // DOMContext (dist/utils/dom-context.svelte.d.ts).

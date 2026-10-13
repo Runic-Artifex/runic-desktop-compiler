@@ -484,6 +484,7 @@ for (const fixture of fixtures) {
       const want = {
         dom: expected[i].state.dom.map(n => semantic(canonical(fromInterp(n)))),
         portals: (canonical({ tag: "body", children: (expected[i].state.portals ?? []).map(fromInterp) }).children ?? []).map(semantic),
+        preceding: (canonical({ tag: "body", children: (expected[i].state.preceding ?? []).map(fromInterp) }).children ?? []).map(semantic),
         cells: expected[i].state.cells,
         instances: expected[i].state.instances ?? [],
         document: expected[i].state.document ?? {},
@@ -493,6 +494,7 @@ for (const fixture of fixtures) {
       const got = {
         dom: (canonical(actual[i].dom).children ?? []).map(semantic),
         portals: (canonical({ tag: "body", children: actual[i].portals ?? [] }).children ?? []).map(semantic),
+        preceding: (canonical({ tag: "body", children: actual[i].preceding ?? [] }).children ?? []).map(semantic),
         cells: actual[i].cells,
         instances: actual[i].instances ?? [],
         document: actual[i].document ?? {},

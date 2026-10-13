@@ -1,0 +1,25 @@
+{
+  "description": "Script DOM slice 1 (docs/design/M6-SCRIPT-DOM.md), compared with Chromium: bits-ui's announcer with its declared types (getAnnouncer(doc: Document | null) called with null, then with the document: querySelector on the document value, createElement, role and ariaLive reflection, setAttribute, style.cssText, appendChild of new nodes, insertBefore at the start of the body, querySelector of an attribute value, innerText with a line break, replaceChildren, appendChild, remove from a timer, found again by a second call), and lines that script creates and removes inside an element the template renders without children (className, textContent, childElementCount, insertBefore before firstChild, replaceChildren)",
+  "fixtures": ["script-dom-announcer-svelte"],
+  "actions": [
+    { "kind": "click", "id": "say" },
+    { "kind": "click", "id": "report" },
+    { "kind": "click", "id": "attach" },
+    { "kind": "click", "id": "say" },
+    { "kind": "click", "id": "say" },
+    { "kind": "click", "id": "polite" },
+    { "kind": "click", "id": "polite" },
+    { "kind": "wait", "ms": 300 },
+    { "kind": "click", "id": "report" },
+    { "kind": "wait", "ms": 300 },
+    { "kind": "click", "id": "report" },
+    { "kind": "click", "id": "empty" },
+    { "kind": "click", "id": "attach" },
+    { "kind": "click", "id": "say" },
+    { "kind": "click", "id": "add" },
+    { "kind": "click", "id": "add" },
+    { "kind": "click", "id": "add" },
+    { "kind": "click", "id": "clear" },
+    { "kind": "click", "id": "add" }
+  ]
+}

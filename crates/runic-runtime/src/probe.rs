@@ -132,8 +132,35 @@ fn snapshot<A: App>(native: &Native<A>, width: u32, height: u32) -> Value {
                 .is_none_or(|t| !t.content.trim().is_empty())
         })
         .collect();
+    // Script content in the body before the container (M6 script DOM),
+    // without whitespace-only text, as the browser harness reports it.
+    let preceding_nodes: Vec<NodeId> = native
+        .listeners
+        .body
+        .and_then(|b| doc.get_node(b))
+        .map(|b| {
+            let end = b.children.iter().position(|&c| c == root).unwrap_or(0);
+            b.children[..end].to_vec()
+        })
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|&n| {
+            doc.get_node(n)
+                .and_then(|n| n.text_data())
+                .is_none_or(|t| !t.content.trim().is_empty())
+        })
+        .collect();
+    let preceding: Vec<Value> = preceding_nodes
+        .iter()
+        .filter_map(|&n| snapshot_node(doc, n, focused))
+        .collect();
     let mut geometry = Map::new();
-    let mut stack: Vec<NodeId> = portals.iter().rev().copied().collect();
+    let mut stack: Vec<NodeId> = portals
+        .iter()
+        .chain(&preceding_nodes)
+        .rev()
+        .copied()
+        .collect();
     stack.push(root);
     while let Some(id) = stack.pop() {
         let Some(node) = doc.get_node(id) else {
@@ -214,6 +241,9 @@ fn snapshot<A: App>(native: &Native<A>, width: u32, height: u32) -> Value {
         .collect();
     if !portals.is_empty() {
         state["portals"] = Value::Array(portals);
+    }
+    if !preceding.is_empty() {
+        state["preceding"] = Value::Array(preceding);
     }
     let instances = native.app.instances_json();
     if !instances.is_empty() {

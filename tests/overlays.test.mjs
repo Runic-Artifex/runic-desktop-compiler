@@ -124,7 +124,9 @@ test('mount options and targets outside the model are rejected', async () => {
 </script>
 `,
     },
-    root => assert.rejects(lowered(root), failWith('E_CALL', 'App.svelte', /body and #id/)),
+    // (M6 script DOM: literal selectors of the subset search the document; a
+    // target other than the body is reported at run time, as below.)
+    async root => assert.match(JSON.stringify((await lowered(root)).ir), /document\.querySelector/),
   );
 });
 

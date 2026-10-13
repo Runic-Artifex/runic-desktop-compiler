@@ -1339,6 +1339,32 @@ impl<'p> Analysis<'p> {
                 }
                 return Val::Top;
             }
+            // Script DOM (M6): elements script creates (a tag of the IR's
+            // allow-list, which the frontend checks), the `<br>` elements of
+            // `innerText`, and inline styles set as text.
+            "document.createElement" => {
+                match vals.first().and_then(strings) {
+                    Some(tags) => {
+                        for t in tags {
+                            self.out.tags.insert(t.to_ascii_lowercase());
+                        }
+                    }
+                    None => {
+                        for t in crate::validate::TAGS {
+                            self.out.tags.insert((*t).to_owned());
+                        }
+                    }
+                }
+                return Val::Top;
+            }
+            "element.set-innerText" => {
+                self.out.tags.insert("br".into());
+                return Val::Top;
+            }
+            "element.style-set-text" => {
+                write_attr(&mut self.out, "style", &Val::Top, at);
+                return Val::Top;
+            }
             _ => {}
         }
         if let Some(("root" | "body", m)) = name.split_once('.') {

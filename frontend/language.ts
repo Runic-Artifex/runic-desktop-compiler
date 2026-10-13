@@ -48,6 +48,70 @@ import { newSvelteMap, svelteMapEntries, svelteMapType } from './svelte-reactivi
 import { symbolUseMessage } from './svelte-context.ts';
 import { componentValueType, knownComponentRecord } from './component-values.ts';
 import { elementAttributesType } from './svelte-elements.ts';
+import { FRAGMENT_TAGS } from './html-fragments.ts';
+import { INERT_TAGS, TABLE_TAGS } from './elements.ts';
+
+/**
+ * The elements script may create (M6 script DOM, docs/design/M6-SCRIPT-DOM.md):
+ * static, non-interactive elements (those `{@html}` fragments hold, the inert
+ * text-level and table elements). Links, controls, images and SVG need the
+ * template rules for them and stay rejected.
+ */
+const CREATABLE_TAGS = new Set([...FRAGMENT_TAGS, ...INERT_TAGS, ...TABLE_TAGS]);
+
+/**
+ * `role` and ARIA 1.2's reflection properties (`ARIAMixin`, as Chromium
+ * reflects them): the attribute each stands for (M6 script DOM).
+ */
+const ARIA_REFLECTION: Record<string, string> = Object.fromEntries(
+  [
+    'Atomic',
+    'AutoComplete',
+    'BrailleLabel',
+    'BrailleRoleDescription',
+    'Busy',
+    'Checked',
+    'ColCount',
+    'ColIndex',
+    'ColIndexText',
+    'ColSpan',
+    'Current',
+    'Description',
+    'Disabled',
+    'Expanded',
+    'HasPopup',
+    'Hidden',
+    'Invalid',
+    'KeyShortcuts',
+    'Label',
+    'Level',
+    'Live',
+    'Modal',
+    'MultiLine',
+    'MultiSelectable',
+    'Orientation',
+    'Placeholder',
+    'PosInSet',
+    'Pressed',
+    'ReadOnly',
+    'Relevant',
+    'Required',
+    'RoleDescription',
+    'RowCount',
+    'RowIndex',
+    'RowIndexText',
+    'RowSpan',
+    'Selected',
+    'SetSize',
+    'Sort',
+    'ValueMax',
+    'ValueMin',
+    'ValueNow',
+    'ValueText',
+  ]
+    .map(n => [`aria${n}`, `aria-${n.toLowerCase()}`])
+    .concat([['role', 'role']]),
+);
 import {
   type Choice,
   valueSet,
@@ -4972,6 +5036,9 @@ export class Lowerer {
           ...this.src(target),
         },
       ];
+    // Script DOM (M6): text, reflected attributes and the inline style text.
+    const written = ts.isPropertyAccessExpression(target) && this.elementWrite(target, value, b);
+    if (written) return [{ op: 'expr', value: written, ...this.src(target) }];
     // An element's inline style property, set through the CSSOM.
     const style = ts.isPropertyAccessExpression(target) && this.elementStyle(target, b);
     if (style) {
@@ -5569,6 +5636,20 @@ export class Lowerer {
   expr(e: ts.Expression, b: FnBuilder): Expr {
     const override = this.overrides.get(e);
     if (override) return override.expr;
+    // The document and the window as values (M6 script DOM,
+    // docs/design/M6-SCRIPT-DOM.md): where the program knows the value is
+    // one of them (`hostName`, read without effect), its node handle.
+    if (
+      ts.isIdentifier(e) ||
+      ts.isPropertyAccessExpression(e) ||
+      ts.isCallExpression(e) ||
+      ts.isBinaryExpression(e) ||
+      ts.isParenthesizedExpression(e)
+    ) {
+      const host = this.hostName(e);
+      if (host === 'document' || host === 'window')
+        return { op: 'builtin', name: `${host}.node`, args: [], type: 'element' };
+    }
     // (An await the async transform has resolved is overridden by its value.)
     if (ts.isAwaitExpression(e))
       return this.fail(
@@ -6852,6 +6933,88 @@ export class Lowerer {
   }
 
   /**
+   * Script DOM writes of an element's members (M6, docs/design/M6-SCRIPT-DOM.md):
+   * `textContent` and `innerText` (null is the empty string), `className`
+   * and `id` (the attribute, ToString), `role` and the ARIA reflection
+   * properties (`ariaLive` → `aria-live`; null removes the attribute) and
+   * `style.cssText`. The receiver is evaluated before the value, as the
+   * assignment's reference is. Other members are not handled here.
+   */
+  private elementWrite(
+    target: ts.PropertyAccessExpression,
+    value: Expr,
+    b: FnBuilder,
+  ): Expr | undefined {
+    const name = target.name.text;
+    let owner = skipParens(target.expression);
+    let css = false;
+    if (name === 'cssText' && ts.isPropertyAccessExpression(owner) && owner.name.text === 'style') {
+      owner = skipParens(owner.expression);
+      css = true;
+    }
+    // (Where TypeScript does not type it, untyped package code: its IR type.)
+    let ownerType = this.types.typeOrUndefined(owner);
+    if (ownerType === undefined)
+      try {
+        ownerType = this.typeAt(owner, b);
+      } catch (err) {
+        if (!/^E_/.test(String((err as { code?: unknown }).code))) throw err;
+        return undefined;
+      }
+    if (ownerType !== 'element') return undefined;
+    const aria = ARIA_REFLECTION[name];
+    if (!css && !aria && !['textContent', 'innerText', 'className', 'id'].includes(name))
+      return undefined;
+    const el = b.local('$element', 'element');
+    const t = this.irType(value, b);
+    const v = b.local('$value', t);
+    const read = (l: number): Expr => ({ op: 'local', local: l });
+    const call = (n: string, args: Expr[]): Expr => ({
+      op: 'builtin',
+      name: `element.${n}`,
+      args: [read(el), ...args],
+      type: 'void',
+    });
+    const inner = maybeInner(t);
+    const text = (x: Expr, ty: Type): Expr => (ty === STRING ? x : { op: 'to-string', arg: x });
+    // (ToString of the value; for a nullable one, `nullish` where it is.)
+    const ofValue = (nullish: Expr | undefined, f: (s: Expr) => Expr): Expr => {
+      if (inner === undefined) return f(text(read(v), t));
+      return {
+        op: 'cond',
+        test: { op: 'builtin', name: 'maybe.is-nullish', args: [read(v)], type: BOOLEAN },
+        then: nullish ?? f({ op: 'lit', value: '' }),
+        else: f(text({ op: 'unwrap', value: read(v) }, inner)),
+      };
+    };
+    let body: Expr;
+    if (css) body = ofValue(undefined, s => call('style-set-text', [s]));
+    else if (name === 'innerText' && inner !== undefined)
+      // (`[LegacyNullToEmptyString]`: null is empty, undefined "undefined".)
+      return this.fail(target, 'E_MEMBER', 'innerText takes a string');
+    else if (name === 'textContent' || name === 'innerText')
+      body = ofValue(undefined, s =>
+        call(name === 'textContent' ? 'set-textContent' : 'set-innerText', [s]),
+      );
+    else if (aria)
+      body = ofValue(call('removeAttribute', [{ op: 'lit', value: aria }]), s =>
+        call('setAttribute', [{ op: 'lit', value: aria }, s]),
+      );
+    else {
+      const attr = name === 'className' ? 'class' : 'id';
+      if (inner !== undefined)
+        return this.fail(target, 'E_MEMBER', `${name} takes a string (null becomes "null")`);
+      body = call('setAttribute', [{ op: 'lit', value: attr }, text(read(v), t)]);
+    }
+    return {
+      op: 'with',
+      local: el,
+      value: this.expr(owner, b),
+      body: { op: 'with', local: v, value, body },
+    };
+  }
+
+  /**
    * `x.style.prop` on an element `x`: the element and the CSS property the
    * camelCase name stands for (`transitionDuration` → `transition-duration`,
    * `WebkitX` → `-webkit-x`, `cssFloat` → `float`).
@@ -7914,7 +8077,11 @@ export class Lowerer {
     if (ts.isPropertyAccessExpression(e)) {
       const name = e.name.text;
       const inner = skipParens(e.expression);
-      if (name === 'ownerDocument' && this.types.typeOrUndefined(inner) === 'element')
+      if (
+        name === 'ownerDocument' &&
+        this.types.typeOrUndefined(inner) === 'element' &&
+        !this.types.hostOf(this.checker.getTypeAtLocation(inner))
+      )
         return 'document';
       if (name === 'defaultView' && this.hostName(inner, depth + 1) === 'document') return 'window';
       if (name === 'ownerDocument' && this.hostName(inner, depth + 1) === 'document')
@@ -7923,7 +8090,9 @@ export class Lowerer {
       if (name === 'navigator' && this.hostName(inner, depth + 1) === 'window') return 'navigator';
       // `window.CSS` (also `window?.CSS`): the CSS namespace, never nullish.
       if (name === 'CSS' && this.hostName(inner, depth + 1) === 'window') return 'CSS';
-      return undefined;
+      // A member of a name typed as the document or the window (M6 script
+      // DOM): that object, read without effect.
+      return this.typedHost(e);
     }
     if (
       ts.isBinaryExpression(e) &&
@@ -7997,7 +8166,7 @@ export class Lowerer {
     const decl = s?.valueDeclaration ?? s?.declarations?.[0];
     if (decl && path.resolve(decl.getSourceFile().fileName) === DOM) return e.text;
     // A parameter every call passes one of them for.
-    if (decl && ts.isParameter(decl)) return this.hostParam(decl);
+    if (decl && ts.isParameter(decl)) return this.hostParam(decl) ?? this.typedHost(e);
     // A constant holding one of them.
     if (
       decl &&
@@ -8006,8 +8175,27 @@ export class Lowerer {
       ts.isVariableDeclarationList(decl.parent) &&
       decl.parent.flags & ts.NodeFlags.Const
     )
-      return this.hostName(decl.initializer, depth + 1, true);
-    return undefined;
+      return this.hostName(decl.initializer, depth + 1, true) ?? this.typedHost(e);
+    return this.typedHost(e);
+  }
+
+  /**
+   * The document or the window, where TypeScript types `e` (a name or a
+   * member of one: reading it has no effect) as that object and not as
+   * nullable (M6 script DOM, docs/design/M6-SCRIPT-DOM.md): a program can
+   * create no other document or window, so the value is that object.
+   */
+  private typedHost(e: ts.Expression): 'document' | 'window' | undefined {
+    const plain = (x: ts.Expression): boolean => {
+      x = skipParens(x);
+      return (
+        ts.isIdentifier(x) ||
+        x.kind === ts.SyntaxKind.ThisKeyword ||
+        (ts.isPropertyAccessExpression(x) && !x.questionDotToken && plain(x.expression))
+      );
+    };
+    if (!plain(e)) return undefined;
+    return this.types.hostOf(this.checker.getTypeAtLocation(e));
   }
 
   private hostParams = new Map<ts.ParameterDeclaration, 'document' | 'window' | null>();
@@ -8364,12 +8552,16 @@ export class Lowerer {
         return builtin('document.getElementById', [{ op: 'lit', value: text.slice(1) }], {
           maybe: 'element',
         });
-      return this.fail(
-        sel,
-        'E_CALL',
-        `document.querySelector supports the selectors body and #id, not ${JSON.stringify(text)}`,
-      );
+      // M6 script DOM: other literal selectors search the document as
+      // computed ones do (bits-ui's announcer: `[data-bits-announcer]`).
+      return builtin('document.querySelector', [this.coerce(sel, b, STRING)], {
+        maybe: 'element',
+      });
     }
+    // M6 script DOM (docs/design/M6-SCRIPT-DOM.md): an element script owns,
+    // of a tag of the IR's allow-list, which a literal (or a finite set of
+    // literals) names; Chromium lowercases the name in an HTML document.
+    if (host === 'document' && method === 'createElement') return this.createElement(e, b);
     if (host === 'document' && method === 'getElementById') {
       if (e.arguments.length !== 1) this.fail(e, 'E_CALL', 'getElementById takes an id');
       return builtin('document.getElementById', [this.coerce(e.arguments[0], b, STRING)], {
@@ -8378,6 +8570,35 @@ export class Lowerer {
     }
     if (host === '__runic') return this.intrinsic(method, e, b);
     return undefined;
+  }
+
+  /**
+   * `document.createElement(tag)` (M6 script DOM, docs/design/M6-SCRIPT-DOM.md):
+   * an element script owns, of a tag of the static elements, which a literal
+   * (or a finite set of literals) names; Chromium lowercases the name in an
+   * HTML document.
+   */
+  private createElement(e: ts.CallExpression, b: FnBuilder): Expr {
+    const [tag, options] = e.arguments;
+    if (!tag || options)
+      return this.fail(e, 'E_CALL', 'document.createElement takes a tag name (no options)');
+    const t = this.checker.getTypeAtLocation(tag);
+    const names = (t.isUnion() ? t.types : [t]).map(p =>
+      p.isStringLiteral() ? p.value.toLowerCase() : undefined,
+    );
+    const bad = names.find(n => n === undefined || !CREATABLE_TAGS.has(n));
+    if (bad !== undefined || names.includes(undefined))
+      return this.fail(
+        tag,
+        'E_CALL',
+        `document.createElement takes a literal tag of the supported elements (${[...CREATABLE_TAGS].join(', ')})${bad ? `, not ${bad}` : ''}`,
+      );
+    const v = this.coerce(tag, b, STRING);
+    const lowered: Expr =
+      ts.isStringLiteralLike(tag) && tag.text !== tag.text.toLowerCase()
+        ? { op: 'lit', value: tag.text.toLowerCase() }
+        : v;
+    return { op: 'builtin', name: 'document.createElement', args: [lowered], type: 'element' };
   }
 
   /** Runic intrinsics of compiler-generated support code (frontend/dom.d.ts `__runic`). */
@@ -8958,6 +9179,36 @@ export class Lowerer {
         },
       };
     }
+    // Script DOM (M6, docs/design/M6-SCRIPT-DOM.md): the first child node
+    // (rule O5: where the native document holds the browser's nodes) and the
+    // number of element children.
+    // The body of a node value not known to be the document (M6 script DOM;
+    // another node has no `body`: undefined, which the type cannot hold, is
+    // reported unsupported).
+    if (kind === 'element' && name === 'body')
+      return this.documentMember(
+        object,
+        null,
+        'element',
+        () => ({ op: 'builtin', name: 'document.body', args: [], type: 'element' }),
+        b,
+        `${e.expression.getText()}.body of a node that is not the document (undefined)`,
+      );
+    if (kind === 'element' && name === 'firstChild')
+      return {
+        op: 'builtin',
+        name: 'element.firstChild',
+        args: [object],
+        type: { maybe: 'element' },
+      };
+    if (kind === 'element' && name === 'childElementCount')
+      return { op: 'builtin', name: 'element.childElementCount', args: [object], type: NUMBER };
+    if (kind === 'element' && (name === 'innerText' || name === 'outerText'))
+      return this.fail(
+        e,
+        'E_MEMBER',
+        `Reading ${name} is not covered (it depends on rendering); textContent reads the text`,
+      );
     if (kind === 'element') {
       if (!ELEMENT_METRICS.includes(name))
         return this.fail(
@@ -11132,6 +11383,59 @@ export class Lowerer {
           return this.fail(e, 'E_CALL', 'appendChild takes a child');
         return call('appendChild', [this.coerce(child, b, 'element')], 'element');
       }
+      // Script DOM (M6, docs/design/M6-SCRIPT-DOM.md): nodes script created,
+      // within child lists script owns (the runtime checks ownership).
+      case 'insertBefore': {
+        const [node, child] = e.arguments;
+        if (!node || !child || e.arguments.length !== 2)
+          return this.fail(
+            e,
+            'E_CALL',
+            'insertBefore takes a node and a reference child (or null)',
+          );
+        const ref = this.expr(child, b);
+        const rt = this.irType(ref, b);
+        const before: Expr =
+          rt === 'element'
+            ? { op: 'some', value: ref }
+            : JSON.stringify(rt) === JSON.stringify({ maybe: 'element' })
+              ? ref
+              : this.fail(child, 'E_CALL', 'insertBefore takes a node or null as its reference');
+        return call('insertBefore', [this.coerce(node, b, 'element'), before], 'element');
+      }
+      case 'replaceChildren': {
+        const items: Expr[] = [];
+        for (const a of e.arguments) {
+          if (ts.isSpreadElement(a))
+            return this.fail(a, 'E_CALL', 'replaceChildren takes nodes (no spread arguments)');
+          const v = this.expr(a, b);
+          if (this.irType(v, b) !== 'element')
+            return this.fail(
+              a,
+              'E_CALL',
+              'replaceChildren takes nodes (strings are planned with text nodes)',
+            );
+          items.push(v);
+        }
+        return call('replaceChildren', [{ op: 'array', type: { array: 'element' }, items }], VOID);
+      }
+      case 'remove':
+        if (e.arguments.length) return this.fail(e, 'E_CALL', 'remove() takes no arguments');
+        return call('remove', [], VOID);
+      // A document method on a node value not known to be the document (an
+      // untyped parameter every call passes a nullable document for: bits-ui's
+      // `initAnnouncer(doc)`).
+      case 'createElement':
+        return this.documentMember(
+          receiver,
+          `${(e.expression as ts.PropertyAccessExpression).expression.getText()}.createElement is not a function`,
+          'element',
+          () => this.createElement(e, b),
+          b,
+        );
+      case 'removeAttribute':
+        if (e.arguments.length !== 1) this.fail(e, 'E_CALL', 'removeAttribute takes a name');
+        return call('removeAttribute', [this.coerce(e.arguments[0], b, STRING)], VOID);
       // No pointer is ever captured (see frontend/dom.d.ts): the receiver
       // and the id are evaluated, the answer is false.
       case 'hasPointerCapture': {
@@ -11413,7 +11717,13 @@ export class Lowerer {
         },
       };
     }
-    return this.fail(e, 'E_CALL', `Element ${method}() is unsupported`);
+    // (A value of the document's or the window's type, M6 script DOM: named so.)
+    const owner = ts.isPropertyAccessExpression(e.expression)
+      ? this.types.hostOf(this.checker.getTypeAtLocation(e.expression.expression))
+      : undefined;
+    const interfaceName =
+      owner === 'document' ? 'Document' : owner === 'window' ? 'Window' : 'Element';
+    return this.fail(e, 'E_CALL', `${interfaceName} ${method}() is unsupported`);
   }
 
   /** The (left, top) coordinates of scrollTo/scrollBy: two numbers or options. */
@@ -12331,6 +12641,74 @@ export class Lowerer {
       ],
     };
     return { op: 'call', function: index, args: [] };
+  }
+
+  /**
+   * A member of the document read on a node value the program does not
+   * know to be the document (an untyped parameter it reaches; M6 script
+   * DOM): `then` where the value is the document; otherwise JavaScript's
+   * `TypeError` for the member the value does not have (`what`: its source
+   * text, as V8 names it). The receiver is evaluated once.
+   */
+  documentMember(
+    receiver: Expr,
+    what: string | null,
+    type: Type,
+    then: () => Expr,
+    b: FnBuilder,
+    unsupported?: string,
+  ): Expr {
+    const local = b.local('$document', 'element');
+    const index = this.reserve();
+    this.functions[index] = {
+      name: 'document$member',
+      params: [],
+      locals: [],
+      result: type,
+      body: [
+        // (A value JavaScript would give that the type cannot hold: reported.)
+        ...(unsupported
+          ? [
+              {
+                op: 'expr' as const,
+                value: {
+                  op: 'builtin' as const,
+                  name: 'host.unsupported',
+                  args: [{ op: 'lit' as const, value: unsupported }],
+                  type: 'void' as Type,
+                },
+              },
+            ]
+          : []),
+        {
+          op: 'throw',
+          value: {
+            op: 'record',
+            record: this.errorRecord(),
+            fields: [
+              { op: 'lit', value: unsupported ? 'RunicUnsupportedError' : 'TypeError' },
+              { op: 'lit', value: unsupported ?? what ?? '' },
+            ],
+          },
+        },
+      ],
+    };
+    return {
+      op: 'with',
+      local,
+      value: receiver,
+      body: {
+        op: 'cond',
+        test: {
+          op: 'builtin',
+          name: 'element.isDocument',
+          args: [{ op: 'local', local }],
+          type: BOOLEAN,
+        },
+        then: then(),
+        else: { op: 'call', function: index, args: [] },
+      },
+    };
   }
 
   unsupportedValue(name: string, type: Type, message: string): Expr {

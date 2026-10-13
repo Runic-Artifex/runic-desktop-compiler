@@ -239,9 +239,20 @@ function pageSnapshot(container) {
     const n = node(c);
     if (n) after.push(n);
   }
+  // Script content in the body before the container (M6 script DOM),
+  // likewise without the page's scripts and whitespace.
+  const before = [];
+  for (let c = root.parentNode === document.body ? document.body.firstChild : null; c && c !== root; c = c.nextSibling) {
+    if (c.nodeType === Node.ELEMENT_NODE && c.localName === 'script') continue;
+    if (c.nodeType === Node.TEXT_NODE && !c.data.trim()) continue;
+    const n = node(c);
+    if (n) before.push(n);
+  }
   const geometry = {};
   const portalElements = [];
   for (let c = root.nextElementSibling; c; c = c.nextElementSibling)
+    if (c.localName !== 'script') portalElements.push(c, ...c.querySelectorAll('[id]'));
+  for (let c = root.parentNode === document.body ? document.body.firstElementChild : null; c && c !== root; c = c.nextElementSibling)
     if (c.localName !== 'script') portalElements.push(c, ...c.querySelectorAll('[id]'));
   for (const e of [root, ...root.querySelectorAll('[id]'), ...portalElements]) {
     if (!e.id) continue;
@@ -260,6 +271,7 @@ function pageSnapshot(container) {
     ...(Object.keys(body).length ? { body } : {}),
     dom: node(root),
     ...(after.length ? { portals: after } : {}),
+    ...(before.length ? { preceding: before } : {}),
     focused: active === document.body || !active ? null : active.id || active.localName,
     viewport: { width: innerWidth, height: innerHeight, scrollX, scrollY },
     geometry,

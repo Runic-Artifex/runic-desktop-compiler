@@ -132,6 +132,11 @@ test("svelte-toolbelt's srOnlyStyles in the pack is the package's", async () => 
   const { srOnlyStyles } =
     await import('../node_modules/svelte-toolbelt/dist/utils/sr-only-styles.js');
   assert.deepEqual(Object.entries(SR_ONLY_STYLES), Object.entries(srOnlyStyles));
+  // (M6 script DOM: bits-ui's announcer sets it as style.cssText.)
+  const { SR_ONLY_STYLES_STRING } = await import('../frontend/packs/svelte-toolbelt-0.10.6.ts');
+  const { srOnlyStylesString } =
+    await import('../node_modules/svelte-toolbelt/dist/utils/sr-only-styles.js');
+  assert.equal(SR_ONLY_STYLES_STRING, srOnlyStylesString);
 });
 
 test('Checkbox and Label: label activation, double clicks (e.detail), the hidden input', async () => {

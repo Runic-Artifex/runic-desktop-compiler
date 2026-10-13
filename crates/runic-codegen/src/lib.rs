@@ -998,6 +998,7 @@ impl Gen<'_> {
                     style_update,
                     restore: restore_mode,
                     adopt,
+                    children: template_children,
                     ..
                 } = node
                 else {
@@ -1005,6 +1006,11 @@ impl Gen<'_> {
                 };
                 o.fields.push((format!("n{key}"), "NodeId".into()));
                 let _ = writeln!(o.mount, "let n{key} = dom.element({});", rust_str(tag));
+                // An element without template children: script owns its
+                // child list (M6 script DOM, rule O3a).
+                if template_children.is_empty() && runic_ir::interp::script_host_tag(tag) {
+                    let _ = writeln!(o.mount, "dom.script_host(n{key});");
+                }
                 if let Some(r) = reference {
                     // The ref holds the element while mounted and null afterwards;
                     // a ref that is a bound prop forwards it to the parent.

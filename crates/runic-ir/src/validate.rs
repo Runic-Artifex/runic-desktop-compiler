@@ -3478,7 +3478,8 @@ fn host_service(name: &str) -> Option<&'static str> {
     // The body element never changes; a document query reads the DOM as
     // the element queries do (`element.querySelector`), which are not host
     // services either (M6 overlays: bits-ui's portal target, a derived value).
-    if name == "document.body" || name == "document.querySelector" {
+    // (Nor is the document itself as a value, M6 script DOM.)
+    if name == "document.body" || name == "document.querySelector" || name == "document.node" {
         return None;
     }
     // Reporting an uncovered runtime shape is a diagnostic, not a value the

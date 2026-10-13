@@ -620,9 +620,60 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             "{{ cx.dom.set_attribute({}.0, &{}.to_rust(), &{}.to_rust()); }}",
             t[0], t[1], t[2]
         ),
-        ("element", "appendChild") => format!(
-            "{{ let c = {}; cx.dom.append_child({}.0, c.0); c }}",
-            t[1], t[0]
+        ("element", "appendChild") => q(
+            cx,
+            format!(
+                "{{ let p = {}; let c = {}; cx.dom.append_child(p.0, c.0).map(|()| c) }}",
+                t[0], t[1]
+            ),
+        ),
+        // Script DOM (M6, docs/design/M6-SCRIPT-DOM.md).
+        ("document", "node") => "js::Element::DOCUMENT".into(),
+        ("window", "node") => "js::Element::WINDOW".into(),
+        ("document", "createElement") => format!(
+            "js::Element(cx.dom.create_element(&{}.to_rust()))",
+            t[0]
+        ),
+        ("element", "insertBefore") => q(
+            cx,
+            format!(
+                "{{ let p = {}; let c = {}; let b: Maybe<js::Element> = {}; cx.dom.insert_before(p.0, c.0, b.as_option().map(|b| b.0), \"insertBefore\").map(|()| c) }}",
+                t[0], t[1], t[2]
+            ),
+        ),
+        ("element", "replaceChildren") => q(
+            cx,
+            format!(
+                "{{ let p = {}; let list: JsRef<Vec<js::Element>> = {}; let nodes: Vec<u64> = list.borrow().iter().map(|n| n.0).collect(); cx.dom.replace_children(p.0, &nodes) }}",
+                t[0], t[1]
+            ),
+        ),
+        ("element", "remove") => q(cx, format!("cx.dom.remove_node({}.0)", t[0])),
+        ("element", "set-textContent") => q(
+            cx,
+            format!("{{ let n = {}; cx.dom.set_text_content(n.0, &{}.to_rust()) }}", t[0], t[1]),
+        ),
+        ("element", "set-innerText") => q(
+            cx,
+            format!("{{ let n = {}; cx.dom.set_inner_text(n.0, &{}.to_rust()) }}", t[0], t[1]),
+        ),
+        ("element", "firstChild") => q(
+            cx,
+            format!(
+                "cx.dom.first_child({}.0).map(|c| c.map_or(Maybe::Null, |c| Maybe::Some(js::Element(c))))",
+                t[0]
+            ),
+        ),
+        ("element", "childElementCount") => {
+            q(cx, format!("cx.dom.child_element_count({}.0)", t[0]))
+        }
+        ("element", "removeAttribute") => format!(
+            "{{ let n = {}; cx.dom.remove_attribute(n.0, &{}.to_rust()); }}",
+            t[0], t[1]
+        ),
+        ("element", "style-set-text") => format!(
+            "{{ let n = {}; cx.dom.style_set_text(n.0, &{}.to_rust()); }}",
+            t[0], t[1]
         ),
         ("element", "parent") => format!(
             "(match cx.dom.parent_element({}.0) {{ Some(e) => Maybe::Some(js::Element(e)), None => Maybe::Null }})",

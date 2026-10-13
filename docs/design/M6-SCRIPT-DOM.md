@@ -116,6 +116,18 @@ Each slice: frontend lowering, IR built-ins, validator rules, interpreter (or an
 8. **Plain-JavaScript frontend** and its TodoMVC.
 9. **Awaiting the user:** run-time HTML parsing; then Alpine (an adapter) and HTMX (after M8).
 
+## Slice 1 outcome (2026-10-13)
+
+Implemented as decided above, with these refinements:
+
+- **Document values.** `hostName` also proves a name (or a member chain) TypeScript types as the document or the window, not nullable; elsewhere a value of either type is a nullable node handle (`document.node`, `window.node`). A document member read on a node value the program does not know to be the document (untyped package code, where TypeScript sees `any`) checks at run time that it is (`element.isDocument`): `createElement` on another node throws the `TypeError` JavaScript throws, `body` (undefined on another node) is reported. `element.querySelector` of the document handle searches the document.
+- **Creatable tags** are the static elements (`{@html}` fragment tags, the inert text-level and table elements); script hosts exclude controls, void elements, table sections and SVG.
+- **Text nodes** are created by `textContent`/`innerText` but are not handed out as values yet: a `firstChild` that is one is reported (slice 2).
+- **`style.cssText`** reports a declaration the style engine does not parse instead of serializing without it.
+- **The interpreter** models script-owned nodes and the child lists script owns (an arena, regrafted into the rendered tree after each change), so the differential is complete for the case; the body's script content after the container is not modelled there (natively it is).
+- **Consumer typing.** bits-ui's announcer is untyped JavaScript with a declaration file; two package-typing rules (functions returned as declared members, and local arrows called only through such members) and svelte-toolbelt's `srOnlyStylesString` were added so that it lowers. The calendar examples now stop at `instanceof` of an untyped value in bits-ui's date-time utils (utils.js:115), outside the script DOM.
+- **Verification.** Case `script-dom-announcer` passes semantics, geometry and pixels at both viewports (also `--no-opt`); the differential compares 520 steps without failure; the IR of every other conformance fixture is unchanged. Census: 280 of 404 lowered, as before; 22 rejected examples moved past their first blocker (14 calendars and date pickers, 6 carousels, 2 hover cards; [results](../../conformance/results/script-dom.md)).
+
 ## Verification
 
 - Every slice runs its case with `node conformance/run.mjs <case> --pixels` (semantics, geometry, pixels at both viewports) and the differential; the census (`node conformance/triage.mjs`) is rerun at slices 1 and 4.
