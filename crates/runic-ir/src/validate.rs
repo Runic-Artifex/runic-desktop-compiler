@@ -3215,9 +3215,8 @@ impl<'p> NodeCx<'_, 'p> {
                         );
                     }
                 }
-                if checkbox && !props.iter().any(|p| p.name == "checked") {
-                    return err("E_IR", "Checkboxes need a live checked property", src);
-                }
+                // A checkbox without `checked` is uncontrolled: its live
+                // checked state is the user's, as in the DOM.
                 // The text content follows a controlled value (React DOM);
                 // alone it would also be the live value until edited.
                 if props.iter().any(|p| p.name == "defaultValue")

@@ -2356,6 +2356,33 @@ export class Classes {
       const statements = x.ctor?.body?.statements ?? [];
       return x.base && x.ctor ? statements.slice(this.superStatement(x).index + 1) : statements;
     };
+    /**
+     * The initialiser of a base field declared again (`fieldOverride`), as
+     * a value of the base field's type. TypeScript gives the declaration
+     * its own object type, structurally the base field's (`{ n: number }`
+     * written twice): an object literal is built as the base field's
+     * record, and a value whose record differs (the keys in another order,
+     * which is observable; getters where the base's objects have plain
+     * properties) is rejected here.
+     */
+    const overrideValue = (f: Field, m: ts.PropertyDeclaration): Expr => {
+      const init = skipParens(m.initializer!);
+      if (ts.isObjectLiteralExpression(init) && !lower.expected.has(init))
+        lower.expected.set(init, f.type);
+      const value = this.early(m.initializer!, b, info, temps, 'initialiser');
+      const have = lower.irType(value, b);
+      if (
+        this.fit(value, have, f.type) === value &&
+        JSON.stringify(have) !== JSON.stringify(f.type)
+      ) {
+        const owner = ts.isClassLike(m.parent) && m.parent.name ? m.parent.name.text : info.name;
+        this.fail(
+          m,
+          `${owner} declares the field ${f.name} of a base class again with a value the base field's type cannot hold here: the object types are structurally the same, but their objects differ in key order (which is observable) or in being implemented with getters; give the value the base field's key order and kind of properties`,
+        );
+      }
+      return value;
+    };
     /** Whether `s` assigns a reactive field its rune. */
     const runeStatement = (s: ts.Statement) => {
       const target = thisAssignment(s);
@@ -2384,7 +2411,7 @@ export class Classes {
         if (!ts.isPropertyDeclaration(m) || !m.initializer) continue;
         if (x.overrides?.includes(m)) {
           const f = this.fieldNamed(info, memberName(m.name))!;
-          assign(f, this.early(m.initializer, b, info, temps, 'initialiser'), m);
+          assign(f, overrideValue(f, m), m);
           continue;
         }
         const f = x.own.find(o => o.decl === m);
@@ -2456,7 +2483,7 @@ export class Classes {
           if (!ts.isPropertyDeclaration(m) || !m.initializer) continue;
           if (y.overrides?.includes(m)) {
             const f = this.fieldNamed(info, memberName(m.name))!;
-            assign(f, this.early(m.initializer, b, info, temps, 'initialiser'), m);
+            assign(f, overrideValue(f, m), m);
             continue;
           }
           const f = y.own.find(o => o.decl === m);

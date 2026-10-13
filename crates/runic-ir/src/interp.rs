@@ -5010,6 +5010,25 @@ impl<'p> Machine<'p> {
                         value = Some(map.get("value").cloned().unwrap_or_else(|| "on".into()));
                     }
                 }
+                // An uncontrolled checkbox or radio button keeps what the user
+                // toggled; until then its checkedness is the presence of its
+                // `checked` attribute (the default checkedness).
+                if checked.is_none()
+                    && tag == "input"
+                    && map.get("type").is_some_and(|t| {
+                        t.eq_ignore_ascii_case("checkbox") || t.eq_ignore_ascii_case("radio")
+                    })
+                {
+                    checked = Some(
+                        self.live_checked
+                            .get(&id)
+                            .copied()
+                            .unwrap_or_else(|| map.contains_key("checked")),
+                    );
+                    if value.is_none() {
+                        value = Some(map.get("value").cloned().unwrap_or_else(|| "on".into()));
+                    }
+                }
                 // An uncontrolled text input shows what was typed, initially its
                 // `value` attribute.
                 if value.is_none() && checked.is_none() && (tag == "input" || tag == "textarea") {
