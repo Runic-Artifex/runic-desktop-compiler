@@ -49,6 +49,7 @@ import {
   inferFields,
   portModule,
   reachedPackageModules,
+  unreachedClassOf,
   type PackageModule,
 } from '../package-modules.ts';
 import { PropDomains, type PropDecl, type Site, type SiteValue } from '../domains.ts';
@@ -2515,6 +2516,10 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
     jsonBinding(lower, symbol, graph.modules) ??
     packageLazy(symbol);
   lower.implementation = implementationOf(program, packageModules);
+  lower.unreachedClass = unreachedClassOf(
+    packageModules,
+    new Set([...graph.modules.values()].flatMap(m => (m.package ? [m.package.dir] : []))),
+  );
   /** A component's `<script module>` statements in its virtual module. */
   const moduleStatements = (u: Unit) => {
     const sf = program.getSourceFile(u.virtual)!;
@@ -3509,13 +3514,14 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
           snippetOf.set(sym, key);
           continue;
         }
-        // A default (not `$bindable()` without one) replaces undefined.
-        const defaulted =
-          !!el.initializer &&
-          !(
-            runeName(el.initializer) === '$bindable' &&
-            !(el.initializer as ts.CallExpression).arguments.length
-          );
+        // A default (not `$bindable()` without one) replaces undefined,
+        // unless it may be undefined itself (bits-ui's Calendar
+        // `minValue = undefined`).
+        const given =
+          el.initializer && runeName(el.initializer) === '$bindable'
+            ? (el.initializer as ts.CallExpression).arguments[0]
+            : el.initializer;
+        const defaulted = !!given && !mayBeUndefined(checker.getTypeAtLocation(given));
         if (el.initializer) eagerProps.add(`${u.index}:${key}`);
         const inMember = member && propTypeIn(member, key, el, defaulted);
         let type =
@@ -6227,6 +6233,12 @@ function decodeFragment(s: string): string {
       return run;
     }
   });
+}
+
+/** Whether TypeScript type `t` holds undefined (a prop default that does not replace it). */
+function mayBeUndefined(t: ts.Type): boolean {
+  const undef = ts.TypeFlags.Undefined | ts.TypeFlags.Void;
+  return !!(t.flags & undef) || (t.isUnion() && t.types.some(m => m.flags & undef));
 }
 
 /** The IR type of a prop that takes `values` (strings or booleans, possibly nullish). */

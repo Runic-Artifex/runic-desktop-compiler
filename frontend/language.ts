@@ -420,6 +420,7 @@ export class Lowerer {
       classTypeArgs?.(t) ?? (t.symbol ? this.functionTypeArgs.get(t.symbol) : undefined);
     types.classType = (cls, t, at) => this.classes.typeOf(cls, t, at);
     types.classUnion = (parts, at) => this.classes.unionOf(parts, at);
+    types.uninhabited = t => !!t.symbol && !!this.unreachedClass?.(t.symbol);
     types.hostParameter = p => this.hostParam(p) !== undefined;
     types.packType = (t, at) =>
       packType(t, at, this) ??
@@ -5220,6 +5221,12 @@ export class Lowerer {
    * implementation's.
    */
   implementation?: (symbol: ts.Symbol) => ts.Symbol | undefined;
+  /**
+   * Whether a class a package's declaration file declares has no instances
+   * in the program: its package is compiled from source and the program does
+   * not reach its module (frontend/package-modules.ts `unreachedClassOf`).
+   */
+  unreachedClass?: (symbol: ts.Symbol) => boolean;
 
   /** The binding of `symbol`, created on first use if it is lazy. */
   bindingOf(symbol: ts.Symbol): Binding | undefined {

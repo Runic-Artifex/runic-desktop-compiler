@@ -7,6 +7,8 @@ import { maybeInner, unionRank } from './irtype.ts';
 
 /** Where pack ports live (frontend/packs.ts, `PackPort`). */
 const PACKS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'packs') + path.sep;
+/** The compiler's host declarations (dom.d.ts, svelte-runes.d.ts, …). */
+const HOST_DECLARATIONS = path.dirname(fileURLToPath(import.meta.url)) + path.sep;
 
 export type Fail = (node: ts.Node, code: string, message: string) => never;
 
@@ -24,6 +26,12 @@ export class TypeMapper {
   classType?: (cls: ts.Symbol, t: ts.Type, at: ts.Node) => Type;
   /** The IR type of a union of class instance types (a class reference). */
   classUnion?: (parts: ts.Type[], at: ts.Node) => Type;
+  /**
+   * Whether class type `t` has no instances in the program (a class of a
+   * package compiled from source whose module the program does not reach,
+   * `Lowerer.unreachedClass`): a union member holding nothing.
+   */
+  uninhabited?: (t: ts.Type) => boolean;
   /**
    * The IR type a type parameter is bound to (a generic class's one
    * instantiation, frontend/classes.ts), if any.
@@ -714,7 +722,14 @@ export class TypeMapper {
     // (`"text" | (string & {})`, svelte/elements' HTMLInputTypeAttribute: string.)
     const parts = members.map(p => this.emptyIntersected(p) ?? p);
     const nullish = parts.filter(p => p.flags & (F.Null | F.Undefined | F.Void));
-    const rest = parts.filter(p => !(p.flags & (F.Null | F.Undefined | F.Void)));
+    let rest = parts.filter(p => !(p.flags & (F.Null | F.Undefined | F.Void)));
+    // Classes without instances in the program hold nothing (bits-ui's
+    // Calendar root context `RangeCalendarRootState | CalendarRootState`
+    // where no RangeCalendar is reached): the other members type the union.
+    // Where they are all such classes, it holds null or undefined only.
+    const inhabited = rest.filter(p => !(this.sourceClass(p) && this.uninhabited?.(p)));
+    if (inhabited.length) rest = inhabited;
+    else if (rest.length && nullish.length) return { maybe: 'void' };
     let base: Type;
     if (rest.length === 0) return 'void';
     if (rest.every(p => p.flags & (F.Boolean | F.BooleanLiteral))) base = 'boolean';
@@ -798,6 +813,17 @@ export class TypeMapper {
     if (t.getProperty('__runicMediaQuery')) return 'media-query';
     // A CSS animation or transition (frontend/dom.d.ts), read through built-ins.
     if (t.getProperty('__runicAnimation')) return 'animation';
+    // The document and the window (frontend/dom.d.ts) are host objects, not
+    // values: they are accepted where the program knows the value is that
+    // object (`Lowerer.hostName`). Reported where the program needs the
+    // type, not at the host declarations' members.
+    const host = this.hostOf(t);
+    if (host)
+      this.fail(
+        at,
+        'E_TYPE_UNSUPPORTED',
+        `The ${host} is not a value here (a ${host === 'document' ? 'Document' : 'Window'} value that may be another object or null): the ${host} is accepted where the value is known to be it (the global, a parameter every call passes it for, a function returning it, a field holding it once assigned)`,
+      );
     // An image object (frontend/dom.d.ts), read and written through built-ins.
     if (t.getProperty('__runicImage')) return 'image';
     // A computed style declaration stands for its element (frontend/dom.d.ts).
@@ -1106,13 +1132,15 @@ export class TypeMapper {
       let pt = this.checker.getTypeOfSymbolAtLocation(p, decl ?? at);
       if (p.flags & ts.SymbolFlags.Optional)
         pt = this.checker.getNullableType(pt, ts.TypeFlags.Undefined);
-      // Properties a package's declaration files declare are reported where
-      // the program uses the type.
+      // Properties a package's declaration files or the compiler's host
+      // declarations (frontend/dom.d.ts) declare are reported where the
+      // program uses the type.
       const where =
         decl &&
         !(
           decl.getSourceFile().isDeclarationFile &&
-          /[\\/]node_modules[\\/]/.test(decl.getSourceFile().fileName)
+          (/[\\/]node_modules[\\/]/.test(decl.getSourceFile().fileName) ||
+            path.resolve(decl.getSourceFile().fileName).startsWith(HOST_DECLARATIONS))
         )
           ? decl
           : at;
