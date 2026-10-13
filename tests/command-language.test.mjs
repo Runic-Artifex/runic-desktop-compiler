@@ -246,7 +246,9 @@ test('CSS.escape escapes as Chromium does', async () => {
   );
 });
 
-test('script writing an attribute is native only: the interpreter reports it incomplete', async () => {
+// (M6 script DOM, slice 2: the interpreter models script attribute writes on
+// rendered elements, kept until the framework writes a changed value.)
+test('script writing an attribute of a rendered element', async () => {
   await withApp(
     {
       'App.svelte': `<script lang="ts">
@@ -262,7 +264,8 @@ test('script writing an attribute is native only: the interpreter reports it inc
     async root => {
       const { ir } = await lower(await collect(root));
       assert.ok(JSON.stringify(ir).includes('"element.setAttribute"'));
-      assert.throws(() => interpret(ir, []), /RunicLayoutError|needs the native DOM/);
+      const [step] = interpret(ir, []);
+      assert.deepEqual(step.state.dom[0].attrs, { 'data-value': 'x' });
     },
   );
 });

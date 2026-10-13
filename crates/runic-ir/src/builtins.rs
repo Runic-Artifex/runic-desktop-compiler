@@ -705,6 +705,12 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             arity(args, 1, 1)?;
             expect(&args[0], &s, "tag").map(|_| Element)
         }
+        // Slice 2: text, comment and fragment nodes.
+        ("document", "createTextNode" | "createComment") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &s, "data").map(|_| Element)
+        }
+        ("document", "createDocumentFragment") => arity(args, 0, 0).map(|_| Element),
         // The runtime's user agent (M6: bits-ui's platform checks).
         ("navigator", "user-agent") => arity(args, 0, 0).map(|_| s.clone()),
         ("focus", "current") => arity(args, 0, 0).map(|_| Maybe(Box::new(Element))),
@@ -1046,7 +1052,71 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             arity(args, 1, 1)?;
             expect(&args[0], &Element, "receiver").map(|_| n.clone())
         }
-        ("element", "set-textContent" | "set-innerText" | "style-set-text" | "removeAttribute") => {
+        // Slice 2: node kinds, data, traversal, the ChildNode/ParentNode
+        // insertions, removeChild/replaceChild, cloning and classList.
+        ("element", "nodeType") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "receiver").map(|_| n.clone())
+        }
+        ("element", "nodeName") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "receiver").map(|_| s.clone())
+        }
+        ("element", "nodeValue") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "receiver").map(|_| Maybe(Box::new(s.clone())))
+        }
+        ("element", "lastChild" | "nextSibling" | "previousSibling" | "parentNode") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "receiver").map(|_| Maybe(Box::new(Element)))
+        }
+        ("element", "childNodes" | "children") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "receiver").map(|_| Type::array(Element))
+        }
+        ("element", "append" | "prepend" | "before" | "after" | "replaceWith") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &Type::array(Element), "nodes").map(|_| Void)
+        }
+        ("element", "removeChild") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &Element, "child").map(|_| Element)
+        }
+        ("element", "replaceChild") => {
+            arity(args, 3, 3)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &Element, "node")?;
+            expect(&args[2], &Element, "child").map(|_| Element)
+        }
+        ("element", "cloneNode") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &b, "deep").map(|_| Element)
+        }
+        ("element", "class-add" | "class-remove") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &Type::array(s.clone()), "tokens").map(|_| Void)
+        }
+        ("element", "class-toggle") => {
+            arity(args, 3, 3)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &s, "token")?;
+            expect(&args[2], &Maybe(Box::new(b.clone())), "force").map(|_| b.clone())
+        }
+        ("element", "class-contains") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &s, "token").map(|_| b.clone())
+        }
+        ("element", "class-replace") => {
+            arity(args, 3, 3)?;
+            expect(&args[0], &Element, "receiver")?;
+            all(&args[1..], &s).map(|_| b.clone())
+        }
+        ("element", "set-textContent" | "set-innerText" | "style-set-text" | "removeAttribute" | "set-nodeValue") => {
             arity(args, 2, 2)?;
             expect(&args[0], &Element, "receiver")?;
             expect(&args[1], &s, "value").map(|_| Void)
@@ -1060,7 +1130,7 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
         }
         // `instanceof Element` and `instanceof Document` of an event target,
         // which may be the document or the window.
-        ("element", "isElement" | "isDocument") => {
+        ("element", "isElement" | "isDocument" | "isNode") => {
             arity(args, 1, 1)?;
             expect(&args[0], &Element, "receiver").map(|_| b)
         }

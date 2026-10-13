@@ -173,6 +173,99 @@ test('script owns the children of an element the template renders without childr
   );
 });
 
+// Slice 2: text, comment and fragment nodes, traversal, insertions,
+// cloning, classList and dataset.
+test('fragments, text and comment nodes, traversal and ChildNode insertions', async () => {
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  let host = $state<HTMLElement | null>(null);
+  let out = $state('');
+  function run() {
+    if (!host) return;
+    const f = document.createDocumentFragment();
+    const c = document.createComment('c');
+    f.append('a', c, document.createTextNode('b'));
+    host.append(f);
+    c.after('x');
+    c.before(document.createElement('i'));
+    host.lastChild?.replaceWith('z');
+    const kinds = Array.from(host.childNodes).map(n => n.nodeType).join(',');
+    out = kinds + ' ' + f.childNodes.length + ' ' + host.textContent + ' ' + (c instanceof Text) + (c instanceof Comment) + ' ' + host.children.length;
+  }
+</script>
+<button id="b" onclick={run}>run</button><p id="out">{out}</p><div id="host" bind:this={host}></div>`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [{ kind: 'click', id: 'b' }]);
+      assert.equal(text(byId(steps[1].state.dom, 'out')), '3,1,8,3,3 0 axz falsetrue 1');
+      // (The comment is left out of the snapshot.)
+      assert.deepEqual(byId(steps[1].state.dom, 'host').children, [
+        'a',
+        { tag: 'i', attrs: {}, children: [] },
+        'xz',
+      ]);
+    },
+  );
+});
+
+test('classList and dataset on script and rendered elements, cloneNode', async () => {
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  let host = $state<HTMLElement | null>(null);
+  let tpl = $state<HTMLElement | null>(null);
+  let out = $state('');
+  function run() {
+    if (!host || !tpl) return;
+    const s = document.createElement('span');
+    s.className = ' a  b ';
+    s.classList.add('c');
+    const t = s.classList.toggle('a');
+    s.dataset.someKey = 'v';
+    tpl.classList.add('on');
+    const copy = tpl.cloneNode(true);
+    host.append(s, copy);
+    out = s.className + ' ' + t + ' ' + s.getAttribute('data-some-key') + ' ' + tpl.classList.contains('on');
+  }
+</script>
+<button id="b" onclick={run}>run</button><p id="out">{out}</p>
+<p id="tpl" data-k="1" bind:this={tpl}>t<b>b</b></p><div id="host" bind:this={host}></div>`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [{ kind: 'click', id: 'b' }]);
+      assert.equal(text(byId(steps[1].state.dom, 'out')), 'b c false v true');
+      assert.equal(byId(steps[1].state.dom, 'tpl').attrs.class, 'on');
+      const kids = byId(steps[1].state.dom, 'host').children;
+      assert.deepEqual(kids[1], {
+        tag: 'p',
+        attrs: { class: 'on', 'data-k': '1', id: 'tpl' },
+        children: ['t', { tag: 'b', attrs: {}, children: ['b'] }],
+      });
+    },
+  );
+});
+
+test('live lists are read where used', async () => {
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  let host = $state<HTMLElement | null>(null);
+  function run() {
+    if (!host) return;
+    const list = host.childNodes;
+    host.append('x');
+    host.textContent = String(list.length);
+  }
+</script>
+<button onclick={run}>run</button><div bind:this={host}></div>`,
+    },
+    async root => assert.rejects(lowered(root), failWith('E_MEMBER', /live list/)),
+  );
+});
+
 test("script changing the framework's child lists needs the native DOM", async () => {
   await withApp(
     {

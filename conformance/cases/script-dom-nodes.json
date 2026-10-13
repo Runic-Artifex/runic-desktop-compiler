@@ -1,0 +1,15 @@
+{
+  "description": "Script DOM slice 2 (docs/design/M6-SCRIPT-DOM.md), compared with Chromium: a document fragment of strings, a comment, an element and a text node appended to an element the template renders without children (the fragment left empty); nodeType, nodeName, nodeValue and textContent (comments left out); firstChild, lastChild, nextSibling, previousSibling, parentNode, childNodes and children read where used, firstElementChild; instanceof Text, Comment, Element, Node and DocumentFragment; nodeValue writes, before/after/prepend/replaceWith with nodes and strings, replaceChild, removeChild; cloneNode deep and shallow of a rendered element; classList add/toggle/replace on a script element and add/contains/remove on a rendered one, className, dataset reads and writes; replaceChildren",
+  "fixtures": ["script-dom-nodes-svelte"],
+  "actions": [
+    { "kind": "click", "id": "build" },
+    { "kind": "click", "id": "edit" },
+    { "kind": "click", "id": "swap" },
+    { "kind": "click", "id": "copy" },
+    { "kind": "click", "id": "classes" },
+    { "kind": "click", "id": "clear" },
+    { "kind": "click", "id": "build" },
+    { "kind": "click", "id": "swap" },
+    { "kind": "click", "id": "copy" }
+  ]
+}

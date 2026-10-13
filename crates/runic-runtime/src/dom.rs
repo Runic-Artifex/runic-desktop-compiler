@@ -264,6 +264,9 @@ pub(crate) struct Listeners {
     /// Elements the template renders without children (rule O3a): no
     /// framework ever inserts into them, so script owns their child lists.
     pub(crate) script_hosts: std::collections::HashSet<NodeId>,
+    /// Document fragments script created (slice 2): never inserted
+    /// themselves; inserting one moves its children.
+    pub(crate) fragments: std::collections::HashSet<NodeId>,
     /// The body holds whitespace around the container in the browser's page
     /// (an app's HTML template, SvelteKit's app.html): node-level traversal
     /// of the body is then reported unsupported.
@@ -1133,30 +1136,520 @@ impl Host {
         before: Option<u64>,
         method: &str,
     ) -> Result<(), runic_js::Throw> {
+        self.insert_nodes(parent, &[node], before, method)
+    }
+
+    /// Insert `nodes` (a fragment standing for its children, which move out
+    /// of it) into `parent` before `before`, or append them, after the DOM
+    /// standard's pre-insertion validity and the ownership checks. A
+    /// reference among the nodes moved is replaced by its next sibling that
+    /// is not (`insertBefore(n, n)` leaves `n` in place).
+    pub fn insert_nodes(
+        &self,
+        parent: u64,
+        nodes: &[u64],
+        before: Option<u64>,
+        method: &str,
+    ) -> Result<(), runic_js::Throw> {
         let Some(mut dom) = self.dom() else {
             return Ok(());
         };
         let parent = self.node_arg(&dom, parent, method)?;
-        let node = self.node_arg(&dom, node, method)?;
-        let before = match before {
+        let mut before = match before {
             Some(b) => Some(self.node_arg(&dom, b, method)?),
             None => None,
         };
-        // Inserting a node before itself leaves it in place.
-        if before == Some(node) {
-            return self.check_insert(&dom, parent, node, None, method);
+        let mut ids = vec![];
+        for &n in nodes {
+            let id = self.node_arg(&dom, n, method)?;
+            if dom.listeners.fragments.contains(&id) {
+                if dom.contains(id.as_u64(), parent.as_u64()) {
+                    return Err(runic_js::Throw::new(
+                        "HierarchyRequestError",
+                        format!(
+                            "Failed to execute '{method}' on 'Node': The new child element contains the parent."
+                        ),
+                    ));
+                }
+                ids.extend(dom.doc.get_node(id).map_or(vec![], |f| f.children.to_vec()));
+            } else {
+                ids.push(id);
+            }
         }
-        self.check_insert(&dom, parent, node, before, method)?;
-        Self::detach(&mut dom, node);
+        if let Some(b) = before.filter(|b| ids.contains(b)) {
+            let siblings: Vec<u64> = dom
+                .doc
+                .get_node(parent)
+                .map_or(vec![], |p| p.children.iter().map(|c| c.as_u64()).collect());
+            let raw: Vec<u64> = ids.iter().map(|i| i.as_u64()).collect();
+            before = siblings
+                .iter()
+                .position(|&s| s == b.as_u64())
+                .and_then(|at| runic_js::script_dom::viable_sibling(&siblings, at, true, &raw))
+                .map(NodeId::from_u64);
+        }
+        for &id in &ids {
+            self.check_insert(&dom, parent, id, before, method)?;
+        }
+        if ids.is_empty() {
+            return Ok(());
+        }
+        for &id in &ids {
+            Self::detach(&mut dom, id);
+        }
         dom.listeners.child_mutations.push(parent);
         let mut m = dom.doc.mutate();
         match before {
-            Some(b) => m.insert_nodes_before(b, &[node]),
-            None => m.append_children(parent, &[node]),
+            Some(b) => m.insert_nodes_before(b, &ids),
+            None => m.append_children(parent, &ids),
         }
         drop(m);
-        dom.radios_connected(&[node]);
+        dom.radios_connected(&ids);
         Ok(())
+    }
+
+    /// `node.before(...nodes)`, `after(...nodes)` and `replaceWith(...nodes)`
+    /// (the DOM standard's ChildNode steps, with the viable sibling): nothing
+    /// for a node without a parent.
+    pub fn child_node_insert(
+        &self,
+        node: u64,
+        nodes: &[u64],
+        method: &str,
+    ) -> Result<(), runic_js::Throw> {
+        let (parent, before) = {
+            let Some(dom) = self.dom() else {
+                return Ok(());
+            };
+            let id = self.node_arg(&dom, node, method)?;
+            let Some(parent) = dom.doc.get_node(id).and_then(|n| n.parent) else {
+                return Ok(());
+            };
+            let siblings: Vec<u64> = dom
+                .doc
+                .get_node(parent)
+                .map_or(vec![], |p| p.children.iter().map(|c| c.as_u64()).collect());
+            let at = siblings.iter().position(|&s| s == node).unwrap_or(0);
+            // (The nodes as inserted: a fragment's children.)
+            let mut moved = vec![];
+            for &n in nodes {
+                let nid = self.node_arg(&dom, n, method)?;
+                if dom.listeners.fragments.contains(&nid) {
+                    moved.extend(
+                        dom.doc
+                            .get_node(nid)
+                            .map_or(vec![], |f| f.children.iter().map(|c| c.as_u64()).collect()),
+                    );
+                }
+                moved.push(n);
+            }
+            let before = match method {
+                "before" => {
+                    let previous =
+                        runic_js::script_dom::viable_sibling(&siblings, at, false, &moved);
+                    match previous {
+                        Some(p) => {
+                            let i = siblings.iter().position(|&s| s == p).expect("sibling");
+                            siblings.get(i + 1).copied()
+                        }
+                        None => siblings.first().copied(),
+                    }
+                }
+                _ => runic_js::script_dom::viable_sibling(&siblings, at, true, &moved),
+            };
+            (parent.as_u64(), before)
+        };
+        let replacing = method == "replaceWith" && !nodes.contains(&node);
+        if replacing {
+            // (Checked before anything moves.)
+            let dom = self.dom().expect("attached");
+            let id = NodeId::from_u64(node);
+            if !dom.listeners.script_nodes.contains(&id) {
+                return Err(Self::unsupported_err(format!(
+                    "{method} of a node the framework renders (only nodes script created move)"
+                )));
+            }
+            Self::check_focus_free(&dom, id, method)?;
+        }
+        // (Replacing: the nodes go before the node replaced, which then goes,
+        // as replacing it within its parent does.)
+        let before = if replacing { Some(node) } else { before };
+        self.insert_nodes(parent, nodes, before, method)?;
+        if replacing {
+            self.remove_node(node)?;
+        }
+        Ok(())
+    }
+
+    /// `parent.removeChild(child)`: `NotFoundError` for a node that is not
+    /// its child; gives the child.
+    pub fn remove_child(&self, parent: u64, child: u64) -> Result<(), runic_js::Throw> {
+        {
+            let Some(dom) = self.dom() else {
+                return Ok(());
+            };
+            let p = self.node_arg(&dom, parent, "removeChild")?;
+            let c = self.node_arg(&dom, child, "removeChild")?;
+            if dom.doc.get_node(c).and_then(|n| n.parent) != Some(p) {
+                return Err(runic_js::Throw::new(
+                    "NotFoundError",
+                    "Failed to execute 'removeChild' on 'Node': The node to be removed is not a child of this node.",
+                ));
+            }
+        }
+        self.remove_node(child)
+    }
+
+    /// `parent.replaceChild(node, child)`: `NotFoundError` for a child of
+    /// another parent; `node` takes `child`'s place.
+    pub fn replace_child(&self, parent: u64, node: u64, child: u64) -> Result<(), runic_js::Throw> {
+        {
+            let Some(dom) = self.dom() else {
+                return Ok(());
+            };
+            let p = self.node_arg(&dom, parent, "replaceChild")?;
+            let c = self.node_arg(&dom, child, "replaceChild")?;
+            if dom.doc.get_node(c).and_then(|n| n.parent) != Some(p) {
+                return Err(runic_js::Throw::new(
+                    "NotFoundError",
+                    "Failed to execute 'replaceChild' on 'Node': The node to be replaced is not a child of this node.",
+                ));
+            }
+        }
+        if node == child {
+            return Ok(());
+        }
+        self.child_node_insert(child, &[node], "replaceWith")
+    }
+
+    /// Whether `node` is an element node (not a text, comment or fragment
+    /// node; the handles of the document and the window are tested apart).
+    pub fn is_element_node(&self, node: u64) -> bool {
+        let Some(dom) = self.dom() else { return true };
+        let id = NodeId::from_u64(node);
+        !dom.listeners.fragments.contains(&id)
+            && dom
+                .doc
+                .get_node(id)
+                .is_none_or(|n| n.element_data().is_some())
+    }
+
+    /// `document.createTextNode(data)` and `document.createComment(data)`.
+    pub fn create_character_data(&self, data: &str, comment: bool) -> u64 {
+        let Some(mut dom) = self.dom() else { return 0 };
+        let id = if comment {
+            let id = dom.doc.mutate().create_comment_node(data);
+            dom.listeners.script_nodes.insert(id);
+            id
+        } else {
+            Self::create_text(&mut dom, data)
+        };
+        id.as_u64()
+    }
+
+    /// `document.createDocumentFragment()`: a detached node the runtime
+    /// marks as a fragment and never inserts itself.
+    pub fn create_fragment(&self) -> u64 {
+        let Some(dom) = self.dom() else { return 0 };
+        let id = dom.doc.mutate().create_element(
+            QualName::new(None, ns!(html), LocalName::from("runic-fragment")),
+            vec![],
+        );
+        dom.listeners.script_nodes.insert(id);
+        dom.listeners.fragments.insert(id);
+        id.as_u64()
+    }
+
+    /// `nodeType`: 1 element, 3 text, 8 comment, 9 document, 11 fragment.
+    pub fn node_type(&self, node: u64) -> Result<f64, runic_js::Throw> {
+        let Some(dom) = self.dom() else {
+            return Ok(1.0);
+        };
+        let id = self.node_arg(&dom, node, "nodeType")?;
+        if dom.listeners.fragments.contains(&id) {
+            return Ok(11.0);
+        }
+        let n = dom.doc.get_node(id).expect("checked");
+        Ok(match n.data {
+            blitz_dom::NodeData::Document(_) => 9.0,
+            blitz_dom::NodeData::Text(_) => 3.0,
+            blitz_dom::NodeData::Comment { .. } => 8.0,
+            _ => 1.0,
+        })
+    }
+
+    /// `nodeName`: the HTML element's tag uppercased (SVG's as it is),
+    /// `#text`, `#comment`, `#document`, `#document-fragment`.
+    pub fn node_name(&self, node: u64) -> Result<String, runic_js::Throw> {
+        let Some(dom) = self.dom() else {
+            return Ok(String::new());
+        };
+        let id = self.node_arg(&dom, node, "nodeName")?;
+        if dom.listeners.fragments.contains(&id) {
+            return Ok("#document-fragment".into());
+        }
+        let n = dom.doc.get_node(id).expect("checked");
+        Ok(match &n.data {
+            blitz_dom::NodeData::Document(_) => "#document".into(),
+            blitz_dom::NodeData::Text(_) => "#text".into(),
+            blitz_dom::NodeData::Comment { .. } => "#comment".into(),
+            _ => n.element_data().map_or(String::new(), |e| {
+                if e.name.ns == ns!(html) {
+                    e.name.local.to_ascii_uppercase().to_string()
+                } else {
+                    e.name.local.to_string()
+                }
+            }),
+        })
+    }
+
+    /// `nodeValue` (and a text or comment node's `data`): none for other
+    /// nodes.
+    pub fn node_value(&self, node: u64) -> Result<Option<String>, runic_js::Throw> {
+        let Some(dom) = self.dom() else {
+            return Ok(None);
+        };
+        let id = self.node_arg(&dom, node, "nodeValue")?;
+        let n = dom.doc.get_node(id).expect("checked");
+        Ok(match &n.data {
+            blitz_dom::NodeData::Text(t) => Some(t.content.clone()),
+            blitz_dom::NodeData::Comment { contents } => Some(contents.clone()),
+            _ => None,
+        })
+    }
+
+    /// Setting a text or comment node's `data` (`nodeValue`, `textContent`):
+    /// script's own nodes only (the framework updates its text nodes).
+    /// Setting `nodeValue` of another node does nothing.
+    pub fn set_node_value(&self, node: u64, value: &str) -> Result<(), runic_js::Throw> {
+        let Some(dom) = self.dom() else { return Ok(()) };
+        let id = self.node_arg(&dom, node, "nodeValue")?;
+        let is_data = matches!(
+            dom.doc.get_node(id).map(|n| &n.data),
+            Some(blitz_dom::NodeData::Text(_) | blitz_dom::NodeData::Comment { .. })
+        );
+        if !is_data {
+            return Ok(());
+        }
+        if !dom.listeners.script_nodes.contains(&id) {
+            return Err(Self::unsupported_err(
+                "data of a text node the framework renders".into(),
+            ));
+        }
+        if let Some(parent) = dom.doc.get_node(id).and_then(|n| n.parent) {
+            dom.listeners.child_mutations.push(parent);
+        }
+        match &mut dom.doc.get_node_mut(id).expect("checked").data {
+            blitz_dom::NodeData::Comment { contents } => *contents = value.to_owned(),
+            _ => dom.doc.mutate().set_node_text(id, value),
+        }
+        Ok(())
+    }
+
+    /// Whether node-level traversal of `parent`'s children is exact (rule
+    /// O5): a child list script owns; the body where the browser's page has
+    /// the native nodes before the container.
+    fn traversable(&self, dom: &Dom, parent: NodeId, what: &str) -> Result<(), runic_js::Throw> {
+        if dom.listeners.body == Some(parent) && dom.listeners.body_whitespace {
+            return Err(Self::unsupported_err(format!(
+                "{what} at the body of an HTML template (its whitespace is not in the native document)"
+            )));
+        }
+        if !self.script_child_list(dom, parent) {
+            return Err(Self::unsupported_err(format!(
+                "{what} among the children of an element the framework renders children into (its anchors are not in the native document)"
+            )));
+        }
+        Ok(())
+    }
+
+    /// `firstChild`, `lastChild`, `nextSibling`, `previousSibling` (rule
+    /// O5). At the body, a sibling past the container is reported (the
+    /// browser's page has its module script there).
+    pub fn node_step(&self, node: u64, step: &str) -> Result<Option<u64>, runic_js::Throw> {
+        let Some(dom) = self.dom() else {
+            return Ok(None);
+        };
+        let id = self.node_arg(&dom, node, step)?;
+        let (parent, list, at) = match step {
+            "firstChild" | "lastChild" => {
+                let list = dom.doc.get_node(id).map_or(vec![], |n| n.children.to_vec());
+                (id, list, None)
+            }
+            _ => {
+                let Some(parent) = dom.doc.get_node(id).and_then(|n| n.parent) else {
+                    return Ok(None);
+                };
+                let list = dom
+                    .doc
+                    .get_node(parent)
+                    .map_or(vec![], |n| n.children.to_vec());
+                let at = list.iter().position(|&c| c == id);
+                (parent, list, at)
+            }
+        };
+        self.traversable(&dom, parent, step)?;
+        let found = match (step, at) {
+            ("firstChild", _) => list.first().copied(),
+            ("lastChild", _) => list.last().copied(),
+            ("nextSibling", Some(i)) => list.get(i + 1).copied(),
+            ("previousSibling", Some(i)) if i > 0 => list.get(i - 1).copied(),
+            _ => None,
+        };
+        if dom.listeners.body == Some(parent) {
+            let container = dom.listeners.container;
+            let after_container = |n: Option<NodeId>| {
+                let ci = list.iter().position(|&c| Some(c) == container);
+                match (n.and_then(|n| list.iter().position(|&c| c == n)), ci) {
+                    (Some(i), Some(ci)) => i > ci,
+                    (None, Some(_)) => true,
+                    _ => false,
+                }
+            };
+            if matches!(step, "lastChild" | "nextSibling") && after_container(found) {
+                return Err(Self::unsupported_err(format!(
+                    "{step} past the app's container at the body (the browser's page has its own nodes there)"
+                )));
+            }
+        }
+        Ok(found.map(NodeId::as_u64))
+    }
+
+    /// `childNodes` (rule O5) and `children` (element children, exact for
+    /// every element), as a list of the time of the read.
+    pub fn child_list(&self, node: u64, elements: bool) -> Result<Vec<u64>, runic_js::Throw> {
+        let Some(dom) = self.dom() else {
+            return Ok(vec![]);
+        };
+        let id = self.node_arg(&dom, node, if elements { "children" } else { "childNodes" })?;
+        if !elements {
+            self.traversable(&dom, id, "childNodes")?;
+        }
+        let list = dom.doc.get_node(id).map_or(vec![], |n| n.children.to_vec());
+        if dom.listeners.body == Some(id) && !elements {
+            return Err(Self::unsupported_err(
+                "childNodes of the body (the browser's page has its own nodes after the container)"
+                    .into(),
+            ));
+        }
+        Ok(list
+            .into_iter()
+            .filter(|&c| {
+                !elements
+                    || dom
+                        .doc
+                        .get_node(c)
+                        .is_some_and(|n| n.element_data().is_some())
+            })
+            .map(NodeId::as_u64)
+            .collect())
+    }
+
+    /// `parentNode`: the parent node (the document for the html element);
+    /// the app's container is reported (it is not the program's).
+    pub fn parent_node(&self, node: u64) -> Result<Option<u64>, runic_js::Throw> {
+        let Some(dom) = self.dom() else {
+            return Ok(None);
+        };
+        let id = self.node_arg(&dom, node, "parentNode")?;
+        let Some(parent) = dom.doc.get_node(id).and_then(|n| n.parent) else {
+            return Ok(None);
+        };
+        if parent == dom.doc.root_node().id {
+            return Ok(Some(runic_js::Element::DOCUMENT.0));
+        }
+        if Some(parent) == dom.listeners.container {
+            return Err(Self::unsupported_err(
+                "parentNode of a top-level element (the container is not the program's)".into(),
+            ));
+        }
+        Ok(Some(parent.as_u64()))
+    }
+
+    /// `node.cloneNode(deep)`: attributes, and the children when deep; no
+    /// listeners or bindings. The clone is script's. Controls (whose
+    /// cloning steps copy their state) are reported.
+    pub fn clone_node(&self, node: u64, deep: bool) -> Result<u64, runic_js::Throw> {
+        let Some(dom) = self.dom() else { return Ok(0) };
+        let id = self.node_arg(&dom, node, "cloneNode")?;
+        if id == dom.doc.root_node().id {
+            return Err(Self::unsupported_err("cloneNode of the document".into()));
+        }
+        let mut stack = vec![id];
+        while let Some(n) = stack.pop() {
+            let Some(x) = dom.doc.get_node(n) else {
+                continue;
+            };
+            if x.element_data().is_some_and(|e| {
+                matches!(
+                    &*e.name.local,
+                    "input" | "textarea" | "select" | "option" | "img"
+                )
+            }) {
+                return Err(Self::unsupported_err(
+                    "cloneNode of a control or image (their cloning steps copy state)".into(),
+                ));
+            }
+            if deep {
+                stack.extend(x.children.iter().copied());
+            }
+        }
+        let fragment = dom.listeners.fragments.contains(&id);
+        let clone = if deep {
+            dom.doc.mutate().deep_clone_node(id)
+        } else {
+            let n = dom.doc.get_node(id).expect("checked");
+            match &n.data {
+                blitz_dom::NodeData::Text(t) => {
+                    let t = t.content.clone();
+                    dom.doc.mutate().create_text_node(&t)
+                }
+                blitz_dom::NodeData::Comment { contents } => {
+                    let c = contents.clone();
+                    dom.doc.mutate().create_comment_node(&c)
+                }
+                _ => {
+                    let e = n.element_data().expect("an element");
+                    let (name, attrs) = (e.name.clone(), e.attrs().to_vec());
+                    dom.doc.mutate().create_element(name, attrs)
+                }
+            }
+        };
+        let mut stack = vec![clone];
+        while let Some(n) = stack.pop() {
+            dom.listeners.script_nodes.insert(n);
+            stack.extend(dom.doc.get_node(n).map_or(vec![], |x| x.children.to_vec()));
+        }
+        if fragment {
+            dom.listeners.fragments.insert(clone);
+        }
+        Ok(clone.as_u64())
+    }
+
+    /// A `classList` operation on element `node` (runic_js's DOMTokenList
+    /// steps); the attribute write is checked against the framework's as
+    /// `setAttribute` is.
+    pub fn class_list(
+        &self,
+        node: u64,
+        op: &runic_js::script_dom::ClassOp,
+    ) -> Result<bool, runic_js::Throw> {
+        let Some(mut dom) = self.dom() else {
+            return Ok(false);
+        };
+        let id = self.node_arg(&dom, node, "classList")?;
+        let current = dom
+            .doc
+            .get_node(id)
+            .and_then(|n| n.attr("class".into()))
+            .map(str::to_owned);
+        let (next, result) = runic_js::script_dom::class_list(current.as_deref(), op)
+            .map_err(|(name, message)| runic_js::Throw::new(name, message))?;
+        if let Some(value) = next {
+            Self::record_script_attr(&mut dom, id, "class");
+            dom.doc.mutate().set_attribute(id, attr("class"), &value);
+        }
+        Ok(result)
     }
 
     /// `parent.replaceChildren(...nodes)`: the children are removed (kept
@@ -1170,8 +1663,16 @@ impl Host {
         let mut ids = Vec::with_capacity(nodes.len());
         for &n in nodes {
             let id = self.node_arg(&dom, n, method)?;
-            self.check_insert(&dom, parent, id, None, method)?;
-            ids.push(id);
+            // (A fragment stands for its children.)
+            let expanded = if dom.listeners.fragments.contains(&id) {
+                dom.doc.get_node(id).map_or(vec![], |f| f.children.to_vec())
+            } else {
+                vec![id]
+            };
+            for id in expanded {
+                self.check_insert(&dom, parent, id, None, method)?;
+                ids.push(id);
+            }
         }
         if !self.script_child_list(&dom, parent) {
             return Err(Self::unsupported_err(format!(
@@ -1263,7 +1764,10 @@ impl Host {
                         .map(|d| d.content.clone())
                 })
                 .unwrap_or_default();
-            dom.doc.mutate().set_node_text(node, &text);
+            match &mut dom.doc.get_node_mut(node).expect("checked").data {
+                blitz_dom::NodeData::Comment { contents } => *contents = text,
+                _ => dom.doc.mutate().set_node_text(node, &text),
+            }
             return Ok(());
         }
         if node == dom.doc.root_node().id || dom.listeners.body == Some(node) {
@@ -1324,37 +1828,19 @@ impl Host {
     /// `node.firstChild` (rule O5): exact for nodes script created, elements
     /// the template renders without children, and the body (where the
     /// browser page has nothing before the container).
+    /// The first child of `node`, unchecked (where `prepend` inserts: the
+    /// insertion checks the child list).
+    pub fn first_child_any(&self, node: u64) -> Option<u64> {
+        let dom = self.dom()?;
+        let id = self.script_node(&dom, node)?;
+        dom.doc
+            .get_node(id)
+            .and_then(|n| n.children.first().copied())
+            .map(NodeId::as_u64)
+    }
+
     pub fn first_child(&self, node: u64) -> Result<Option<u64>, runic_js::Throw> {
-        let Some(dom) = self.dom() else {
-            return Ok(None);
-        };
-        let node = self.node_arg(&dom, node, "firstChild")?;
-        if dom.listeners.body == Some(node) && dom.listeners.body_whitespace {
-            return Err(Self::unsupported_err(
-                "firstChild of the body of an HTML template (its whitespace is not in the native document)".into(),
-            ));
-        }
-        if !self.script_child_list(&dom, node) {
-            return Err(Self::unsupported_err(
-                "firstChild of an element the framework renders children into (its anchors are not in the native document)".into(),
-            ));
-        }
-        let first = dom
-            .doc
-            .get_node(node)
-            .and_then(|n| n.children.first().copied());
-        // (Text and comment nodes as values come with their own members:
-        // docs/design/M6-SCRIPT-DOM.md, slice 2.)
-        if first.is_some_and(|c| {
-            dom.doc
-                .get_node(c)
-                .is_some_and(|x| x.element_data().is_none())
-        }) {
-            return Err(Self::unsupported_err(
-                "firstChild that is a text node (text nodes as values are not covered yet)".into(),
-            ));
-        }
-        Ok(first.map(NodeId::as_u64))
+        self.node_step(node, "firstChild")
     }
 
     /// `element.childElementCount`: frameworks add no elements of their
@@ -1417,7 +1903,7 @@ impl Host {
     pub fn parent_element(&self, node: u64) -> Option<u64> {
         let dom = self.dom()?;
         let parent = dom.doc.get_node(NodeId::from_u64(node))?.parent?;
-        if Some(parent) == dom.listeners.container {
+        if Some(parent) == dom.listeners.container || dom.listeners.fragments.contains(&parent) {
             return None;
         }
         dom.doc
@@ -2046,6 +2532,7 @@ impl Dom<'_> {
             script_attrs,
             script_nodes,
             script_hosts,
+            fragments,
             ..
         } = &mut *self.listeners;
         self.doc
@@ -2065,6 +2552,7 @@ impl Dom<'_> {
                 // operations report.)
                 script_nodes.remove(&gone);
                 script_hosts.remove(&gone);
+                fragments.remove(&gone);
             });
     }
 

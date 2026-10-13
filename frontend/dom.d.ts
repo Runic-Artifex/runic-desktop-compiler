@@ -2,8 +2,16 @@
 // is not part of the program): the DOM element interfaces components may hold
 // as refs (bind:this, useRef, template refs; opaque handles in the IR whose
 // methods below lower to `element.*` built-ins), timers and clocks.
-interface HTMLElement {
+interface HTMLElement extends Node {
   readonly __runicElement: true;
+  /** M6 script DOM, slice 2: ParentNode members, classList and dataset. */
+  append(...nodes: (Node | string)[]): void;
+  prepend(...nodes: (Node | string)[]): void;
+  readonly children: HTMLCollection;
+  readonly firstElementChild: HTMLElement | null;
+  readonly lastElementChild: HTMLElement | null;
+  readonly classList: DOMTokenList;
+  readonly dataset: DOMStringMap;
   focus(): void;
   blur(): void;
   /** M6 overlays: a click nested in the script; `select()` the text of a text control. */
@@ -282,8 +290,84 @@ declare var Node: { prototype: Element };
  * IR type; slice 1 types them as elements (text, comment and fragment
  * interfaces follow with their members).
  */
-type Node = HTMLElement;
-type ChildNode = HTMLElement;
+interface Node {
+  readonly __runicElement: true;
+  /** 1 element, 3 text, 8 comment, 9 document, 11 fragment. */
+  readonly nodeType: number;
+  readonly nodeName: string;
+  /** A text or comment node's data; null for others (setting it on them does nothing). */
+  nodeValue: string | null;
+  textContent: string;
+  readonly isConnected: boolean;
+  /**
+   * Node-level traversal (rule O5, docs/design/M6-SCRIPT-DOM.md): exact in
+   * child lists script owns and at the body before the container; elsewhere
+   * reported unsupported.
+   */
+  readonly parentNode: Node | null;
+  readonly parentElement: HTMLElement | null;
+  readonly firstChild: ChildNode | null;
+  readonly lastChild: ChildNode | null;
+  readonly nextSibling: ChildNode | null;
+  readonly previousSibling: ChildNode | null;
+  /** Read where used: `.length`, `[i]`, `Array.from(…)`. */
+  readonly childNodes: NodeListOf<ChildNode>;
+  appendChild(child: Node): Node;
+  insertBefore(node: Node, child: Node | null): Node;
+  removeChild(child: Node): Node;
+  replaceChild(node: Node, child: Node): Node;
+  cloneNode(deep?: boolean): Node;
+  contains(other: Node | null): boolean;
+  // ChildNode
+  remove(): void;
+  before(...nodes: (Node | string)[]): void;
+  after(...nodes: (Node | string)[]): void;
+  replaceWith(...nodes: (Node | string)[]): void;
+}
+type ChildNode = Node;
+/** Text and comment nodes (M6 script DOM, slice 2). */
+interface CharacterData extends Node {
+  data: string;
+}
+interface Text extends CharacterData {}
+interface Comment extends CharacterData {}
+declare var Text: { prototype: Text };
+declare var Comment: { prototype: Comment };
+declare var CharacterData: { prototype: CharacterData };
+/** A document fragment: inserting it moves its children (M6 script DOM). */
+interface DocumentFragment extends Node {
+  append(...nodes: (Node | string)[]): void;
+  prepend(...nodes: (Node | string)[]): void;
+  replaceChildren(...nodes: Node[]): void;
+  readonly children: HTMLCollection;
+  readonly firstElementChild: HTMLElement | null;
+  readonly lastElementChild: HTMLElement | null;
+  readonly childElementCount: number;
+  querySelector(selectors: string): HTMLElement | null;
+  querySelectorAll(selectors: string): HTMLElement[];
+}
+declare var DocumentFragment: { prototype: DocumentFragment };
+/** A live list, read where it is used (`.length`, `[i]`, `Array.from`). */
+interface NodeListOf<T> {
+  readonly length: number;
+  readonly [index: number]: T;
+}
+interface HTMLCollection {
+  readonly length: number;
+  readonly [index: number]: HTMLElement;
+}
+/** `classList` (the DOM standard's DOMTokenList steps). */
+interface DOMTokenList {
+  add(...tokens: string[]): void;
+  remove(...tokens: string[]): void;
+  toggle(token: string, force?: boolean): boolean;
+  contains(token: string): boolean;
+  replace(token: string, newToken: string): boolean;
+}
+/** `dataset`: `data-*` attributes by camelCase names. */
+interface DOMStringMap {
+  [name: string]: string | undefined;
+}
 /**
  * An event target where declaration files name one (bits-ui's
  * `CustomEventDispatcher.listen(element: EventTarget, …)`): an element value
@@ -565,6 +649,10 @@ interface HostDocument extends HostEventTarget {
    * elements (docs/design/M6-SCRIPT-DOM.md).
    */
   createElement(tagName: string): HTMLElement;
+  /** M6 script DOM, slice 2: nodes script owns. */
+  createTextNode(data: string): Text;
+  createComment(data: string): Comment;
+  createDocumentFragment(): DocumentFragment;
   /** M6 overlays: the focused element (the body when none is). */
   readonly activeElement: HTMLElement | null;
   /** M6 overlays: whether the element is in the document. */
