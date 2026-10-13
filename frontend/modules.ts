@@ -5,6 +5,7 @@
 // program globals evaluated once, so their identity is shared as in JavaScript.
 import ts from 'typescript';
 import path from 'node:path';
+import type { Type } from './ir.ts';
 import { skipParens, type Lowerer } from './language.ts';
 import { bindPackImport, bindPackReexport, bindPackWrapper, type Edge } from './packs.ts';
 import { symbolKeyConstant } from './svelte-context.ts';
@@ -454,7 +455,20 @@ export function lowerModules(
             continue;
           }
           // Evaluated in order (a later constant may use an earlier one).
-          const type = lower.exprType(init);
+          let type = lower.exprType(init);
+          // A function value declared of a function type taking fewer
+          // arguments, or values where its parameters may be undefined
+          // (`const g: (x: number) => string = f` of `f(x, y = 1)`): adapted
+          // to the declared type (`adaptFunction`).
+          const declared = d.type
+            ? lower.types.tryMap(checker.getTypeAtLocation(d.name), d)
+            : undefined;
+          const isFn = (t: Type | undefined) => typeof t === 'object' && 'fn' in t;
+          const adapt =
+            isFn(type) && isFn(declared) && JSON.stringify(type) !== JSON.stringify(declared)
+              ? declared
+              : undefined;
+          if (adapt) type = adapt;
           const primitive = type === 'number' || type === 'string' || type === 'boolean';
           if (primitive)
             pending.push(() =>
@@ -472,9 +486,11 @@ export function lowerModules(
               init: { op: 'undefined', type: { maybe: 'number' } },
             });
             lower.bindings.set(sym, { kind: 'value', expr: { op: 'global', global } });
-            pending.push(
-              () => (lower.globals[global].init = lower.value(init, undefined, `${name}$module`)),
-            );
+            pending.push(() => {
+              const v = lower.value(init, undefined, `${name}$module`);
+              lower.globals[global].init =
+                (adapt && lower.adaptFunction(v, lower.valueType(v), adapt)) || v;
+            });
           }
         }
         continue;

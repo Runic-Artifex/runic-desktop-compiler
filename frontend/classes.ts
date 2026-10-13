@@ -493,7 +493,8 @@ export class Classes {
     }
     if (!sig) return undefined;
     return sig.parameters.flatMap((p, i) => {
-      const t = checker.getTypeOfSymbol(p);
+      // (One with a default may be passed undefined.)
+      const t = this.lower.types.paramType(p);
       const d = p.valueDeclaration;
       // A parameter declared of a type parameter the instantiation binds
       // (`detail?: T` with T holding nothing): the binding.
@@ -503,7 +504,9 @@ export class Classes {
           ? this.typeArgs.get(checker.getSymbolAtLocation(declared.typeName)!)
           : undefined;
       if (bound !== undefined && t.flags & (ts.TypeFlags.Unknown | ts.TypeFlags.Any)) {
-        const optional = !!decl.parameters[i].questionToken && !maybeInner(bound);
+        const optional =
+          (!!decl.parameters[i].questionToken || !!decl.parameters[i].initializer) &&
+          !maybeInner(bound);
         return [optional ? { maybe: bound } : bound];
       }
       const items =
@@ -557,6 +560,10 @@ export class Classes {
    */
   fitAt(v: Expr, have: Type, want: Type, at: ts.Node): Expr {
     const out = this.fit(v, have, want);
+    // (A function value where a function taking fewer arguments, or passing
+    // values where its parameters may be undefined, is expected.)
+    const adapted = out === v ? this.lower.adaptFunction(v, have, want) : undefined;
+    if (adapted) return adapted;
     if (out === v && this.nestedMismatch(have, want))
       this.fail(
         at,
@@ -1779,7 +1786,8 @@ export class Classes {
         // function is lowered (`Lowerer.function`).
         const items = p.dotDotDotToken ? lower.types.restParams(t, p) : undefined;
         if (items) return items.map((type, j) => ({ name: `${name}${j}`, type }));
-        return [{ name, type: lower.types.map(t, p) }];
+        // (One with a default may be passed undefined: `Lowerer.parameterTypes`.)
+        return [{ name, type: lower.parameterTypes(p).type }];
       }),
     ];
   }
@@ -2100,6 +2108,9 @@ export class Classes {
     const lower = this.lower;
     const checker = lower.checker;
     const out: Stmt[] = [];
+    // The arguments are evaluated first, then the defaults left to right
+    // (`Lowerer.withParams`).
+    const defaults: (() => void)[] = [];
     ctor.parameters.forEach((p, i) => {
       if (p.dotDotDotToken) this.fail(p, 'Rest parameters are planned for later');
       if (!ts.isIdentifier(p.name))
@@ -2111,31 +2122,36 @@ export class Classes {
       const untyped = !p.type && lower.types.typeOrUndefined(p) === undefined;
       const arg = args[i];
       if (!arg) return this.fail(p, `super(…) passes no argument for ${name}`);
-      const type = untyped
-        ? lower.irType(arg, b)
-        : lower.types.map(checker.getTypeAtLocation(p), p);
-      if (untyped && symbol) lower.types.override(symbol, type);
-      const local = b.local(name, type, !!symbol && b.boxed.has(symbol));
-      out.push({ op: 'let', local, value: arg });
-      if (symbol) lower.bindings.set(symbol, { kind: 'local', owner: b, local });
-      if (p.initializer)
+      const given = lower.irType(arg, b);
+      const declared = untyped ? lower.parameterTypes(p, given) : lower.parameterTypes(p);
+      // The type of its name: with a default, the argument or the default.
+      const inner = declared.inner ?? (untyped ? given : declared.type);
+      if (untyped && symbol) lower.types.override(symbol, inner);
+      if (!p.initializer || maybeInner(given) === undefined) {
+        const local = b.local(name, inner, !!symbol && b.boxed.has(symbol));
+        out.push({ op: 'let', local, value: arg });
+        if (symbol) lower.bindings.set(symbol, { kind: 'local', owner: b, local });
+        return;
+      }
+      const passed = b.local(`${name}$arg`, given);
+      out.push({ op: 'let', local: passed, value: arg });
+      defaults.push(() => {
+        const local = b.local(name, inner, !!symbol && b.boxed.has(symbol));
         out.push({
-          op: 'if',
-          test: {
-            op: 'builtin',
-            name: 'maybe.is-undefined',
-            args: [{ op: 'local', local }],
-            type: 'boolean',
-          },
-          then: [
-            {
-              op: 'assign',
-              target: { place: 'local', local },
-              value: lower.expr(p.initializer, b),
-            },
-          ],
+          op: 'let',
+          local,
+          value: lower.defaultValue(
+            { op: 'local', local: passed },
+            given,
+            inner,
+            p.initializer!,
+            b,
+          ),
         });
+        if (symbol) lower.bindings.set(symbol, { kind: 'local', owner: b, local });
+      });
     });
+    for (const d of defaults) d();
     return out;
   }
 
@@ -3293,7 +3309,11 @@ export class Classes {
           const method = shared.method;
           const recv = this.receiver(receiver, b, shared.owner, e);
           if (method.fn !== undefined)
-            return { op: 'call', function: method.fn, args: [recv, ...lower.callArgs(e, b)] };
+            return {
+              op: 'call',
+              function: method.fn,
+              args: [recv, ...this.leftOut(lower.callArgs(e, b), method.fn, e, b)],
+            };
           // Untyped parameters: the receiver is bound first (evaluated before the arguments).
           const tmp = b.local('$receiver', this.selfType(shared.owner));
           const { fn, args } = this.untypedCall(method, shared.owner, e, b);
@@ -3347,8 +3367,13 @@ export class Classes {
             function: fn,
             args: [
               this.receiver(local, b, target.owner, e),
-              ...argValues.map((v, i) =>
-                this.fit(v, lower.irType(v, b), params[i + 1]?.type ?? lower.irType(v, b)),
+              ...this.leftOut(
+                argValues.map((v, i) =>
+                  this.fit(v, lower.irType(v, b), params[i + 1]?.type ?? lower.irType(v, b)),
+                ),
+                fn,
+                e,
+                b,
               ),
             ],
           };
@@ -3667,6 +3692,34 @@ export class Classes {
     if (c.fn !== undefined) return { op: 'call', function: c.fn, args: lower.callArgs(e, b) };
     const { fn, args } = this.untypedCall(c, info, e, b);
     return { op: 'call', function: fn, args };
+  }
+
+  /**
+   * The arguments `args` of a method call through a receiver TypeScript
+   * types `any` (untyped JavaScript specialised per call site: bits-ui's
+   * `date.set({ day: 100 })` of a `DateValue`), whose arguments are lowered
+   * without the method's signature: the parameters it leaves out, which may
+   * be undefined (optional or with a default), are passed undefined, and
+   * values passed where they may be undefined are wrapped. Other calls are
+   * returned as they are (their arguments follow the signature).
+   */
+  private leftOut(args: Expr[], fn: number, e: ts.CallExpression, b: FnBuilder): Expr[] {
+    const lower = this.lower;
+    if (!(lower.checker.getTypeAtLocation(e.expression).flags & ts.TypeFlags.Any)) return args;
+    const params = lower.functions[fn].params.slice(1).map(p => p.type);
+    const out = args.map((a, i) => {
+      const want = params[i];
+      const inner = want === undefined ? undefined : maybeInner(want);
+      const have = lower.irType(a, b);
+      return inner !== undefined && maybeInner(have) === undefined
+        ? fitType(a, have, want!, this.records)
+        : a;
+    });
+    for (const t of params.slice(args.length)) {
+      if (maybeInner(t) === undefined) break;
+      out.push({ op: 'undefined', type: t });
+    }
+    return out;
   }
 
   /**
