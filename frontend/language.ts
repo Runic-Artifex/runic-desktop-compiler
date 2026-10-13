@@ -10514,6 +10514,12 @@ export class Lowerer {
     }
     if (ts.isPropertyAccessExpression(callee)) {
       const method = callee.name.text;
+      // `[n, label, done].join(' ')`: an array literal of primitives of
+      // several types, joined at once (`literalJoin`).
+      if (method === 'join') {
+        const joined = this.literalJoin(callee, e, b);
+        if (joined) return joined;
+      }
       // A function of a build-time constant called with literal arguments
       // (bits-ui's `popoverAttrs.selector("trigger")`): called at build time,
       // as the constant was made (an import-free module's code).
@@ -16145,6 +16151,104 @@ export class Lowerer {
     return { op: 'closure', function: index, captures: builder.captureSources.map(c => c.local) };
   }
 
+  /**
+   * `[a, b, c].join(sep)` of an array literal whose elements are primitives
+   * of several types (`[count, label, done].join(' ')`): an IR array holds
+   * one type, but no other code sees this array, so the join is lowered as
+   * JavaScript computes it: the elements in order, then the separator (`,`
+   * where it is left out or undefined), each element converted by ToString,
+   * null and undefined as the empty string. Undefined where the literal's
+   * elements are of one type (an ordinary array) or not all primitives.
+   */
+  private literalJoin(
+    callee: ts.PropertyAccessExpression,
+    e: ts.CallExpression,
+    b: FnBuilder,
+  ): Expr | undefined {
+    const lit = skipParens(callee.expression);
+    if (
+      !ts.isArrayLiteralExpression(lit) ||
+      callee.questionDotToken ||
+      e.arguments.length > 1 ||
+      e.arguments.some(ts.isSpreadElement) ||
+      !lit.elements.length ||
+      lit.elements.some(el => ts.isSpreadElement(el) || ts.isOmittedExpression(el))
+    )
+      return undefined;
+    const F = ts.TypeFlags;
+    // The primitive kind TypeScript gives an element (null where it only
+    // holds null or undefined, undefined where it is no primitive).
+    const kindOf = (el: ts.Expression): string | null | undefined => {
+      const t = this.checker.getTypeAtLocation(el);
+      const parts = (t.isUnion() ? t.types : [t]).filter(
+        p => !(p.flags & (F.Null | F.Undefined | F.Void)),
+      );
+      if (!parts.length) return null;
+      const kinds = new Set(
+        parts.map(p =>
+          p.flags & F.StringLike
+            ? 'string'
+            : p.flags & F.NumberLike
+              ? 'number'
+              : p.flags & F.BooleanLike
+                ? 'boolean'
+                : 'other',
+        ),
+      );
+      return kinds.size === 1 && !kinds.has('other') ? [...kinds][0] : undefined;
+    };
+    const kinds = lit.elements.map(kindOf);
+    if (kinds.some(k => k === undefined) || new Set(kinds.filter(k => k !== null)).size < 2)
+      return undefined;
+    const read = (l: number): Expr => ({ op: 'local', local: l });
+    const values = lit.elements.map(el => this.expr(el, b));
+    const types = values.map(v => this.irType(v, b));
+    const locals = types.map(t => b.local('$item', t));
+    let separator: { local: number; value: Expr } | undefined;
+    const arg = e.arguments[0];
+    const bare = arg && skipParens(arg);
+    if (bare && !(ts.isIdentifier(bare) && bare.text === 'undefined' && !this.binding(bare))) {
+      const value = this.expr(arg, b);
+      if (this.irType(value, b) !== STRING)
+        return this.fail(
+          arg,
+          'E_CALL',
+          'The separator of a join of values of several types is a string here',
+        );
+      separator = { local: b.local('$separator', STRING), value };
+    }
+    const sep: Expr = separator ? read(separator.local) : { op: 'lit', value: ',' };
+    const text = (x: Expr, t: Type, at: ts.Node): Expr => {
+      if (t === STRING) return x;
+      if (t === NUMBER || t === BOOLEAN) return { op: 'to-string', arg: x };
+      const inner = maybeInner(t);
+      if (inner === 'void') return { op: 'lit', value: '' };
+      if (inner === STRING || inner === NUMBER || inner === BOOLEAN)
+        return {
+          op: 'cond',
+          test: { op: 'builtin', name: 'maybe.is-nullish', args: [x], type: BOOLEAN },
+          then: { op: 'lit', value: '' },
+          else: text({ op: 'unwrap', value: x }, inner, at),
+        };
+      return this.fail(
+        at,
+        'E_CALL',
+        `A join of values of several types converts numbers, strings and booleans (and null and undefined); this one is ${JSON.stringify(t)}`,
+      );
+    };
+    let body: Expr = text(read(locals[0]), types[0], lit.elements[0]);
+    for (let i = 1; i < locals.length; i++)
+      body = {
+        op: 'concat',
+        left: { op: 'concat', left: body, right: sep },
+        right: text(read(locals[i]), types[i], lit.elements[i]),
+      };
+    if (separator) body = { op: 'with', local: separator.local, value: separator.value, body };
+    for (let i = locals.length - 1; i >= 0; i--)
+      body = { op: 'with', local: locals[i], value: values[i], body };
+    return body;
+  }
+
   private array(e: ts.ArrayLiteralExpression, b: FnBuilder): Expr {
     const [only] = e.elements;
     if (
@@ -16250,7 +16354,20 @@ export class Lowerer {
         return { spread };
       }
       this.expected.set(skipParens(el), t.array);
-      return this.coerce(el, b, t.array);
+      const item = this.coerce(el, b, t.array);
+      // An element of another type than the array's (`[count, label]`,
+      // where the union census gave the array one member's type): an IR
+      // array holds one type, so it is rejected here (joined at once, it is
+      // lowered as a join, `literalJoin`).
+      const have = this.irType(item, b);
+      if (sameType(have, t.array)) return item;
+      const fitted = this.fitValue(item, t.array, b);
+      if (sameType(this.irType(fitted, b), t.array)) return fitted;
+      return this.fail(
+        el,
+        'E_ARRAY',
+        `An element of type ${JSON.stringify(have)} in an array of ${JSON.stringify(t.array)}: an array holds values of one type (an array literal of numbers, strings and booleans is covered where it is joined at once, [a, b].join(sep))`,
+      );
     });
     return { op: 'array', type: t, items };
   }
