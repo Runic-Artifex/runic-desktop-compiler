@@ -606,6 +606,26 @@ export async function collect(app) {
   }
   if (!modules.has(entry))
     throw new Diagnostic('E_ENTRY', 'runic.json entry must be loaded by index.html');
+  // The bundler transforms modules concurrently, so the order they were
+  // collected in may change from run to run (kit-docs' markdown pages,
+  // reached only through a lazy glob); the frontends follow the map's order
+  // where nothing else orders modules. A stable order instead: from the
+  // entry, each module before its static imports (in source order) and its
+  // glob entries (in key order), depth first; then any module left, by path.
+  {
+    const order = new Set();
+    const visit = id => {
+      const m = modules.get(id);
+      if (!m || order.has(m)) return;
+      order.add(m);
+      for (const i of m.imports) visit(i.resolved);
+      for (const g of m.globs ?? []) for (const e of g.entries) if (e.id) visit(e.id);
+    };
+    visit(entry);
+    for (const id of [...modules.keys()].sort()) visit(id);
+    modules.clear();
+    for (const m of order) modules.set(m.id, m);
+  }
   const assets = [];
   const cssParts = [];
   // Guards of declarations Stylo drops (checkWithStylo).

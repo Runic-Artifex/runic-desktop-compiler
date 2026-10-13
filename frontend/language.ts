@@ -443,6 +443,84 @@ export class Lowerer {
   readonly imageUrls: ImageUrl[] = [];
   /** Module constants shared by all components (program globals). */
   readonly globals: Global[] = [];
+  /**
+   * The globals of package modules (packages compiled from source and pack
+   * ports), created when code first reaches them, possibly after app module
+   * constants that reach them (`orderGlobals`).
+   */
+  readonly packageGlobals = new Set<number>();
+
+  /** Whether `node` is in a package module (compiled from source, or a pack port). */
+  inPackage(node: ts.Node): boolean {
+    return /[\\/]node_modules[\\/]|\.__runic\.ts$|[\\/]frontend[\\/]packs[\\/]/.test(
+      node.getSourceFile().fileName,
+    );
+  }
+
+  /**
+   * Orders the finished program's globals so that each package global is
+   * initialised before every global whose initialiser reaches it (directly
+   * or through the functions it calls or creates), together with the
+   * package globals it reaches itself: JavaScript evaluates a package's
+   * modules before the modules importing them, while package globals are
+   * created when code first reaches them, which may be after an app module
+   * constant that calls into the package (`export const d = new
+   * CalendarDate(…)`, whose constructor reads the port's `LEAP_DAYS`). Other
+   * globals keep their order; the program's global references follow.
+   */
+  orderGlobals(program: { functions?: Fn[]; globals?: Global[] }): void {
+    const globals = program.globals ?? [];
+    const fns = program.functions ?? [];
+    if (!this.packageGlobals.size || globals.length < 2) return;
+    const walk = (node: unknown, out: Set<number>, seen: Set<number>): void => {
+      if (Array.isArray(node)) {
+        for (const x of node) walk(x, out, seen);
+        return;
+      }
+      if (!node || typeof node !== 'object') return;
+      const o = node as { op?: string; global?: unknown; function?: unknown };
+      if (o.op === 'global' && typeof o.global === 'number') out.add(o.global);
+      if (
+        (o.op === 'call' || o.op === 'closure') &&
+        typeof o.function === 'number' &&
+        !seen.has(o.function)
+      ) {
+        seen.add(o.function);
+        walk(fns[o.function]?.body, out, seen);
+      }
+      for (const v of Object.values(o)) if (v && typeof v === 'object') walk(v, out, seen);
+    };
+    const reaches = globals.map(g => {
+      const out = new Set<number>();
+      walk(g.init, out, new Set());
+      return [...out].filter(j => this.packageGlobals.has(j)).sort((a, b) => a - b);
+    });
+    const order: number[] = [];
+    const placed = new Set<number>();
+    const place = (i: number, stack: Set<number>) => {
+      if (placed.has(i) || stack.has(i)) return;
+      stack.add(i);
+      for (const j of reaches[i]) place(j, stack);
+      stack.delete(i);
+      placed.add(i);
+      order.push(i);
+    };
+    for (let i = 0; i < globals.length; i++) place(i, new Set());
+    if (order.every((g, i) => g === i)) return;
+    const position = new Map(order.map((g, i) => [g, i]));
+    const done = new WeakSet<object>();
+    const remap = (node: unknown): void => {
+      if (Array.isArray(node)) return node.forEach(remap);
+      if (!node || typeof node !== 'object' || done.has(node)) return;
+      done.add(node);
+      const o = node as { op?: string; global?: number };
+      if (o.op === 'global' && typeof o.global === 'number') o.global = position.get(o.global)!;
+      for (const v of Object.values(o)) remap(v);
+    };
+    remap(program);
+    const reordered = order.map(i => globals[i]);
+    globals.splice(0, globals.length, ...reordered);
+  }
   readonly bindings = new Map<ts.Symbol, Binding>();
   /**
    * Component functions are created once per instance (Svelte and Vue
@@ -5723,6 +5801,7 @@ export class Lowerer {
     const global = this.globals.length;
     this.globals.push({ name: `globalThis.${name}`, type, init: value });
     this.globalThisVars.set(name, global);
+    if (this.inPackage(defs[0])) this.packageGlobals.add(global);
     return { op: 'global', global };
   }
 
@@ -6114,6 +6193,7 @@ export class Lowerer {
       init: { op: 'undefined', type: { maybe: 'number' } },
     });
     this.bindings.set(sym, { kind: 'module-let', global });
+    if (this.inPackage(d)) this.packageGlobals.add(global);
     const set = (value: Expr) =>
       void (this.globals[global].init = { op: 'record', record, fields: [value] });
     if (first) {

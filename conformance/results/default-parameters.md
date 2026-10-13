@@ -41,3 +41,15 @@ options (formatter.js:94) and `instanceof Date` (utils.js:127) to
 `dateObj.set({ day: i + 1 })` in the untyped `createMonth`
 (calendar-helpers.svelte.js:52), a method dispatched over the class union
 through a receiver TypeScript types `any` (docs/gaps/LANGUAGE.md).
+
+## Package globals before the constants that reach them (fix)
+
+An app module constant constructing `@internationalized/date` classes
+(`const values: DateValue[] = [new CalendarDate(…), …]`) made the native app
+panic at start-up (`RangeError: Array index 1 is out of range`): the port's
+month-length tables, created when the constructor's code was first reached,
+came after that constant among the program globals. Package globals are now
+initialised before every global whose initialiser reaches them (directly or
+through the functions it calls or creates), as JavaScript evaluates a
+package before the modules importing it; other globals keep their order.
+The case's Svelte fixture builds its date values as such a module constant.
