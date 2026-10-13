@@ -567,8 +567,11 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
         ),
         // Libraries compiled from source (M6).
         ("element", "isConnected") => format!("cx.dom.is_connected({}.0)", t[0]),
-        ("element", "isHTML") => format!("{{ let e = {}; e.is_element() && cx.dom.is_html(e.0) }}", t[0]),
-        ("element", "isElement") => format!("{}.is_element()", t[0]),
+        ("element", "isHTML") => format!("{{ let e = {}; e.is_element() && cx.dom.is_element_node(e.0) && cx.dom.is_html(e.0) }}", t[0]),
+        // (An element node: not the document, the window, or a text, comment
+        // or fragment node script created, M6 script DOM.)
+        ("element", "isElement") => format!("{{ let e = {}; e.is_element() && cx.dom.is_element_node(e.0) }}", t[0]),
+        ("element", "isNode") => format!("{{ let e = {}; e != js::Element::WINDOW && e != js::Element::VISUAL_VIEWPORT }}", t[0]),
         ("element", "focus-visible") => format!("cx.dom.matches_focus_visible({}.0)", t[0]),
         ("element", "isDocument") => format!("({} == js::Element::DOCUMENT)", t[0]),
         ("element", "computed-style") => format!(
@@ -649,6 +652,115 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             ),
         ),
         ("element", "remove") => q(cx, format!("cx.dom.remove_node({}.0)", t[0])),
+        // Slice 2.
+        ("document", m @ ("createTextNode" | "createComment")) => format!(
+            "js::Element(cx.dom.create_character_data(&{}.to_rust(), {}))",
+            t[0],
+            m == "createComment"
+        ),
+        ("document", "createDocumentFragment") => "js::Element(cx.dom.create_fragment())".into(),
+        ("element", "nodeType") => q(cx, format!("cx.dom.node_type({}.0)", t[0])),
+        ("element", "nodeName") => q(
+            cx,
+            format!("cx.dom.node_name({}.0).map(JsString::from)", t[0]),
+        ),
+        ("element", "nodeValue") => q(
+            cx,
+            format!(
+                "cx.dom.node_value({}.0).map(|v| v.map_or(Maybe::Null, |v| Maybe::Some(JsString::from(v))))",
+                t[0]
+            ),
+        ),
+        ("element", "set-nodeValue") => q(
+            cx,
+            format!("{{ let n = {}; cx.dom.set_node_value(n.0, &{}.to_rust()) }}", t[0], t[1]),
+        ),
+        ("element", m @ ("lastChild" | "nextSibling" | "previousSibling")) => q(
+            cx,
+            format!(
+                "cx.dom.node_step({}.0, {m:?}).map(|c| c.map_or(Maybe::Null, |c| Maybe::Some(js::Element(c))))",
+                t[0]
+            ),
+        ),
+        ("element", "parentNode") => q(
+            cx,
+            format!(
+                "cx.dom.parent_node({}.0).map(|c| c.map_or(Maybe::Null, |c| Maybe::Some(js::Element(c))))",
+                t[0]
+            ),
+        ),
+        ("element", m @ ("childNodes" | "children")) => q(
+            cx,
+            format!(
+                "cx.dom.child_list({}.0, {}).map(|l| js::array(l.into_iter().map(js::Element).collect()))",
+                t[0],
+                m == "children"
+            ),
+        ),
+        ("element", m @ ("append" | "prepend")) => q(
+            cx,
+            format!(
+                "{{ let p = {}; let list: JsRef<Vec<js::Element>> = {}; let nodes: Vec<u64> = list.borrow().iter().map(|n| n.0).collect(); let before = if {} {{ cx.dom.first_child_any(p.0) }} else {{ None }}; cx.dom.insert_nodes(p.0, &nodes, before, {m:?}) }}",
+                t[0],
+                t[1],
+                m == "prepend"
+            ),
+        ),
+        ("element", m @ ("before" | "after" | "replaceWith")) => q(
+            cx,
+            format!(
+                "{{ let n = {}; let list: JsRef<Vec<js::Element>> = {}; let nodes: Vec<u64> = list.borrow().iter().map(|n| n.0).collect(); cx.dom.child_node_insert(n.0, &nodes, {m:?}) }}",
+                t[0], t[1]
+            ),
+        ),
+        ("element", "removeChild") => q(
+            cx,
+            format!(
+                "{{ let p = {}; let c = {}; cx.dom.remove_child(p.0, c.0).map(|()| c) }}",
+                t[0], t[1]
+            ),
+        ),
+        ("element", "replaceChild") => q(
+            cx,
+            format!(
+                "{{ let p = {}; let n = {}; let c = {}; cx.dom.replace_child(p.0, n.0, c.0).map(|()| c) }}",
+                t[0], t[1], t[2]
+            ),
+        ),
+        ("element", "cloneNode") => q(
+            cx,
+            format!("cx.dom.clone_node({}.0, {}).map(js::Element)", t[0], t[1]),
+        ),
+        ("element", m @ ("class-add" | "class-remove")) => q(
+            cx,
+            format!(
+                "{{ let e = {}; let list: JsRef<Vec<JsString>> = {}; let tokens: Vec<String> = list.borrow().iter().map(|t| t.to_rust()).collect(); cx.dom.class_list(e.0, &js::script_dom::ClassOp::{}(tokens)).map(|_| ()) }}",
+                t[0],
+                t[1],
+                if m == "class-add" { "Add" } else { "Remove" }
+            ),
+        ),
+        ("element", "class-toggle") => q(
+            cx,
+            format!(
+                "{{ let e = {}; let token = {}.to_rust(); let force: Maybe<bool> = {}; cx.dom.class_list(e.0, &js::script_dom::ClassOp::Toggle(token, force.as_option().copied())) }}",
+                t[0], t[1], t[2]
+            ),
+        ),
+        ("element", "class-contains") => q(
+            cx,
+            format!(
+                "{{ let e = {}; cx.dom.class_list(e.0, &js::script_dom::ClassOp::Contains({}.to_rust())) }}",
+                t[0], t[1]
+            ),
+        ),
+        ("element", "class-replace") => q(
+            cx,
+            format!(
+                "{{ let e = {}; let a = {}.to_rust(); cx.dom.class_list(e.0, &js::script_dom::ClassOp::Replace(a, {}.to_rust())) }}",
+                t[0], t[1], t[2]
+            ),
+        ),
         ("element", "set-textContent") => q(
             cx,
             format!("{{ let n = {}; cx.dom.set_text_content(n.0, &{}.to_rust()) }}", t[0], t[1]),

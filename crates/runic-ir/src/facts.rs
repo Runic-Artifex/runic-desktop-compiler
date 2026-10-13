@@ -1361,6 +1361,27 @@ impl<'p> Analysis<'p> {
                 self.out.tags.insert("br".into());
                 return Val::Top;
             }
+            // classList (slice 2): the tokens added, toggled on or put in
+            // place (an array the analysis does not see built: any class).
+            "element.class-add" | "element.class-toggle" | "element.class-replace" => {
+                write_attr(&mut self.out, "class", &Val::string(""), at);
+                let tokens: Vec<Val> = match (name, args.get(1)) {
+                    ("element.class-add", Some(Expr::Array { items, .. })) => items
+                        .iter()
+                        .map(|i| match i {
+                            ArrayItem::Item(e) => self.eval(cx, e),
+                            _ => Val::Top,
+                        })
+                        .collect(),
+                    ("element.class-add", _) => vec![Val::Top],
+                    ("element.class-toggle", _) => vec![vals.get(1).cloned().unwrap_or(Val::Top)],
+                    _ => vec![vals.get(2).cloned().unwrap_or(Val::Top)],
+                };
+                for t in tokens {
+                    write_class_tokens(&mut self.out, &t, " (classList)");
+                }
+                return Val::Top;
+            }
             "element.style-set-text" => {
                 write_attr(&mut self.out, "style", &Val::Top, at);
                 return Val::Top;

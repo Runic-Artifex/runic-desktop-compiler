@@ -5853,6 +5853,20 @@ export class Lowerer {
       }
       case K.ElementAccessExpression: {
         const ee = e as ts.ElementAccessExpression;
+        // `node.childNodes[i]`, `children[i]` (M6 script DOM): the list at
+        // the read, undefined past its end.
+        const list = skipParens(ee.expression);
+        if (
+          ts.isPropertyAccessExpression(list) &&
+          (list.name.text === 'childNodes' || list.name.text === 'children') &&
+          this.types.typeOrUndefined(list.expression) === 'element'
+        )
+          return {
+            op: 'builtin',
+            name: 'array.get',
+            args: [this.expr(list, b), this.coerce(ee.argumentExpression, b, NUMBER)],
+            type: { maybe: 'element' },
+          };
         return this.viaDyn(
           ee.expression,
           b,
@@ -6952,6 +6966,13 @@ export class Lowerer {
       owner = skipParens(owner.expression);
       css = true;
     }
+    // `element.dataset.name = v` (slice 2): the `data-` attribute, ToString.
+    let data: string | undefined;
+    if (ts.isPropertyAccessExpression(owner) && owner.name.text === 'dataset') {
+      if (this.types.typeOrUndefined(owner.expression) !== 'element') return undefined;
+      data = this.datasetAttribute(name, target, true);
+      owner = skipParens(owner.expression);
+    }
     // (Where TypeScript does not type it, untyped package code: its IR type.)
     let ownerType = this.types.typeOrUndefined(owner);
     if (ownerType === undefined)
@@ -6963,7 +6984,12 @@ export class Lowerer {
       }
     if (ownerType !== 'element') return undefined;
     const aria = ARIA_REFLECTION[name];
-    if (!css && !aria && !['textContent', 'innerText', 'className', 'id'].includes(name))
+    if (
+      !css &&
+      !aria &&
+      data === undefined &&
+      !['textContent', 'innerText', 'className', 'id', 'nodeValue', 'data'].includes(name)
+    )
       return undefined;
     const el = b.local('$element', 'element');
     const t = this.irType(value, b);
@@ -6989,6 +7015,16 @@ export class Lowerer {
     };
     let body: Expr;
     if (css) body = ofValue(undefined, s => call('style-set-text', [s]));
+    else if (data !== undefined) {
+      if (inner !== undefined)
+        return this.fail(
+          target,
+          'E_MEMBER',
+          'A dataset value is a string (undefined becomes "undefined")',
+        );
+      body = call('setAttribute', [{ op: 'lit', value: data }, text(read(v), t)]);
+    } else if (name === 'nodeValue' || name === 'data')
+      body = ofValue(undefined, s => call('set-nodeValue', [s]));
     else if (name === 'innerText' && inner !== undefined)
       // (`[LegacyNullToEmptyString]`: null is empty, undefined "undefined".)
       return this.fail(target, 'E_MEMBER', 'innerText takes a string');
@@ -7479,7 +7515,11 @@ export class Lowerer {
         global === 'Node' ||
         global === 'SVGElement' ||
         global === 'Document' ||
-        global === 'HTMLInputElement'
+        global === 'HTMLInputElement' ||
+        global === 'Text' ||
+        global === 'Comment' ||
+        global === 'CharacterData' ||
+        global === 'DocumentFragment'
       ) {
         const v = this.expr(e.left, b);
         const t = this.irType(v, b);
@@ -7534,6 +7574,40 @@ export class Lowerer {
           }
           if (global === 'Document') return is('isDocument', x);
           if (global === 'Element') return is('isElement', x);
+          // (M6 script DOM, slice 2: any node; a node of a kind.)
+          if (global === 'Node') return is('isNode', x);
+          if (['Text', 'Comment', 'CharacterData', 'DocumentFragment'].includes(global)) {
+            const local = b.local('$node', 'element');
+            const read: Expr = { op: 'local', local };
+            const kind: Expr = {
+              op: 'builtin',
+              name: 'element.nodeType',
+              args: [read],
+              type: NUMBER,
+            };
+            const isKind = (k: number): Expr => ({
+              op: 'eq',
+              left: kind,
+              right: { op: 'lit', value: k },
+            });
+            return {
+              op: 'with',
+              local,
+              value: x,
+              body: {
+                op: 'and',
+                left: is('isNode', read),
+                right:
+                  global === 'Text'
+                    ? isKind(3)
+                    : global === 'Comment'
+                      ? isKind(8)
+                      : global === 'DocumentFragment'
+                        ? isKind(11)
+                        : { op: 'or', left: isKind(3), right: isKind(8) },
+              },
+            };
+          }
           const local = b.local('$element', 'element');
           const read: Expr = { op: 'local', local };
           return {
@@ -8562,6 +8636,15 @@ export class Lowerer {
     // of a tag of the IR's allow-list, which a literal (or a finite set of
     // literals) names; Chromium lowercases the name in an HTML document.
     if (host === 'document' && method === 'createElement') return this.createElement(e, b);
+    if (host === 'document' && (method === 'createTextNode' || method === 'createComment')) {
+      if (e.arguments.length !== 1) return this.fail(e, 'E_CALL', `document.${method} takes data`);
+      return builtin(`document.${method}`, [this.coerce(e.arguments[0], b, STRING)], 'element');
+    }
+    if (host === 'document' && method === 'createDocumentFragment') {
+      if (e.arguments.length)
+        return this.fail(e, 'E_CALL', 'createDocumentFragment takes no arguments');
+      return builtin('document.createDocumentFragment', [], 'element');
+    }
     if (host === 'document' && method === 'getElementById') {
       if (e.arguments.length !== 1) this.fail(e, 'E_CALL', 'getElementById takes an id');
       return builtin('document.getElementById', [this.coerce(e.arguments[0], b, STRING)], {
@@ -9194,6 +9277,52 @@ export class Lowerer {
         b,
         `${e.expression.getText()}.body of a node that is not the document (undefined)`,
       );
+    // Slice 2: node kinds and data, node-level traversal (rule O5), live
+    // lists read where used, element children.
+    // `className`: the class attribute, or empty (slice 2).
+    if (kind === 'element' && name === 'className')
+      return {
+        op: 'nullish',
+        left: {
+          op: 'builtin',
+          name: 'element.getAttribute',
+          args: [object, { op: 'lit', value: 'class' }],
+          type: { maybe: STRING },
+        },
+        right: { op: 'lit', value: '' },
+      };
+    if (kind === 'element' && name === 'nodeType')
+      return { op: 'builtin', name: 'element.nodeType', args: [object], type: NUMBER };
+    if (kind === 'element' && (name === 'nodeName' || name === 'tagName'))
+      return { op: 'builtin', name: 'element.nodeName', args: [object], type: STRING };
+    if (kind === 'element' && name === 'nodeValue')
+      return { op: 'builtin', name: 'element.nodeValue', args: [object], type: { maybe: STRING } };
+    // (`data` of a text or comment node, which TypeScript's type proves.)
+    if (kind === 'element' && name === 'data')
+      return {
+        op: 'nullish',
+        left: { op: 'builtin', name: 'element.nodeValue', args: [object], type: { maybe: STRING } },
+        right: { op: 'lit', value: '' },
+      };
+    if (
+      kind === 'element' &&
+      ['lastChild', 'nextSibling', 'previousSibling', 'parentNode'].includes(name)
+    )
+      return { op: 'builtin', name: `element.${name}`, args: [object], type: { maybe: 'element' } };
+    if (kind === 'element' && (name === 'childNodes' || name === 'children')) {
+      this.liveListUse(e, name);
+      return { op: 'builtin', name: `element.${name}`, args: [object], type: { array: 'element' } };
+    }
+    if (kind === 'element' && (name === 'firstElementChild' || name === 'lastElementChild'))
+      return {
+        op: 'builtin',
+        name: 'array.at',
+        args: [
+          { op: 'builtin', name: 'element.children', args: [object], type: { array: 'element' } },
+          { op: 'lit', value: name === 'firstElementChild' ? 0 : -1 },
+        ],
+        type: { maybe: 'element' },
+      };
     if (kind === 'element' && name === 'firstChild')
       return {
         op: 'builtin',
@@ -10373,6 +10502,59 @@ export class Lowerer {
           `document.${family === 'root' ? 'documentElement' : 'body'} ${rootPart ? rootPart + '.' : ''}${method} is unsupported`,
         );
       }
+      // `element.classList.*` (M6 script DOM, slice 2): the DOM standard's
+      // DOMTokenList steps on the class attribute (checked against the
+      // framework's writes as setAttribute is).
+      if (
+        ts.isPropertyAccessExpression(owner) &&
+        owner.name.text === 'classList' &&
+        !this.hostElement(owner.expression) &&
+        ['element', '{"maybe":"element"}'].includes(
+          JSON.stringify(this.types.typeOrUndefined(owner.expression) ?? null).replace(
+            /^"|"$/g,
+            '',
+          ),
+        )
+      ) {
+        // (A nullable one TypeScript narrowed, a $state ref: present.)
+        const v = this.expr(owner.expression, b);
+        const el: Expr = this.irType(v, b) === 'element' ? v : { op: 'unwrap', value: v };
+        const strings = () =>
+          e.arguments.map(x => {
+            if (ts.isSpreadElement(x))
+              return this.fail(x, 'E_CALL', `classList.${method} takes tokens (no spread)`);
+            return this.coerce(x, b, STRING);
+          });
+        const op = (n: string, args: Expr[], type: Type): Expr => ({
+          op: 'builtin',
+          name: `element.class-${n}`,
+          args: [el, ...args],
+          type,
+        });
+        if (method === 'add' || method === 'remove')
+          return op(method, [{ op: 'array', type: { array: STRING }, items: strings() }], VOID);
+        if (method === 'contains' && e.arguments.length === 1)
+          return op('contains', strings(), BOOLEAN);
+        if (method === 'replace' && e.arguments.length === 2)
+          return op('replace', strings(), BOOLEAN);
+        if (method === 'toggle' && (e.arguments.length === 1 || e.arguments.length === 2)) {
+          const [token, force] = e.arguments;
+          let f: Expr = { op: 'undefined', type: { maybe: BOOLEAN } };
+          if (force) {
+            const v = this.expr(force, b);
+            const t = this.irType(v, b);
+            if (t === BOOLEAN) f = { op: 'some', value: v };
+            else if (JSON.stringify(t) === JSON.stringify({ maybe: BOOLEAN })) f = v;
+            else return this.fail(force, 'E_CALL', 'classList.toggle takes a boolean force');
+          }
+          return op('toggle', [this.coerce(token, b, STRING), f], BOOLEAN);
+        }
+        return this.fail(
+          e,
+          'E_CALL',
+          `classList.${method} is unsupported (add, remove, toggle, contains and replace are)`,
+        );
+      }
       const host = this.hostName(callee.expression);
       // Timers and microtasks through `window.` are the global functions.
       if (host === 'window' && WINDOW_FUNCTIONS.has(method)) {
@@ -11422,6 +11604,56 @@ export class Lowerer {
       case 'remove':
         if (e.arguments.length) return this.fail(e, 'E_CALL', 'remove() takes no arguments');
         return call('remove', [], VOID);
+      // Slice 2: ParentNode/ChildNode insertions of nodes and strings (a
+      // string is a text node), removeChild, replaceChild, cloneNode.
+      case 'append':
+      case 'prepend':
+      case 'before':
+      case 'after':
+      case 'replaceWith': {
+        const items: Expr[] = [];
+        for (const a of e.arguments) {
+          if (ts.isSpreadElement(a))
+            return this.fail(a, 'E_CALL', `${method} takes nodes and strings (no spread)`);
+          const v = this.expr(a, b);
+          const t = this.irType(v, b);
+          if (t === 'element') items.push(v);
+          else if (t === STRING)
+            items.push({
+              op: 'builtin',
+              name: 'document.createTextNode',
+              args: [v],
+              type: 'element',
+            });
+          else return this.fail(a, 'E_CALL', `${method} takes nodes and strings`);
+        }
+        return call(method, [{ op: 'array', type: { array: 'element' }, items }], VOID);
+      }
+      case 'removeChild': {
+        const [child] = e.arguments;
+        if (!child || e.arguments.length !== 1)
+          return this.fail(e, 'E_CALL', 'removeChild takes a child');
+        return call('removeChild', [this.coerce(child, b, 'element')], 'element');
+      }
+      case 'replaceChild': {
+        const [node, child] = e.arguments;
+        if (!node || !child || e.arguments.length !== 2)
+          return this.fail(e, 'E_CALL', 'replaceChild takes a node and a child');
+        return call(
+          'replaceChild',
+          [this.coerce(node, b, 'element'), this.coerce(child, b, 'element')],
+          'element',
+        );
+      }
+      case 'cloneNode': {
+        const [deep] = e.arguments;
+        if (e.arguments.length > 1) return this.fail(e, 'E_CALL', 'cloneNode takes a flag');
+        return call(
+          'cloneNode',
+          [deep ? this.coerce(deep, b, BOOLEAN) : { op: 'lit', value: false }],
+          'element',
+        );
+      }
       // A document method on a node value not known to be the document (an
       // untyped parameter every call passes a nullable document for: bits-ui's
       // `initAnnouncer(doc)`).
@@ -12641,6 +12873,51 @@ export class Lowerer {
       ],
     };
     return { op: 'call', function: index, args: [] };
+  }
+
+  /**
+   * The `data-` attribute of dataset property `name` (the HTML standard's
+   * mapping: an ASCII uppercase letter becomes `-` and its lowercase); a
+   * setter's name with `-` before a lowercase letter throws a SyntaxError
+   * in JavaScript, rejected here as it is known at build time.
+   */
+  datasetAttribute(name: string, at: ts.Node, set: boolean): string {
+    if (set && /-[a-z]/.test(name))
+      return this.fail(
+        at,
+        'E_MEMBER',
+        `dataset.${name}: a name with "-" before a lowercase letter throws a SyntaxError`,
+      );
+    return 'data-' + name.replace(/[A-Z]/g, c => '-' + c.toLowerCase());
+  }
+
+  /**
+   * Where a live list (`childNodes`, `children`; M6 script DOM) is read: as
+   * a list of the time of the read, which is exact only where it is used at
+   * once: `.length`, an index, `Array.from(list)`. Kept in a variable or
+   * iterated (the loop may change it, which a live list shows), it is
+   * rejected.
+   */
+  private liveListUse(e: ts.PropertyAccessExpression, name: string): void {
+    let at: ts.Node = e;
+    while (ts.isParenthesizedExpression(at.parent)) at = at.parent;
+    const p = at.parent;
+    const ok =
+      (ts.isPropertyAccessExpression(p) && p.expression === at && p.name.text === 'length') ||
+      (ts.isElementAccessExpression(p) && p.expression === at) ||
+      (ts.isCallExpression(p) &&
+        p.arguments.length === 1 &&
+        p.arguments[0] === at &&
+        ts.isPropertyAccessExpression(p.expression) &&
+        p.expression.name.text === 'from' &&
+        ts.isIdentifier(p.expression.expression) &&
+        p.expression.expression.text === 'Array');
+    if (!ok)
+      this.fail(
+        e,
+        'E_MEMBER',
+        `${name} is a live list: read its length or an item where it is used, or copy it with Array.from(…)`,
+      );
   }
 
   /**

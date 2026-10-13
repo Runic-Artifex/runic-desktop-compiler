@@ -913,6 +913,11 @@ struct ScriptDom {
     /// The children script placed in rendered elements without template
     /// children, by element id.
     hosts: HashMap<u64, Vec<u64>>,
+    /// Attributes script wrote on rendered elements (slice 2), by element
+    /// id: the value script left (none: removed) and the framework's value
+    /// when it last wrote it. A render writing a changed framework value
+    /// that differs from script's is unsupported, as natively.
+    attrs: HashMap<u64, BTreeMap<String, (Option<String>, Option<String>)>>,
 }
 
 struct ScriptNode {
@@ -927,6 +932,10 @@ enum ScriptKind {
         attrs: BTreeMap<String, String>,
     },
     Text(String),
+    /// Slice 2: comments (left out of snapshots, as the harness leaves
+    /// them out) and document fragments (never inserted themselves).
+    Comment(String),
+    Fragment,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -963,20 +972,79 @@ impl ScriptDom {
         self.nodes.contains_key(&id)
     }
 
-    /// The node as the snapshot shows it.
-    fn vnode(&self, id: u64) -> VNode {
+    /// The node as the snapshot shows it (none for a comment or fragment).
+    fn vnode(&self, id: u64) -> Option<VNode> {
         let n = &self.nodes[&id];
         match &n.kind {
-            ScriptKind::Text(t) => VNode::Text(t.clone()),
-            ScriptKind::Element { tag, attrs } => VNode::Element {
+            ScriptKind::Text(t) => Some(VNode::Text(t.clone())),
+            ScriptKind::Element { tag, attrs } => Some(VNode::Element {
                 tag: tag.clone(),
                 attrs: attrs.clone(),
                 value: None,
                 checked: None,
                 id,
                 listeners: vec![],
-                children: n.children.iter().map(|&c| self.vnode(c)).collect(),
+                children: n.children.iter().filter_map(|&c| self.vnode(c)).collect(),
+            }),
+            ScriptKind::Comment(_) | ScriptKind::Fragment => None,
+        }
+    }
+
+    /// The nodes `ids` as inserted: a fragment stands for its children.
+    fn expand(&self, ids: &[u64]) -> Vec<u64> {
+        let mut out = vec![];
+        for &id in ids {
+            match self.nodes.get(&id).map(|n| &n.kind) {
+                Some(ScriptKind::Fragment) => out.extend(self.nodes[&id].children.iter().copied()),
+                _ => out.push(id),
+            }
+        }
+        out
+    }
+
+    /// A deep or shallow copy of script node `id` (script's own, detached).
+    fn clone_node(&mut self, id: u64, deep: bool) -> u64 {
+        let kind = match &self.nodes[&id].kind {
+            ScriptKind::Element { tag, attrs } => ScriptKind::Element {
+                tag: tag.clone(),
+                attrs: attrs.clone(),
             },
+            ScriptKind::Text(t) => ScriptKind::Text(t.clone()),
+            ScriptKind::Comment(t) => ScriptKind::Comment(t.clone()),
+            ScriptKind::Fragment => ScriptKind::Fragment,
+        };
+        let copy = self.create(kind);
+        if deep {
+            for c in self.nodes[&id].children.clone() {
+                let cc = self.clone_node(c, true);
+                self.insert(ScriptParent::Node(copy), cc, None);
+            }
+        }
+        copy
+    }
+
+    /// A script copy of a rendered node (`cloneNode` of the framework's).
+    fn adopt(&mut self, n: &VNode, deep: bool) -> u64 {
+        match n {
+            VNode::Text(t) => self.create(ScriptKind::Text(t.clone())),
+            VNode::Element {
+                tag,
+                attrs,
+                children,
+                ..
+            } => {
+                let copy = self.create(ScriptKind::Element {
+                    tag: tag.clone(),
+                    attrs: attrs.clone(),
+                });
+                if deep {
+                    for c in children {
+                        let cc = self.adopt(c, true);
+                        self.insert(ScriptParent::Node(copy), cc, None);
+                    }
+                }
+                copy
+            }
         }
     }
 
@@ -1036,9 +1104,13 @@ impl ScriptDom {
     fn text(&self, id: u64) -> String {
         match &self.nodes[&id].kind {
             ScriptKind::Text(t) => t.clone(),
-            ScriptKind::Element { .. } => self.nodes[&id]
+            // (textContent of a comment is its data; inside an element it
+            // contributes nothing.)
+            ScriptKind::Comment(t) => t.clone(),
+            ScriptKind::Element { .. } | ScriptKind::Fragment => self.nodes[&id]
                 .children
                 .iter()
+                .filter(|c| !matches!(self.nodes[c].kind, ScriptKind::Comment(_)))
                 .map(|&c| self.text(c))
                 .collect(),
         }
@@ -1814,7 +1886,17 @@ impl<'p> Machine<'p> {
                     .map(|a| self.eval(a, f))
                     .collect::<Res<Vec<_>>>()?;
                 let types: Vec<Type> = args.iter().map(|a| self.type_of(a, f)).collect();
-                self.builtin(name, values, &types, ty)?
+                // (A script DOM operation on the framework's nodes, which the
+                // interpreter does not hold, stops the run as an unsupported
+                // shape does: the trace is incomplete, never a mismatch.)
+                self.builtin(name, values, &types, ty).inspect_err(|t| {
+                    let m = t.message.to_rust();
+                    if t.name.to_rust() == "RunicLayoutError"
+                        && (m.contains("native DOM") || m.contains("before the container only"))
+                    {
+                        self.unsupported.get_or_insert(m);
+                    }
+                })?
             }
             With { local, value, body } => {
                 let v = self.eval(value, f)?;
@@ -3016,7 +3098,7 @@ impl<'p> Machine<'p> {
                     .script
                     .preceding
                     .iter()
-                    .map(|&c| self.script.vnode(c))
+                    .filter_map(|&c| self.script.vnode(c))
                     .collect();
                 match document_query(&self.last_tree, self.root_len, &preceding, &selector)? {
                     Some(e) => Val::Element(js::Element(e)),
@@ -3291,7 +3373,9 @@ impl<'p> Machine<'p> {
                 }
                 // (A text node's data.)
                 if let ScriptParent::Node(id) = parent {
-                    if let ScriptKind::Text(t) = &mut self.script.nodes.get_mut(&id).unwrap().kind {
+                    if let ScriptKind::Text(t) | ScriptKind::Comment(t) =
+                        &mut self.script.nodes.get_mut(&id).unwrap().kind
+                    {
                         *t = text;
                         self.regraft();
                         return Ok(Val::Undefined);
@@ -3321,6 +3405,487 @@ impl<'p> Machine<'p> {
                 self.regraft();
                 Val::Undefined
             }
+            // Slice 2: text, comment and fragment nodes; kinds, data and
+            // traversal; the ChildNode/ParentNode insertions; cloning; classList.
+            ("document", m @ ("createTextNode" | "createComment")) => {
+                let data = a[0].string().to_rust();
+                let kind = if m == "createComment" {
+                    ScriptKind::Comment(data)
+                } else {
+                    ScriptKind::Text(data)
+                };
+                Val::Element(js::Element(self.script.create(kind)))
+            }
+            ("document", "createDocumentFragment") => {
+                Val::Element(js::Element(self.script.create(ScriptKind::Fragment)))
+            }
+            ("element", m @ ("nodeType" | "nodeName" | "nodeValue")) => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                if *e == js::Element::WINDOW || *e == js::Element::VISUAL_VIEWPORT {
+                    return Err(Throw::new(
+                        "RunicUnsupportedError",
+                        format!("{m} of the window"),
+                    ));
+                }
+                let (kind, name, value): (f64, String, Option<String>) = if *e
+                    == js::Element::DOCUMENT
+                {
+                    (9.0, "#document".into(), None)
+                } else if let Some(n) = self.script.nodes.get(&e.0) {
+                    match &n.kind {
+                        ScriptKind::Element { tag, .. } => (1.0, tag.to_ascii_uppercase(), None),
+                        ScriptKind::Text(t) => (3.0, "#text".into(), Some(t.clone())),
+                        ScriptKind::Comment(t) => (8.0, "#comment".into(), Some(t.clone())),
+                        ScriptKind::Fragment => (11.0, "#document-fragment".into(), None),
+                    }
+                } else {
+                    let tag =
+                        match chain_nodes(&self.last_tree, e.0).and_then(|c| c.last().copied()) {
+                            Some(VNode::Element { tag, .. }) => tag.clone(),
+                            _ if *e == js::Element::BODY => "body".into(),
+                            _ => {
+                                return Err(Throw::new(
+                                    "RunicUnsupportedError",
+                                    format!("{m} of a node the interpreter does not hold"),
+                                ));
+                            }
+                        };
+                    let name = if crate::validate::SVG_TAGS.contains(&tag.as_str()) {
+                        tag
+                    } else {
+                        tag.to_ascii_uppercase()
+                    };
+                    (1.0, name, None)
+                };
+                match m {
+                    "nodeType" => Val::Num(kind),
+                    "nodeName" => Val::Str(JsString::from(name.as_str())),
+                    _ => value.map_or(Val::Null, |v| Val::Str(JsString::from(v.as_str()))),
+                }
+            }
+            ("element", "set-nodeValue") => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                let text = a[1].string().to_rust();
+                if let Some(n) = self.script.nodes.get_mut(&e.0) {
+                    match &mut n.kind {
+                        ScriptKind::Text(t) | ScriptKind::Comment(t) => *t = text,
+                        _ => {}
+                    }
+                }
+                self.regraft();
+                Val::Undefined
+            }
+            ("element", m @ ("lastChild" | "nextSibling" | "previousSibling")) => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                let (parent, list, at) = if m == "lastChild" {
+                    if *e == js::Element::BODY {
+                        return Err(Throw::new(
+                            "RunicUnsupportedError",
+                            "lastChild of the body (the browser's page has its own nodes after the container)",
+                        ));
+                    }
+                    let p = self.script_parent(&a[0], m)?;
+                    let list = self.script_list(p);
+                    (p, list, None)
+                } else if *e == CONTAINER {
+                    let list = self.script_list(ScriptParent::Body);
+                    (
+                        ScriptParent::Body,
+                        list.clone(),
+                        list.iter().position(|&s| s == e.0),
+                    )
+                } else {
+                    let Some((p, list)) = self.script_siblings(e.0) else {
+                        if self.script.is_script(e.0) {
+                            return Ok(Val::Null);
+                        }
+                        return Err(Throw::new(
+                            "RunicUnsupportedError",
+                            format!(
+                                "{m} among the children of an element the framework renders children into"
+                            ),
+                        ));
+                    };
+                    let at = list.iter().position(|&s| s == e.0);
+                    (p, list, at)
+                };
+                let found = match (m, at) {
+                    ("lastChild", _) => list.last().copied(),
+                    ("nextSibling", Some(i)) => list.get(i + 1).copied(),
+                    ("previousSibling", Some(i)) if i > 0 => list.get(i - 1).copied(),
+                    _ => None,
+                };
+                if parent == ScriptParent::Body && m != "previousSibling" && found.is_none() {
+                    return Err(Throw::new(
+                        "RunicUnsupportedError",
+                        format!("{m} past the app's container at the body"),
+                    ));
+                }
+                found.map_or(Val::Null, |n| Val::Element(js::Element(n)))
+            }
+            ("element", "parentNode") => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                if let Some(n) = self.script.nodes.get(&e.0) {
+                    return Ok(match n.parent {
+                        Some(ScriptParent::Node(p) | ScriptParent::Host(p)) => {
+                            Val::Element(js::Element(p))
+                        }
+                        Some(ScriptParent::Body) => Val::Element(js::Element::BODY),
+                        None => Val::Null,
+                    });
+                }
+                let chain = chain_nodes(&self.last_tree, e.0).unwrap_or_default();
+                match chain
+                    .len()
+                    .checked_sub(2)
+                    .and_then(|i| element_id(chain[i]))
+                {
+                    Some(p) => Val::Element(js::Element(p)),
+                    None if chain.is_empty() => Val::Null,
+                    None => {
+                        return Err(Throw::new(
+                            "RunicUnsupportedError",
+                            "parentNode of a top-level element (the container is not the program's)",
+                        ));
+                    }
+                }
+            }
+            ("element", m @ ("childNodes" | "children")) => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                let ids: Vec<u64> = if m == "children" && !self.script.is_script(e.0) {
+                    match chain_nodes(&self.last_tree, e.0).and_then(|c| c.last().copied()) {
+                        Some(VNode::Element { children, .. }) => {
+                            children.iter().filter_map(element_id).collect()
+                        }
+                        _ => {
+                            return Err(Throw::new(
+                                "RunicUnsupportedError",
+                                format!("{m} of a node the interpreter does not hold"),
+                            ));
+                        }
+                    }
+                } else {
+                    if *e == js::Element::BODY {
+                        return Err(Throw::new(
+                            "RunicUnsupportedError",
+                            format!(
+                                "{m} of the body (the browser's page has its own nodes after the container)"
+                            ),
+                        ));
+                    }
+                    let p = self.script_parent(&a[0], m)?;
+                    let list = self.script_list(p);
+                    if m == "children" {
+                        list.into_iter()
+                            .filter(|c| {
+                                matches!(
+                                    self.script.nodes.get(c).map(|n| &n.kind),
+                                    Some(ScriptKind::Element { .. })
+                                )
+                            })
+                            .collect()
+                    } else {
+                        list
+                    }
+                };
+                Val::Array(js::array(
+                    ids.into_iter()
+                        .map(|n| Val::Element(js::Element(n)))
+                        .collect(),
+                ))
+            }
+            ("element", m @ ("append" | "prepend")) => {
+                let Val::Array(items) = &a[1] else {
+                    panic!("validated array")
+                };
+                let ids: Vec<u64> = items
+                    .borrow()
+                    .iter()
+                    .filter_map(|v| match v {
+                        Val::Element(e) => Some(e.0),
+                        _ => None,
+                    })
+                    .collect();
+                let p = self.script_parent(&a[0], m)?;
+                let before = if m == "prepend" {
+                    self.script_list(p).first().copied().map(js::Element)
+                } else if p == ScriptParent::Body {
+                    return Err(Throw::new(
+                        "RunicLayoutError",
+                        "append to the body after the container: the interpreter models the body's script content before the container only",
+                    ));
+                } else {
+                    None
+                };
+                self.script_insert_ids(p, &ids, before, m)?;
+                Val::Undefined
+            }
+            ("element", m @ ("before" | "after" | "replaceWith")) => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                let Val::Array(items) = &a[1] else {
+                    panic!("validated array")
+                };
+                let ids: Vec<u64> = items
+                    .borrow()
+                    .iter()
+                    .filter_map(|v| match v {
+                        Val::Element(e) => Some(e.0),
+                        _ => None,
+                    })
+                    .collect();
+                let Some((p, list)) = self.script_siblings(e.0) else {
+                    if self.script.is_script(e.0) {
+                        return Ok(Val::Undefined);
+                    }
+                    return Err(Throw::new(
+                        "RunicLayoutError",
+                        format!(
+                            "{m} of a rendered node needs the native DOM, which the interpreter does not have"
+                        ),
+                    ));
+                };
+                let moved = self.script.expand(&ids);
+                let mut moved_all = moved.clone();
+                moved_all.extend(&ids);
+                let at = list.iter().position(|&s| s == e.0).unwrap_or(0);
+                let replacing = m == "replaceWith" && !ids.contains(&e.0);
+                let before = if replacing {
+                    Some(js::Element(e.0))
+                } else if m == "before" {
+                    match js::script_dom::viable_sibling(&list, at, false, &moved_all) {
+                        Some(prev) => {
+                            let i = list.iter().position(|&s| s == prev).expect("sibling");
+                            list.get(i + 1).copied().map(js::Element)
+                        }
+                        None => list.first().copied().map(js::Element),
+                    }
+                } else {
+                    js::script_dom::viable_sibling(&list, at, true, &moved_all).map(js::Element)
+                };
+                if p == ScriptParent::Body && before.is_none() {
+                    return Err(Throw::new(
+                        "RunicLayoutError",
+                        format!(
+                            "{m} after the container: the interpreter models the body's script content before the container only"
+                        ),
+                    ));
+                }
+                self.script_insert_ids(p, &ids, before, m)?;
+                if replacing {
+                    self.script.detach(e.0);
+                    self.regraft();
+                }
+                Val::Undefined
+            }
+            ("element", m @ ("removeChild" | "replaceChild")) => {
+                let (Val::Element(p), Val::Element(c)) = (&a[0], a.last().expect("child")) else {
+                    panic!("validated elements")
+                };
+                let parent_ok = match self.script.nodes.get(&c.0).and_then(|n| n.parent) {
+                    Some(ScriptParent::Node(q) | ScriptParent::Host(q)) => q == p.0,
+                    Some(ScriptParent::Body) => *p == js::Element::BODY,
+                    None => false,
+                };
+                if !parent_ok {
+                    if !self.script.is_script(c.0) && !self.script.is_script(p.0) {
+                        return Err(Throw::new(
+                            "RunicLayoutError",
+                            format!(
+                                "{m} of a rendered node needs the native DOM, which the interpreter does not have"
+                            ),
+                        ));
+                    }
+                    return Err(Throw::new(
+                        "NotFoundError",
+                        format!(
+                            "Failed to execute '{m}' on 'Node': The node to be {} is not a child of this node.",
+                            if m == "removeChild" {
+                                "removed"
+                            } else {
+                                "replaced"
+                            }
+                        ),
+                    ));
+                }
+                if m == "replaceChild" {
+                    let Val::Element(n) = &a[1] else {
+                        panic!("validated element")
+                    };
+                    if n != c {
+                        let parent = self.script.nodes[&c.0].parent.expect("checked");
+                        self.script_insert_ids(parent, &[n.0], Some(*c), m)?;
+                        self.script.detach(c.0);
+                    }
+                } else {
+                    self.script.detach(c.0);
+                }
+                self.regraft();
+                Val::Element(*c)
+            }
+            ("element", "cloneNode") => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                let deep = matches!(a[1], Val::Bool(true));
+                if self.script.is_script(e.0) {
+                    Val::Element(js::Element(self.script.clone_node(e.0, deep)))
+                } else {
+                    let Some(n) = chain_nodes(&self.last_tree, e.0)
+                        .and_then(|c| c.last().copied())
+                        .cloned()
+                    else {
+                        return Err(Throw::new(
+                            "RunicUnsupportedError",
+                            "cloneNode of a node the interpreter does not hold",
+                        ));
+                    };
+                    let mut controls = false;
+                    fn walk(n: &VNode, deep: bool, found: &mut bool) {
+                        if let VNode::Element { tag, children, .. } = n {
+                            if matches!(
+                                tag.as_str(),
+                                "input" | "textarea" | "select" | "option" | "img"
+                            ) {
+                                *found = true;
+                            }
+                            if deep {
+                                children.iter().for_each(|c| walk(c, deep, found));
+                            }
+                        }
+                    }
+                    walk(&n, deep, &mut controls);
+                    if controls {
+                        return Err(Throw::new(
+                            "RunicUnsupportedError",
+                            "cloneNode of a control or image (their cloning steps copy state)",
+                        ));
+                    }
+                    Val::Element(js::Element(self.script.adopt(&n, deep)))
+                }
+            }
+            (
+                "element",
+                m @ ("class-add" | "class-remove" | "class-toggle" | "class-contains"
+                | "class-replace"),
+            ) => {
+                if let Some(id) = self.rendered_element(&a[0]) {
+                    let strings = |v: &Val| -> Vec<String> {
+                        match v {
+                            Val::Array(xs) => {
+                                xs.borrow().iter().map(|x| x.string().to_rust()).collect()
+                            }
+                            _ => vec![],
+                        }
+                    };
+                    let op = match m {
+                        "class-add" => js::script_dom::ClassOp::Add(strings(&a[1])),
+                        "class-remove" => js::script_dom::ClassOp::Remove(strings(&a[1])),
+                        "class-toggle" => js::script_dom::ClassOp::Toggle(
+                            a[1].string().to_rust(),
+                            match &a[2] {
+                                Val::Bool(b) => Some(*b),
+                                _ => None,
+                            },
+                        ),
+                        "class-contains" => {
+                            js::script_dom::ClassOp::Contains(a[1].string().to_rust())
+                        }
+                        _ => js::script_dom::ClassOp::Replace(
+                            a[1].string().to_rust(),
+                            a[2].string().to_rust(),
+                        ),
+                    };
+                    let current =
+                        match chain_nodes(&self.last_tree, id).and_then(|c| c.last().copied()) {
+                            Some(VNode::Element { attrs, .. }) => attrs.get("class").cloned(),
+                            _ => None,
+                        };
+                    let (next, result) = js::script_dom::class_list(current.as_deref(), &op)
+                        .map_err(|(n, msg)| Throw::new(n, msg))?;
+                    if let Some(v) = next {
+                        self.script_attr(id, "class", Some(v));
+                    }
+                    return Ok(match m {
+                        "class-add" | "class-remove" => Val::Undefined,
+                        _ => Val::Bool(result),
+                    });
+                }
+                let Some(id) = self.script_element(&a[0]) else {
+                    if m == "class-contains" {
+                        let Val::Element(e) = &a[0] else {
+                            panic!("validated element")
+                        };
+                        let class = match chain_nodes(&self.last_tree, e.0)
+                            .and_then(|c| c.last().copied())
+                        {
+                            Some(VNode::Element { attrs, .. }) => attrs.get("class").cloned(),
+                            _ => None,
+                        };
+                        let op = js::script_dom::ClassOp::Contains(a[1].string().to_rust());
+                        let (_, r) = js::script_dom::class_list(class.as_deref(), &op)
+                            .map_err(|(n, msg)| Throw::new(n, msg))?;
+                        return Ok(Val::Bool(r));
+                    }
+                    return Err(Throw::new(
+                        "RunicLayoutError",
+                        format!(
+                            "{name} of a rendered element needs the native DOM, which the interpreter does not have"
+                        ),
+                    ));
+                };
+                let strings = |v: &Val| -> Vec<String> {
+                    match v {
+                        Val::Array(xs) => {
+                            xs.borrow().iter().map(|x| x.string().to_rust()).collect()
+                        }
+                        _ => vec![],
+                    }
+                };
+                let op = match m {
+                    "class-add" => js::script_dom::ClassOp::Add(strings(&a[1])),
+                    "class-remove" => js::script_dom::ClassOp::Remove(strings(&a[1])),
+                    "class-toggle" => js::script_dom::ClassOp::Toggle(
+                        a[1].string().to_rust(),
+                        match &a[2] {
+                            Val::Bool(b) => Some(*b),
+                            _ => None,
+                        },
+                    ),
+                    "class-contains" => js::script_dom::ClassOp::Contains(a[1].string().to_rust()),
+                    _ => js::script_dom::ClassOp::Replace(
+                        a[1].string().to_rust(),
+                        a[2].string().to_rust(),
+                    ),
+                };
+                let ScriptKind::Element { attrs, .. } =
+                    &mut self.script.nodes.get_mut(&id).expect("script").kind
+                else {
+                    unreachable!("an element")
+                };
+                let (next, result) =
+                    js::script_dom::class_list(attrs.get("class").map(String::as_str), &op)
+                        .map_err(|(n, msg)| Throw::new(n, msg))?;
+                if let Some(v) = next {
+                    attrs.insert("class".into(), v);
+                }
+                self.regraft();
+                match m {
+                    "class-add" | "class-remove" => Val::Undefined,
+                    _ => Val::Bool(result),
+                }
+            }
             ("element", "firstChild") => {
                 let Val::Element(e) = &a[0] else {
                     panic!("validated element")
@@ -3333,12 +3898,6 @@ impl<'p> Machine<'p> {
                 }
                 let parent = self.script_parent(&a[0], "firstChild")?;
                 match self.script.list_mut(parent).first().copied() {
-                    Some(c) if matches!(self.script.nodes[&c].kind, ScriptKind::Text(_)) => {
-                        return Err(Throw::new(
-                            "RunicUnsupportedError",
-                            "firstChild that is a text node (text nodes as values are not covered yet)",
-                        ));
-                    }
                     Some(c) => Val::Element(js::Element(c)),
                     None => Val::Null,
                 }
@@ -3366,6 +3925,31 @@ impl<'p> Machine<'p> {
             }
             // The interpreter renders the templates: script moving their
             // nodes (M6, bits-ui's Command) needs the native DOM.
+            ("element", "setAttribute" | "removeAttribute" | "style-set-text")
+                if self.rendered_element(&a[0]).is_some() =>
+            {
+                let id = self.rendered_element(&a[0]).expect("rendered");
+                let (attr, value) = match name.split_once('.').map(|x| x.1) {
+                    Some("style-set-text") => {
+                        let css = a[1].string().to_rust();
+                        if let Some(d) = runic_css::dropped_declaration(&css) {
+                            let what = format!(
+                                "style.cssText with {d}, which the style engine drops (Chromium keeps it)"
+                            );
+                            self.unsupported.get_or_insert(what.clone());
+                            return Err(Throw::new("RunicUnsupportedError", what));
+                        }
+                        ("style".to_owned(), Some(runic_css::css_text(&css)))
+                    }
+                    Some("setAttribute") => (
+                        a[1].string().to_rust().to_ascii_lowercase(),
+                        Some(a[2].string().to_rust()),
+                    ),
+                    _ => (a[1].string().to_rust().to_ascii_lowercase(), None),
+                };
+                self.script_attr(id, &attr, value);
+                Val::Undefined
+            }
             ("element", "setAttribute" | "removeAttribute" | "style-set-text") => {
                 return Err(Throw::new(
                     "RunicLayoutError",
@@ -3448,7 +4032,7 @@ impl<'p> Machine<'p> {
                         .script
                         .preceding
                         .iter()
-                        .map(|&c| self.script.vnode(c))
+                        .filter_map(|&c| self.script.vnode(c))
                         .collect();
                     return Ok(
                         match document_query(&self.last_tree, self.root_len, &preceding, &selector)?
@@ -3488,14 +4072,25 @@ impl<'p> Machine<'p> {
                     "the interpreter has no input modality (:focus-visible)",
                 ));
             }
-            ("element", m @ ("isElement" | "isDocument")) => {
+            ("element", m @ ("isElement" | "isDocument" | "isNode")) => {
                 let Val::Element(e) = &a[0] else {
                     panic!("validated element")
                 };
-                Val::Bool(if m == "isElement" {
-                    e.is_element()
-                } else {
-                    *e == js::Element::DOCUMENT
+                Val::Bool(match m {
+                    // (Not a text, comment or fragment node script created.)
+                    "isElement" => {
+                        e.is_element()
+                            && !matches!(
+                                self.script.nodes.get(&e.0).map(|n| &n.kind),
+                                Some(
+                                    ScriptKind::Text(_)
+                                        | ScriptKind::Comment(_)
+                                        | ScriptKind::Fragment
+                                )
+                            )
+                    }
+                    "isNode" => *e != js::Element::WINDOW && *e != js::Element::VISUAL_VIEWPORT,
+                    _ => *e == js::Element::DOCUMENT,
                 })
             }
             ("element", "isHTML") => {
@@ -3504,6 +4099,12 @@ impl<'p> Machine<'p> {
                 };
                 Val::Bool(
                     e.is_element()
+                        && !matches!(
+                            self.script.nodes.get(&e.0).map(|n| &n.kind),
+                            Some(
+                                ScriptKind::Text(_) | ScriptKind::Comment(_) | ScriptKind::Fragment
+                            )
+                        )
                         && chain_nodes(&self.tree_for(e.0), e.0)
                             .and_then(|n| match n.last() {
                                 Some(VNode::Element { tag, .. }) => {
@@ -3619,6 +4220,12 @@ impl<'p> Machine<'p> {
                 };
                 if let Some(n) = self.script.nodes.get(&e.0) {
                     return Ok(match n.parent {
+                        // (A fragment is no element.)
+                        Some(ScriptParent::Node(p))
+                            if matches!(self.script.nodes[&p].kind, ScriptKind::Fragment) =>
+                        {
+                            Val::Null
+                        }
                         Some(ScriptParent::Node(p) | ScriptParent::Host(p)) => {
                             Val::Element(js::Element(p))
                         }
@@ -5484,10 +6091,35 @@ impl<'p> Machine<'p> {
                 }
                 // An element without template children (rule O3a, M6 script
                 // DOM): script owns its child list.
+                // Attributes script wrote (slice 2): the framework writing a
+                // changed value that differs from script's is unsupported.
+                if let Some(overlay) = self.script.attrs.get_mut(&id) {
+                    for (name, (value, framework)) in overlay.iter_mut() {
+                        let now = map.get(name).cloned();
+                        if now != *framework {
+                            if now != *value {
+                                let what = format!(
+                                    "the framework writing attribute {name}, which script set to another value (the frameworks skip writes of values they set before)"
+                                );
+                                self.unsupported.get_or_insert(what);
+                            }
+                            *framework = now.clone();
+                            *value = now;
+                        }
+                        match value {
+                            Some(v) => {
+                                map.insert(name.clone(), v.clone());
+                            }
+                            None => {
+                                map.remove(name);
+                            }
+                        }
+                    }
+                }
                 if children.is_empty() && script_host_tag(tag) {
                     self.script_hosts.insert(id);
                     if let Some(list) = self.script.hosts.get(&id) {
-                        kids.extend(list.iter().map(|&c| self.script.vnode(c)));
+                        kids.extend(list.iter().filter_map(|&c| self.script.vnode(c)));
                     }
                 }
                 if let Some(t) = text_content.or(spread_text) {
@@ -5558,12 +6190,36 @@ impl<'p> Machine<'p> {
 
     // --- Script DOM (M6, docs/design/M6-SCRIPT-DOM.md) ---
 
+    /// The id of a rendered element `v` holds (in the last rendered tree,
+    /// not one script created), if it is one.
+    fn rendered_element(&self, v: &Val) -> Option<u64> {
+        let Val::Element(e) = v else { return None };
+        if self.script.is_script(e.0) || !e.is_element() {
+            return None;
+        }
+        chain_nodes(&self.last_tree, e.0).map(|_| e.0)
+    }
+
+    /// Script writing attribute `name` of rendered element `id` (none:
+    /// removing it): kept over the framework's value until the framework
+    /// writes a changed one (see the render).
+    fn script_attr(&mut self, id: u64, name: &str, value: Option<String>) {
+        let framework = match chain_nodes(&self.last_tree, id).and_then(|c| c.last().copied()) {
+            Some(VNode::Element { attrs, .. }) => attrs.get(name).cloned(),
+            _ => None,
+        };
+        let overlay = self.script.attrs.entry(id).or_default();
+        let entry = overlay.entry(name.to_owned()).or_insert((None, framework));
+        entry.0 = value;
+        self.regraft();
+    }
+
     /// The id of a script-created element `v` holds, if it is one.
     fn script_element(&self, v: &Val) -> Option<u64> {
         let Val::Element(e) = v else { return None };
         match self.script.nodes.get(&e.0)?.kind {
             ScriptKind::Element { .. } => Some(e.0),
-            ScriptKind::Text(_) => None,
+            ScriptKind::Text(_) | ScriptKind::Comment(_) | ScriptKind::Fragment => None,
         }
     }
 
@@ -5619,7 +6275,10 @@ impl<'p> Machine<'p> {
             ))
         };
         if let ScriptParent::Node(p) = parent {
-            if matches!(self.script.nodes[&p].kind, ScriptKind::Text(_)) {
+            if matches!(
+                self.script.nodes[&p].kind,
+                ScriptKind::Text(_) | ScriptKind::Comment(_)
+            ) {
                 return hierarchy("This node type does not support this method.");
             }
             if self.script.inclusive_ancestor(n.0, p) {
@@ -5673,14 +6332,73 @@ impl<'p> Machine<'p> {
         let Val::Element(n) = node else {
             panic!("validated element")
         };
-        if before == Some(*n) {
-            return self.script_check_insert(p, node, None, method);
+        self.script_insert_ids(p, &[n.0], before, method)
+    }
+
+    /// Insert nodes `ids` (a fragment standing for its children) into the
+    /// child list `p` before `before` (appended without one), after the
+    /// pre-insertion validity and ownership checks; a reference among the
+    /// nodes moved is replaced by its next sibling that is not.
+    fn script_insert_ids(
+        &mut self,
+        p: ScriptParent,
+        ids: &[u64],
+        before: Option<js::Element>,
+        method: &str,
+    ) -> Res<()> {
+        for &id in ids {
+            if matches!(
+                self.script.nodes.get(&id).map(|n| &n.kind),
+                Some(ScriptKind::Fragment)
+            ) && matches!(p, ScriptParent::Node(q) if self.script.inclusive_ancestor(id, q))
+            {
+                return Err(Throw::new(
+                    "HierarchyRequestError",
+                    format!(
+                        "Failed to execute '{method}' on 'Node': The new child element contains the parent."
+                    ),
+                ));
+            }
         }
-        self.script_check_insert(p, node, before, method)?;
+        let ids = self.script.expand(ids);
+        let mut before = before;
+        if let Some(b) = before.filter(|b| ids.contains(&b.0)) {
+            let list = self.script_list(p);
+            before = list
+                .iter()
+                .position(|&s| s == b.0)
+                .and_then(|at| js::script_dom::viable_sibling(&list, at, true, &ids))
+                .map(js::Element)
+                .or(if p == ScriptParent::Body {
+                    Some(CONTAINER)
+                } else {
+                    None
+                });
+        }
+        for &id in &ids {
+            self.script_check_insert(p, &Val::Element(js::Element(id)), before, method)?;
+        }
         let before = before.filter(|b| *b != CONTAINER).map(|b| b.0);
-        self.script.insert(p, n.0, before);
+        for id in ids {
+            self.script.insert(p, id, before);
+        }
         self.regraft();
         Ok(())
+    }
+
+    /// The child list `p` (the body's: its script nodes, then the container).
+    fn script_list(&mut self, p: ScriptParent) -> Vec<u64> {
+        let mut list = self.script.list_mut(p).clone();
+        if p == ScriptParent::Body {
+            list.push(CONTAINER.0);
+        }
+        list
+    }
+
+    /// The parent and the child list of script node `id` (none detached).
+    fn script_siblings(&mut self, id: u64) -> Option<(ScriptParent, Vec<u64>)> {
+        let parent = self.script.nodes.get(&id)?.parent?;
+        Some((parent, self.script_list(parent)))
     }
 
     /// Show the current script children of rendered elements without
@@ -5689,12 +6407,28 @@ impl<'p> Machine<'p> {
     fn regraft(&mut self) {
         fn walk(nodes: &mut [VNode], script: &ScriptDom, hosts: &HashSet<u64>) {
             for n in nodes {
-                if let VNode::Element { id, children, .. } = n {
+                if let VNode::Element {
+                    id,
+                    children,
+                    attrs,
+                    ..
+                } = n
+                {
+                    for (name, (value, _)) in script.attrs.get(id).into_iter().flatten() {
+                        match value {
+                            Some(v) => {
+                                attrs.insert(name.clone(), v.clone());
+                            }
+                            None => {
+                                attrs.remove(name);
+                            }
+                        }
+                    }
                     if hosts.contains(id) {
                         *children = script
                             .hosts
                             .get(id)
-                            .map(|l| l.iter().map(|&c| script.vnode(c)).collect())
+                            .map(|l| l.iter().filter_map(|&c| script.vnode(c)).collect())
                             .unwrap_or_default();
                     } else {
                         walk(children, script, hosts);
@@ -5721,7 +6455,7 @@ impl<'p> Machine<'p> {
         match self.script.nodes[&top].parent {
             // (Inside a rendered element: the rendered tree holds it.)
             Some(ScriptParent::Host(_)) => None,
-            _ => Some(vec![self.script.vnode(top)]),
+            _ => Some(self.script.vnode(top).into_iter().collect()),
         }
     }
 
@@ -5757,7 +6491,7 @@ impl<'p> Machine<'p> {
                 .script
                 .preceding
                 .iter()
-                .map(|&c| self.script.vnode(c))
+                .filter_map(|&c| self.script.vnode(c))
                 .collect();
             state["preceding"] = Json::Array(normalize(nodes).iter().map(VNode::to_json).collect());
         }
