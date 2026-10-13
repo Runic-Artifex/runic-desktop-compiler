@@ -38,6 +38,7 @@ import {
 import { createProgram, RUNES } from '../program.ts';
 import { sameType, TypeMapper } from '../types.ts';
 import { lowerModules, ModuleResolver } from '../modules.ts';
+import { checkModuleEffects } from '../module-effects.ts';
 import {
   annotate,
   declarationOverrides,
@@ -227,7 +228,7 @@ interface Graph {
     {
       code: string;
       imports: Edge[];
-      package?: { name: string; version: string; dir: string };
+      package?: { name: string; version: string; dir: string; sideEffects?: false };
       globs?: GlobCall[];
     }
   >;
@@ -574,6 +575,41 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
           true,
         ),
       );
+  });
+  // The top-level code of packages compiled from source that do not declare
+  // "sideEffects": false, in the order a bundle evaluates it
+  // (frontend/module-effects.ts): a script module's statements, a
+  // component's `<script module>`.
+  checkModuleEffects({
+    entry: graph.entry,
+    modules: graph.modules,
+    resolver,
+    scripts: file => {
+      const code = graph.modules.get(file)?.code;
+      if (code === undefined) return [];
+      const script = (start: number, end: number, module: boolean) => {
+        const sf = ts.createSourceFile(
+          file,
+          code.slice(start, end),
+          ts.ScriptTarget.Latest,
+          true,
+          /\.m?js$/.test(file) ? ts.ScriptKind.JS : ts.ScriptKind.TS,
+        );
+        return { sf, module, at: (pos: number) => locate(code, start + pos, rel(file)) };
+      };
+      if (!file.endsWith('.svelte'))
+        return /\.(m?js|ts)$/.test(file) ? [script(0, code.length, true)] : [];
+      const ast =
+        units.get(file)?.ast ??
+        graph.tooling.compiler.parse(code, { filename: file, modern: true });
+      return [
+        ...(ast.module ? [script(ast.module.content.start, ast.module.content.end, true)] : []),
+        ...(ast.instance
+          ? [script(ast.instance.content.start, ast.instance.content.end, false)]
+          : []),
+      ];
+    },
+    fail,
   });
   /**
    * Whether a component's `<style>` scopes anything: compiled with a marker
