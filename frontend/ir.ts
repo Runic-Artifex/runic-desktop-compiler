@@ -21,6 +21,12 @@ export type Type =
   | { class: number }
   /** An instance of one of several unrelated classes or their subclasses (ascending, two or more). */
   | { classes: number[] }
+  /**
+   * A value of one of two or more members, in this order: number, string,
+   * boolean, element, one plain record (M6 unions). The value knows its
+   * member as a JavaScript value does.
+   */
+  | { union: Type[] }
   | { map: [Type, Type] }
   | { set: Type }
   | { promise: Type }
@@ -234,10 +240,23 @@ export type Expr =
   | { op: 'slot-provided'; name: string }
   /** Unwrap a Maybe; throws TypeError when nullish (`x!` then member access). */
   | { op: 'unwrap'; value: Expr }
-  /** A class instance (or a Maybe of one) as a wider class type (M6 inheritance). */
+  /**
+   * A class instance (or a Maybe of one) as a wider class type (M6
+   * inheritance), or a union member (or narrower union) as a union.
+   */
   | { op: 'upcast'; value: Expr; type: Type }
-  /** A class reference (or a Maybe of one) as a narrower class type; TypeError when it is not. */
+  /**
+   * A class reference (or a Maybe of one) as a narrower class type, or a
+   * union value as some of its members; TypeError when it is not.
+   */
   | { op: 'downcast'; value: Expr; type: Type }
+  /** Branch on the member a union value holds; each case binds the value as that member. */
+  | {
+      op: 'match-union';
+      value: Expr;
+      cases: { type: Type; local: number; body: Expr }[];
+      else?: Expr;
+    }
   /** Branch on the class of a class reference; each case binds the instance as its exact class. */
   | {
       op: 'match-class';

@@ -31,6 +31,8 @@ import {
   IMAGE_MEMBERS,
   irType,
   maybeInner,
+  unionMembers,
+  unionRank,
   WINDOW_METRICS,
 } from './irtype.ts';
 import { DOM } from './program.ts';
@@ -442,7 +444,8 @@ export class Lowerer {
       test => this.buildTimeTruth(test),
       t => types.sourceClass(t),
     );
-    types.narrow = (parts, at, fail, dynamic) => this.unions.member(parts, at, fail, dynamic);
+    types.narrow = (parts, at, fail, dynamic, unite) =>
+      this.unions.member(parts, at, fail, dynamic, unite);
     types.nothingSlot = decl => this.unions.nothingSlot(decl);
     types.nothingInBoxes = decl => this.unions.nothingInBoxes(decl);
     types.anyFnSlot = (decl, box) => this.unions.anyFnSlot(decl, box);
@@ -5735,7 +5738,7 @@ export class Lowerer {
           pe.expression,
           b,
           r => this.dynBuiltin('get', [r, { op: 'lit', value: pe.name.text }]),
-          () => this.property(pe, b),
+          () => this.narrowUnion(this.property(pe, b), pe, b),
         );
       }
       case K.ElementAccessExpression: {
@@ -7286,8 +7289,13 @@ export class Lowerer {
       ) {
         const v = this.expr(e.left, b);
         const t = this.irType(v, b);
-        const nullable = JSON.stringify(t) === JSON.stringify({ maybe: 'element' });
-        if (t !== 'element' && !nullable)
+        // A union value (M6 unions): its element member is tested; its
+        // other members (primitives and plain objects) are no DOM nodes.
+        const union = unionMembers(maybeInner(t) ?? t);
+        const nullable =
+          JSON.stringify(t) === JSON.stringify({ maybe: 'element' }) ||
+          (!!union && maybeInner(t) !== undefined);
+        if (t !== 'element' && !nullable && !union)
           return this.fail(e, 'E_EXPRESSION', `instanceof ${global} tests element values`);
         // (An element value may be an event target that is the document or
         // the window: a window `scroll` listener's `e.target` is the document.)
@@ -7297,6 +7305,18 @@ export class Lowerer {
           args: [x],
           type: BOOLEAN,
         });
+        const elementTest = (x: Expr): Expr => {
+          if (!union) return test(x);
+          const local = b.local('$element', 'element');
+          return {
+            op: 'match-union',
+            value: x,
+            cases: union.includes('element')
+              ? [{ type: 'element', local, body: test({ op: 'local', local }) }]
+              : [],
+            else: { op: 'lit', value: false },
+          };
+        };
         const test = (x: Expr): Expr => {
           if (global === 'HTMLElement') return is('isHTML', x);
           // (An input: an HTML element named `input`, bits-ui's isSelectableInput.)
@@ -7336,7 +7356,7 @@ export class Lowerer {
                 : { op: 'or', left: is('isElement', read), right: is('isDocument', read) },
           };
         };
-        if (!nullable) return test(v);
+        if (!nullable) return elementTest(v);
         const local = b.local('$element', t);
         const read: Expr = { op: 'local', local };
         return {
@@ -7347,7 +7367,7 @@ export class Lowerer {
             op: 'cond',
             test: { op: 'builtin', name: 'maybe.is-nullish', args: [read], type: BOOLEAN },
             then: { op: 'lit', value: false },
-            else: test({ op: 'unwrap', value: read }),
+            else: elementTest({ op: 'unwrap', value: read }),
           },
         };
       }
@@ -7410,7 +7430,10 @@ export class Lowerer {
     };
     const left = operand(e.left);
     const right = operand(e.right);
-    return this.binary(op, left, this.irType(left, b), right, this.irType(right, b), e);
+    const [lt, rt] = [this.irType(left, b), this.irType(right, b)];
+    if (!equality && [lt, rt].some(t => unionMembers(t) || unionMembers(maybeInner(t) ?? 'void')))
+      return this.unionBinary(op, left, lt, right, rt, e, b);
+    return this.binary(op, left, lt, right, rt, e);
   }
 
   binary(op: ts.SyntaxKind, left: Expr, lt: Type, right: Expr, rt: Type, at: ts.Node): Expr {
@@ -7493,6 +7516,24 @@ export class Lowerer {
       return { op: 'builtin', name, args: [value], type: BOOLEAN };
     }
     if (sameType(lt, rt)) return { op: 'eq', left, right };
+    // A union value and a value of its members (or of another union)
+    // compare strictly as values of the union of both (M6 unions): values
+    // of different members are never equal. (Loose equality converts
+    // between members: not supported.)
+    const united = this.unionJoin(lt, rt);
+    if (united) {
+      if (!strict)
+        return this.fail(
+          at,
+          'E_OPERATOR',
+          'Loose equality (==) of a union value converts between its members; use ===',
+        );
+      return {
+        op: 'eq',
+        left: this.classes.fit(left, lt, united),
+        right: this.classes.fit(right, rt, united),
+      };
+    }
     // Class instances compare as their common class type.
     const joined = this.classes.join(lt, rt);
     if (joined)
@@ -7549,6 +7590,159 @@ export class Lowerer {
   }
 
   // Property access, calls and built-ins ---------------------------------------
+
+  /**
+   * `e`, a member read or method call whose receiver `object` (lowered:
+   * `receiver`) is a union value (M6 unions): a `match-union` lowering `e`
+   * once per member with the receiver as a value of that member, as
+   * JavaScript looks the member up on the value it holds. The members'
+   * results take TypeScript's type of `e`; where they cannot, rejected.
+   */
+  private unionMember(e: ts.Expression, object: ts.Expression, receiver: Expr, b: FnBuilder): Expr {
+    const t = this.irType(receiver, b);
+    const members = unionMembers(t)!;
+    const cases = members.map(m => {
+      const local = b.local('$member', m);
+      const body = this.withOverrides(
+        new Map([[object, { expr: { op: 'local', local } as Expr, type: m }]]),
+        () => this.expr(e, b),
+      );
+      return { type: m, local, body };
+    });
+    const types = cases.map(c => this.irType(c.body, b));
+    if (!types.every(x => sameType(x, types[0]))) {
+      const want = this.types.typeOrUndefined(e);
+      if (want !== undefined)
+        for (const c of cases) c.body = this.classes.fit(c.body, this.irType(c.body, b), want);
+      const fitted = cases.map(c => this.irType(c.body, b));
+      if (want === undefined || !fitted.every(x => sameType(x, want)))
+        return this.fail(
+          e,
+          'E_TYPE_UNION',
+          `${e.getText()} gives values of different types for the members of its union receiver (${members.map((m, i) => `${JSON.stringify(m)}: ${JSON.stringify(types[i])}`).join(', ')}), which TypeScript's type of it does not unite`,
+        );
+    }
+    return { op: 'match-union', value: receiver, cases };
+  }
+
+  /**
+   * `v`, a read of `e` (a field), where its value is a union TypeScript
+   * narrowed to some of its members (`typeof this.value === "number"`):
+   * downcast, checked at run time (M6 unions). Otherwise `v`.
+   */
+  private narrowUnion(v: Expr, e: ts.Expression, b: FnBuilder): Expr {
+    const t = this.irType(v, b);
+    if (!unionMembers(maybeInner(t) ?? t)) return v;
+    const here = this.types.typeOrUndefined(e);
+    // (Both nullable or both not: a nullable read is unwrapped where it is used.)
+    return here === undefined ? v : this.classes.narrow(v, t, here);
+  }
+
+  /**
+   * The union type holding the values of types `a` and `b` where either is
+   * a union (M6 unions): the members of both, nullable where either is;
+   * undefined where neither is a union or the value model does not hold
+   * such a union.
+   */
+  unionJoin(a: Type, b: Type): Type | undefined {
+    const base = (t: Type) => maybeInner(t) ?? t;
+    const ua = unionMembers(base(a));
+    const ub = unionMembers(base(b));
+    if (!ua && !ub) return undefined;
+    const members: Type[] = [];
+    for (const m of [...(ua ?? [base(a)]), ...(ub ?? [base(b)])]) {
+      const rank = unionRank(m);
+      if (rank === undefined) return undefined;
+      const same = members.find(x => unionRank(x) === rank);
+      if (same !== undefined) {
+        if (!sameType(same, m)) return undefined;
+        continue;
+      }
+      members.push(m);
+    }
+    members.sort((x, y) => unionRank(x)! - unionRank(y)!);
+    const u: Type = { union: members };
+    return maybeInner(a) !== undefined || maybeInner(b) !== undefined ? { maybe: u } : u;
+  }
+
+  /**
+   * Binary operator `op` (not an equality) with a union operand (M6
+   * unions): JavaScript's operator on the members the operands hold, each
+   * combination lowered as the operator on those members (`+` concatenates
+   * where a string is one of them and adds numbers). The left operand is
+   * evaluated first. The results take TypeScript's type of `at`.
+   */
+  private unionBinary(
+    op: ts.SyntaxKind,
+    left: Expr,
+    lt: Type,
+    right: Expr,
+    rt: Type,
+    at: ts.Expression,
+    b: FnBuilder,
+  ): Expr {
+    for (const t of [lt, rt]) {
+      if (maybeInner(t) !== undefined && unionMembers(maybeInner(t)!))
+        return this.fail(
+          at,
+          'E_TYPE_UNION',
+          `${ts.tokenToString(op)} of a nullable union value is not supported; test it for null or undefined first`,
+        );
+      if (unionMembers(t)?.some(m => m === 'element' || (typeof m === 'object' && 'record' in m)))
+        return this.fail(
+          at,
+          'E_TYPE_UNION',
+          `${ts.tokenToString(op)} of a union value with an element or object member converts the object to a primitive, which is not supported`,
+        );
+    }
+    // (Where TypeScript does not type it, as a template expression of a
+    // component: the union of the members' results.)
+    const placeholder: Expr = { op: 'lit', value: 0 };
+    const results = (unionMembers(lt) ?? [lt]).flatMap(l =>
+      (unionMembers(rt) ?? [rt]).map(r =>
+        this.irType(this.binary(op, placeholder, l, placeholder, r, at), b),
+      ),
+    );
+    const want =
+      this.types.typeOrUndefined(at) ??
+      (results.every(t => sameType(t, results[0]))
+        ? results[0]
+        : results
+            .slice(1)
+            .reduce<Type | undefined>((u, t) => u && this.unionJoin(u, t), {
+              union: [results[0]],
+            }));
+    const fit = (e: Expr): Expr => {
+      const t = this.irType(e, b);
+      if (want === undefined || sameType(t, want)) return e;
+      const out = this.classes.fit(e, t, want);
+      if (!sameType(this.irType(out, b), want))
+        return this.fail(
+          at,
+          'E_TYPE_UNION',
+          `${at.getText()} gives a ${JSON.stringify(t)} for some members of its union operands, which TypeScript's type of it does not hold`,
+        );
+      return out;
+    };
+    const split = (v: Expr, t: Type, body: (v: Expr, t: Type) => Expr): Expr => {
+      const ms = unionMembers(t);
+      if (!ms) return body(v, t);
+      return {
+        op: 'match-union',
+        value: v,
+        cases: ms.map(m => {
+          const local = b.local('$member', m);
+          return { type: m, local, body: body({ op: 'local', local }, m) };
+        }),
+      };
+    };
+    // (The left operand bound first where the right one decides the member.)
+    const l = b.local('$left', lt);
+    const inner = split({ op: 'local', local: l }, lt, (lv, lm) =>
+      split(right, rt, (rv, rm) => fit(this.binary(op, lv, lm, rv, rm, at))),
+    );
+    return { op: 'with', local: l, value: left, body: inner };
+  }
 
   private receiverKind(t: Type): string | undefined {
     if (t === 'string') return 'string';
@@ -8523,6 +8717,8 @@ export class Lowerer {
       object = { op: 'unwrap', value: object };
       t = inner;
     }
+    // A member of a union value (M6 unions): the member's.
+    if (unionMembers(t)) return this.unionMember(e, e.expression, object, b);
     const kind = this.receiverKind(t);
     if (kind === 'media-query') {
       if (name !== 'matches')
@@ -10167,6 +10363,10 @@ export class Lowerer {
           /\.[cm]?js(\.__runic\.ts)?$/.test(callee.expression.getSourceFile().fileName))
       )
         receiver = { op: 'unwrap', value: receiver };
+      // A method of a union value (M6 unions): the method of the member
+      // the value holds.
+      if (unionMembers(this.irType(receiver, b)))
+        return this.unionMember(e, callee.expression, receiver, b);
       const kind = this.receiverKind(this.irType(receiver, b));
       if (kind === 'promise') return this.promiseMethod(method, receiver, e, b);
       if (kind === 'date') return this.dateMethod(method, receiver, e, b);
@@ -12678,7 +12878,12 @@ export class Lowerer {
         ('maybe' in want && typeof want.maybe === 'object' && 'record' in want.maybe))
         ? want
         : this.types.map(t, e);
-    const recordType = typeof type === 'object' && 'maybe' in type ? type.maybe : type;
+    let recordType = typeof type === 'object' && 'maybe' in type ? type.maybe : type;
+    // A literal where a union is expected (M6 unions): a value of its
+    // record member (bits-ui's virtual element where `HTMLElement |
+    // Measurable` is).
+    const member = unionMembers(recordType)?.find(m => typeof m === 'object' && 'record' in m);
+    if (member) recordType = { record: (member as { record: number }).record };
     if (typeof recordType === 'object' && 'map' in recordType)
       return this.dictionaryLiteral(e, recordType, b);
     if (!(typeof recordType === 'object' && 'record' in recordType))

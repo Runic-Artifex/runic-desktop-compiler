@@ -71,6 +71,15 @@ export function fitType(v: Expr, have: Type, want: Type, records: RecordType[]):
   if (wi !== undefined && hi === undefined && have !== 'void')
     return { op: 'some', value: fitType(v, have, wi, records) };
   const [h, w] = wi !== undefined && hi !== undefined ? [hi, wi] : [have, want];
+  // A member (or a narrower union) where a union is expected (M6 unions).
+  const wu = unionMembers(w);
+  if (wu) {
+    const key = (t: Type) => JSON.stringify(t);
+    const hu = unionMembers(h) ?? [h];
+    if (key(h) !== key(w) && hu.every(m => wu.some(x => key(x) === key(m))))
+      return { op: 'upcast', value: v, type: want };
+    return v;
+  }
   const hm = classMembers(h, records);
   const wm = classMembers(w, records);
   if (
@@ -84,9 +93,26 @@ export function fitType(v: Expr, have: Type, want: Type, records: RecordType[]):
   return v;
 }
 
+/** The members of union type `t` (M6 unions), if it is one. */
+export function unionMembers(t: Type): Type[] | undefined {
+  return typeof t === 'object' && 'union' in t ? t.union : undefined;
+}
+
+/** The rank of `t` among a union's members (number, string, boolean, element, record), if it can be one. */
+export function unionRank(t: Type): number | undefined {
+  if (t === 'number') return 0;
+  if (t === 'string') return 1;
+  if (t === 'boolean') return 2;
+  if (t === 'element') return 3;
+  if (typeof t === 'object' && 'record' in t) return 4;
+  return undefined;
+}
+
 /** `v` (of type `have`) widened to class type `want` where it is a narrower class type; otherwise `v`. */
 export function upcastTo(v: Expr, have: Type, want: Type, records: RecordType[]): Expr {
   const strip = (t: Type) => maybeInner(t) ?? t;
+  // (Also a member value, or a narrower union, as a union: M6 unions.)
+  if (unionMembers(strip(want))) return fitType(v, have, want, records);
   if (!classMembers(strip(want), records) || !classMembers(strip(have), records)) return v;
   return fitType(v, have, want, records);
 }
@@ -162,6 +188,7 @@ export function irType(e: Expr, env: TypeEnv): Type {
     case 'downcast':
       return e.type;
     case 'match-class':
+    case 'match-union':
       return e.cases.length ? irType(e.cases[0].body, env) : irType(e.else!, env);
     case 'index':
       return arrayElement(irType(e.array, env)) ?? 'void';

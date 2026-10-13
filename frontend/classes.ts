@@ -39,7 +39,7 @@
 import ts from 'typescript';
 import type { Expr, Local, Stmt, Type } from './ir.ts';
 import { FnBuilder, remapLocals, skipParens, type Lowerer } from './language.ts';
-import { classMembers, concreteMembers, fitType, maybeInner } from './irtype.ts';
+import { classMembers, concreteMembers, fitType, maybeInner, unionMembers } from './irtype.ts';
 
 /** A method, accessor or constructor. */
 interface Callable {
@@ -618,6 +618,18 @@ export class Classes {
     if (want === undefined || JSON.stringify(have) === JSON.stringify(want)) return e;
     const maybe = maybeInner(have) !== undefined;
     if (maybe !== (maybeInner(want) !== undefined)) return e;
+    // A union value read where TypeScript narrowed it to some of its
+    // members (`typeof`, `instanceof`, a type predicate): downcast, which
+    // checks the member at run time (M6 unions).
+    const hu = unionMembers(maybeInner(have) ?? have);
+    if (hu) {
+      const w = maybeInner(want) ?? want;
+      const key = (t: Type) => JSON.stringify(t);
+      const wu = unionMembers(w) ?? [w];
+      return wu.every(m => hu.some(x => key(x) === key(m)))
+        ? { op: 'downcast', value: e, type: want }
+        : e;
+    }
     const hm = this.members(maybeInner(have) ?? have);
     const wm = this.members(maybeInner(want) ?? want);
     if (!hm || !wm || hm.length === 1 || !wm.every(r => hm.includes(r))) return e;

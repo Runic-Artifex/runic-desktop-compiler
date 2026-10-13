@@ -1184,6 +1184,26 @@ impl<'p> Analysis<'p> {
                 self.put(Loc::Local(cx.scope.clone(), *local), &v);
                 self.eval(cx, body)
             }
+            Expr::MatchUnion {
+                value,
+                cases,
+                otherwise,
+            } => {
+                // (Each case's local holds the values of its member, a
+                // subset of the union's.)
+                let v = self.eval(cx, value);
+                let mut out = Val::none();
+                for case in cases {
+                    self.put(Loc::Local(cx.scope.clone(), case.local), &v);
+                    let r = self.eval(cx, &case.body);
+                    out.join(&r);
+                }
+                if let Some(o) = otherwise {
+                    let r = self.eval(cx, o);
+                    out.join(&r);
+                }
+                out
+            }
             Expr::MatchClass {
                 value,
                 cases,

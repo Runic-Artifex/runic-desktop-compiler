@@ -1532,6 +1532,32 @@ impl<'p> Machine<'p> {
             },
             // Class references are instance records carrying their class.
             Upcast { value, .. } => self.eval(value, f)?,
+            // A union value is its member's value (M6 unions); a downcast
+            // checks the member it holds.
+            Downcast { value, ty } if union_target(ty, self.program).is_some() => {
+                let v = self.eval(value, f)?;
+                let want = union_target(ty, self.program).expect("union downcast");
+                if !matches!(v, Val::Undefined | Val::Null) && !want.iter().any(|m| val_is(&v, m)) {
+                    return Err(Throw::type_error(union_message(&v, want)));
+                }
+                v
+            }
+            MatchUnion {
+                value,
+                cases,
+                otherwise,
+            } => {
+                let v = self.eval(value, f)?;
+                match cases.iter().find(|c| val_is(&v, &c.ty)) {
+                    Option::Some(c) => {
+                        f.set(c.local, v.clone());
+                        self.eval(&c.body, f)?
+                    }
+                    Option::None => {
+                        self.eval(otherwise.as_deref().expect("validated match-union"), f)?
+                    }
+                }
+            }
             Downcast { value, ty } => {
                 let v = self.eval(value, f)?;
                 if let Val::Record(r) = &v {
@@ -9015,6 +9041,49 @@ fn path_nodes<'t>(tree: &'t [VNode], path: &[usize]) -> Vec<&'t VNode> {
 
 /// JSON view of a cell value (non-finite numbers as strings), matching the
 /// native probe's `cells` output.
+/// The members a downcast to `ty` accepts, where it converts a union
+/// (its target is a member or a narrower union: M6 unions). Class
+/// downcasts target class types; union members are plain records.
+fn union_target<'t>(ty: &'t Type, p: &Program) -> Option<&'t [Type]> {
+    let t = match ty {
+        Type::Maybe(t) => t,
+        t => t,
+    };
+    match t {
+        Type::Union(ms) => Some(ms),
+        Type::Number | Type::String | Type::Boolean | Type::Element => {
+            Some(std::slice::from_ref(t))
+        }
+        Type::Record(r) if !p.records[*r].class => Some(std::slice::from_ref(t)),
+        _ => None,
+    }
+}
+
+/// Whether `v` is a value of union member `m`.
+pub(crate) fn val_is(v: &Val, m: &Type) -> bool {
+    match (v, m) {
+        (Val::Num(_), Type::Number)
+        | (Val::Str(_), Type::String)
+        | (Val::Bool(_), Type::Boolean)
+        | (Val::Element(_), Type::Element) => true,
+        (Val::Record(r), Type::Record(want)) => r.peek().record == *want,
+        _ => false,
+    }
+}
+
+/// The TypeError message of a failing union downcast (the generated code's
+/// `js::union_message`).
+fn union_message(v: &Val, want: &[Type]) -> String {
+    let have = match v {
+        Val::Num(_) => "number",
+        Val::Str(_) => "string",
+        Val::Bool(_) => "boolean",
+        Val::Element(_) => "element",
+        _ => "object",
+    };
+    js::union_message(have, &want.iter().map(Type::name).collect::<Vec<_>>())
+}
+
 pub fn cell_json(v: &Val) -> Json {
     if let Some(j) = dynamic::cell_json(v) {
         return j;
@@ -9873,5 +9942,71 @@ mod form_submission_tests {
             assert!(error.to_string().contains("named-property shadowing"));
             assert!(machine.submitting_forms.is_empty());
         }
+    }
+}
+
+#[cfg(test)]
+mod union_tests {
+    use super::*;
+
+    /// Functions over `number | string | {a}`: 0 describes its argument by
+    /// member, 1 downcasts it to a string, 2 is `typeof`.
+    fn program() -> Program {
+        let u = json!({"union": ["number", "string", {"record": 0}]});
+        let x = json!({"op": "local", "local": 0});
+        serde_json::from_value(json!({
+            "schema": 5,
+            "meta": {"title": "unions", "sourceHash": "0".repeat(64), "frontend": {}},
+            "capabilities": [], "styles": {"css": ""}, "root": 0,
+            "records": [{"name": "Plain", "fields": [{"name": "a", "type": "number"}]}],
+            "functions": [
+                {"name": "describe", "params": [{"name": "x", "type": u}],
+                 "locals": [{"name": "n", "type": "number"}, {"name": "s", "type": "string"}],
+                 "result": "string", "body": [{"op": "return", "value": {
+                    "op": "match-union", "value": x, "cases": [
+                        {"type": "number", "local": 1, "body": {"op": "to-string", "arg": {"op": "local", "local": 1}}},
+                        {"type": "string", "local": 2, "body": {"op": "local", "local": 2}}
+                    ], "else": {"op": "lit", "value": "record"}}}]},
+                {"name": "string", "params": [{"name": "x", "type": u}], "result": "string",
+                 "body": [{"op": "return", "value": {"op": "downcast", "value": x, "type": "string"}}]},
+                {"name": "kind", "params": [{"name": "x", "type": u}], "result": "string",
+                 "body": [{"op": "return", "value": {"op": "typeof", "arg": x}}]}
+            ],
+            "components": [{"name": "Test", "template": []}]
+        }))
+        .unwrap()
+    }
+
+    fn record() -> Val {
+        Val::Record(JsRef::new(RecordData::new(0, vec![Val::Num(1.0)], false)))
+    }
+
+    #[test]
+    fn members_dispatch_and_downcasts_check_them() {
+        let program = program();
+        crate::validate::validate(&program).unwrap();
+        let mut m = Machine::new(&program).unwrap();
+        let s = |v: Val| match v {
+            Val::Str(s) => s.to_string(),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(s(m.call(0, vec![], vec![Val::Num(2.0)]).unwrap()), "2");
+        assert_eq!(
+            s(m.call(0, vec![], vec![Val::Str("a".into())]).unwrap()),
+            "a"
+        );
+        assert_eq!(s(m.call(0, vec![], vec![record()]).unwrap()), "record");
+        assert_eq!(
+            s(m.call(1, vec![], vec![Val::Str("b".into())]).unwrap()),
+            "b"
+        );
+        let e = m.call(1, vec![], vec![Val::Num(2.0)]).unwrap_err();
+        assert_eq!(e.name.to_string(), "TypeError");
+        assert_eq!(
+            e.message.to_string(),
+            "A number where the static type expects string"
+        );
+        assert_eq!(s(m.call(2, vec![], vec![Val::Num(2.0)]).unwrap()), "number");
+        assert_eq!(s(m.call(2, vec![], vec![record()]).unwrap()), "object");
     }
 }

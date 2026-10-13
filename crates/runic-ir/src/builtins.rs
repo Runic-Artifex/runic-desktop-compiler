@@ -302,6 +302,8 @@ fn primitive(t: &Type) -> bool {
     match t {
         Type::Number | Type::String | Type::Boolean => true,
         Type::Maybe(inner) => primitive(inner),
+        // (A union as its member: M6 unions.)
+        Type::Union(ms) => ms.iter().all(primitive),
         _ => false,
     }
 }
@@ -316,6 +318,7 @@ fn stringable(t: &Type) -> bool {
         | Type::Regexp
         | Type::Date => true,
         Type::Maybe(inner) => stringable(inner),
+        Type::Union(ms) => ms.iter().all(stringable),
         _ => false,
     }
 }

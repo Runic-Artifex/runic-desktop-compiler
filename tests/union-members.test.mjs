@@ -208,29 +208,36 @@ test('an instance of a class that only has the shape of a member counts as its o
 // bits-ui's floating layer anchor in small (the context menu): the union
 // `HTMLElement | Measurable` types both an option holding the trigger
 // element and the root's anchor holding the virtual element. The census
-// narrows a union type program-wide, and per-member compilation separates
-// sites, not slots of one instance: it stays rejected.
-test('a union whose members reach different slots of one instance stays rejected', async () => {
+// narrows a union type program-wide, so per-member compilation cannot
+// separate the slots; the IR union (M6 unions) holds either member in every
+// slot, and the method call dispatches on the member held.
+test('a union whose members reach different slots of one instance holds either', async () => {
   await withApp(
     {
       'App.svelte': `<script lang="ts">
   type Measurable = { getBoundingClientRect: () => DOMRect };
   type Anchor = HTMLElement | Measurable;
   let el = $state<HTMLElement | null>(null);
-  const virtual: Measurable = { getBoundingClientRect: () => new DOMRect(1, 2, 0, 0) };
+  const virtual: Measurable = {
+    getBoundingClientRect: () => ({ x: 1, y: 2, width: 0, height: 0, top: 2, right: 1, bottom: 2, left: 1 }),
+  };
   const opts: { ref: Anchor | null } = { ref: null };
   let anchor = $state<Anchor | null>(null);
 </script>
 
 <div bind:this={el}>x</div>
 <button id="b" onclick={() => { opts.ref = el; anchor = virtual; }}>b</button>
-<p>{anchor ? anchor.getBoundingClientRect().x : 0}</p>
+<p id="p">{anchor ? anchor.getBoundingClientRect().x : 0}</p>
 `,
     },
-    root =>
-      assert.rejects(
-        lowered(root),
-        failWith('E_TYPE_UNION', 'App.svelte', /outside the value model/),
-      ),
+    async root => {
+      const { ir } = await lowered(root);
+      assert.ok(JSON.stringify(ir).includes('{"union":["element",{"record":'));
+      const steps = interpret(ir, [{ kind: 'click', id: 'b' }]);
+      const p = s =>
+        text(steps[s].state.dom.find(n => typeof n !== 'string' && n.attrs.id === 'p'));
+      assert.equal(p(0), '0');
+      assert.equal(p(1), '1');
+    },
   );
 });

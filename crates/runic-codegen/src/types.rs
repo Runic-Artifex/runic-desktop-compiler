@@ -22,6 +22,17 @@ pub fn rust_type(t: &Type) -> String {
         // Opaque host objects (M6): the generated app keeps their state.
         Type::Mounted | Type::Contexts | Type::Animation | Type::Image => "js::Handle".into(),
         Type::Dyn => "js::Dyn".into(),
+        // A union (M6): the member it holds, the record member as the
+        // type parameter.
+        Type::Union(ms) => format!(
+            "js::Union<{}>",
+            ms.iter()
+                .find_map(|m| match m {
+                    Type::Record(r) => Some(format!("JsRef<R{r}>")),
+                    _ => None,
+                })
+                .unwrap_or_else(|| "js::NoRecord".into())
+        ),
         // Every class reference is the program's enum of instances by class.
         Type::Class(_) | Type::Classes(_) => "Obj".into(),
         // Reactions are microtask jobs of the generated app.
@@ -66,6 +77,12 @@ pub fn default_value(t: &Type, p: &Program) -> String {
             "js::Handle::new(())".into()
         }
         Type::Dyn => "js::Dyn::Undefined".into(),
+        Type::Union(ms) => format!(
+            "{}::{}({})",
+            union_new(ms),
+            union_variant(&ms[0]),
+            default_value(&ms[0], p)
+        ),
         Type::Promise(_) => "js::JsPromise::pending()".into(),
         Type::Fn(f) => format!(
             "{{ let f: {} = Rc::new(|_: &mut Cx{}| -> JsResult<{}> {{ unreachable!(\"uninitialised function\") }}); f }}",
@@ -77,6 +94,85 @@ pub fn default_value(t: &Type, p: &Program) -> String {
             rust_type(&f.result)
         ),
     }
+}
+
+/// The path of the variants of union type `ms` as constructors (with
+/// the union's type parameter, which a variant alone does not infer).
+pub fn union_new(ms: &[Type]) -> String {
+    format!("<{}>", rust_type(&Type::Union(ms.to_vec())))
+}
+
+/// The `js::Union` variant of union member `t` (M6 unions).
+pub fn union_variant(t: &Type) -> &'static str {
+    match t {
+        Type::Number => "Number",
+        Type::String => "String",
+        Type::Boolean => "Boolean",
+        Type::Element => "Element",
+        Type::Record(_) => "Record",
+        other => unreachable!("validated union member {other:?}"),
+    }
+}
+
+/// `v` (a value of union type `from`, or of one of its members) as a
+/// value of union type `to` whose members include its own: each member
+/// keeps its variant (M6 unions).
+pub fn union_widen(from: &Type, to: &[Type], v: &str) -> String {
+    match from.union_members() {
+        None => format!("{}::{}({v})", union_new(to), union_variant(from)),
+        // (A union without a record member has the type parameter
+        // `NoRecord`: rebuilt variant by variant.)
+        Some(have) => {
+            let same_record = have.iter().any(|m| matches!(m, Type::Record(_)))
+                == to.iter().any(|m| matches!(m, Type::Record(_)));
+            if same_record {
+                return v.to_string();
+            }
+            let ctor = union_new(to);
+            let arms: String = have
+                .iter()
+                .map(|m| {
+                    let n = union_variant(m);
+                    format!("js::Union::{n}(x) => {ctor}::{n}(x), ")
+                })
+                .collect();
+            format!(
+                "{{ #[allow(unreachable_patterns)] let u = match {v} {{ {arms}_ => unreachable!(\"validated union\") }}; u }}"
+            )
+        }
+    }
+}
+
+/// `v` (a value of union type `from`) as a value of `to`, one of its
+/// members or a narrower union: a `JsResult` whose error is the
+/// TypeError of a value of another member (M6 unions).
+pub fn union_narrow(from: &[Type], to: &Type, v: &str) -> String {
+    let want: Vec<Type> = to
+        .union_members()
+        .map_or_else(|| vec![to.clone()], <[Type]>::to_vec);
+    let names: Vec<String> = want.iter().map(Type::name).collect();
+    let arms: String = from
+        .iter()
+        .map(|m| {
+            let n = union_variant(m);
+            if !want.contains(m) {
+                let have = match m {
+                    Type::Record(_) => "object".to_string(),
+                    other => other.name(),
+                };
+                format!(
+                    "js::Union::{n}(_) => Err(js::Throw::type_error(js::union_message({have:?}, &{names:?}.map(String::from)))), "
+                )
+            } else if let Some(ms) = to.union_members() {
+                format!("js::Union::{n}(x) => Ok({}::{n}(x)), ", union_new(ms))
+            } else {
+                format!("js::Union::{n}(x) => Ok(x), ")
+            }
+        })
+        .collect();
+    format!(
+        "{{ #[allow(unreachable_patterns)] let r = match {v} {{ {arms}_ => unreachable!(\"validated union\") }}; r }}"
+    )
 }
 
 /// The classes a class reference can hold: the variants of the generated

@@ -1,0 +1,20 @@
+{
+  "description": "Union values (M6 unions): a string | number state that bits-ui's announcer and shadcn-svelte's clipboard hook pattern use, holding either member; typeof, String(), Number(), truthiness, === with each member, template text, a toString() method dispatched to the member, + and comparisons by member, and TypeScript's typeof and null narrowing; and an HTMLElement | Measurable anchor (bits-ui's floating anchor) holding an element or an object literal, its getBoundingClientRect() dispatched to the member, instanceof HTMLElement, typeof and === identity (Svelte)",
+  "fixtures": ["unions-svelte"],
+  "actions": [
+    { "kind": "click", "id": "bump" },
+    { "kind": "click", "id": "set-number" },
+    { "kind": "click", "id": "set-string" },
+    { "kind": "click", "id": "bump" },
+    { "kind": "click", "id": "empty" },
+    { "kind": "click", "id": "set-digits" },
+    { "kind": "click", "id": "empty" },
+    { "kind": "click", "id": "set-zero" },
+    { "kind": "click", "id": "bump" },
+    { "kind": "click", "id": "anchor-point" },
+    { "kind": "click", "id": "anchor-element" },
+    { "kind": "click", "id": "anchor-element" },
+    { "kind": "click", "id": "anchor-far" },
+    { "kind": "click", "id": "anchor-point" }
+  ]
+}
