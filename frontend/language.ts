@@ -824,7 +824,13 @@ export class Lowerer {
     const never = !!(tsResult.flags & ts.TypeFlags.Never);
     const mapped =
       options?.result ?? (untypedResult || never ? 'void' : this.types.tryMap(tsResult, decl));
-    const inferred = !options?.result && !never && (untypedResult || mapped === undefined);
+    // (Also a result TypeScript infers, no annotation declaring it, as a
+    // union the census narrowed program-wide: the values returned may be of
+    // another member, `() => value` of a prop a discriminant narrowed.)
+    const narrowedResult =
+      !decl.type && !async && mapped !== undefined && this.unions.narrowedToOne(tsResult);
+    const inferred =
+      !options?.result && !never && (untypedResult || mapped === undefined || narrowedResult);
     let result: Type = mapped ?? 'void';
     // A function expression where a void-returning function is expected
     // (a listener, a callback): its value is never observed.
@@ -3525,6 +3531,14 @@ export class Lowerer {
       // (An unannotated variable whose initialiser is a dynamic value holds
       // it as one: M6 dynamic values.)
       if (earlyType && !d.type && containsDyn(earlyType)) type = earlyType;
+      // (So does one of a type mentioning a union the census narrowed,
+      // whose value may be of another member: `unions.mentionsNarrowed`.)
+      if (
+        earlyType &&
+        !d.type &&
+        this.unions.mentionsNarrowed(this.checker.getTypeAtLocation(d.name))
+      )
+        type = earlyType;
       const local = b.local(d.name.text, type, b.boxed.has(sym));
       this.bindings.set(sym, { kind: 'local', owner: b, local });
       if (fn) {
@@ -7708,11 +7722,9 @@ export class Lowerer {
       this.types.typeOrUndefined(at) ??
       (results.every(t => sameType(t, results[0]))
         ? results[0]
-        : results
-            .slice(1)
-            .reduce<Type | undefined>((u, t) => u && this.unionJoin(u, t), {
-              union: [results[0]],
-            }));
+        : results.slice(1).reduce<Type | undefined>((u, t) => u && this.unionJoin(u, t), {
+            union: [results[0]],
+          }));
     const fit = (e: Expr): Expr => {
       const t = this.irType(e, b);
       if (want === undefined || sameType(t, want)) return e;
@@ -9914,12 +9926,14 @@ export class Lowerer {
       if (binding?.kind === 'function')
         return { op: 'call', function: binding.fn, args: this.callArgs(e, b) };
       if (binding?.kind === 'generic') return this.specialise(binding, e, b);
-      if (binding)
+      if (binding) {
+        const value = this.calleeOf(this.expr(callee, b), b);
         return {
           op: 'call-value',
-          callee: this.calleeOf(this.expr(callee, b), b),
-          args: this.callArgs(e, b),
+          callee: value,
+          args: this.fitArgs(value, this.callArgs(e, b), e, b),
         };
+      }
       return this.fail(callee, 'E_UNRESOLVED', `${callee.text} is not a supported function`);
     }
     if (ts.isPropertyAccessExpression(callee)) {
@@ -10631,6 +10645,8 @@ export class Lowerer {
         // JavaScript specialised per call site: bits-ui's arraysAreEqual)
         // takes the element type, the index and the array.
         const at = this.irType(receiver, b) as { array: Type };
+        // (The element an inline `map` callback returns where one is expected, below.)
+        let mapsTo: Type | undefined;
         const typed = e.arguments.map(a => {
           const f = skipParens(a);
           const callbackParams = (n: number): Type[] =>
@@ -10669,6 +10685,37 @@ export class Lowerer {
           const named = ts.isIdentifier(f) ? this.binding(f) : undefined;
           if (named?.kind === 'generic' && !named.outer)
             return this.genericValue(named, callbackParams(named.decl.parameters.length), f, b);
+          // An array of records expected of `map` (a derived field's declared
+          // type, bits-ui's Slider `ticksPropsArr`): an inline function
+          // without a declared result returns them, its literals lowered at
+          // that record (their computed keys, `[sliderAttrs.tick]`, which
+          // untyped JavaScript gives TypeScript as a string index, by value,
+          // `keyedRecordLiteral`), as `Array.from` does.
+          const want = method === 'map' ? this.expected.get(e) : undefined;
+          const wantElement = typeof want === 'object' && 'array' in want ? want.array : undefined;
+          if (
+            wantElement !== undefined &&
+            typeof wantElement === 'object' &&
+            'record' in wantElement &&
+            !this.types.records[wantElement.record].class &&
+            (ts.isArrowFunction(f) || ts.isFunctionExpression(f)) &&
+            !f.type &&
+            !isAsync(f)
+          ) {
+            mapsTo = wantElement;
+            const anyParam = f.parameters.some(
+              p =>
+                !p.type &&
+                this.checker.getTypeAtLocation(p).flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown),
+            );
+            return this.closure(
+              f,
+              b,
+              `${method}$callback`,
+              anyParam ? callbackParams(f.parameters.length) : undefined,
+              wantElement,
+            );
+          }
           const untyped =
             (ts.isArrowFunction(f) || ts.isFunctionExpression(f)) &&
             f.parameters.some(
@@ -10701,7 +10748,11 @@ export class Lowerer {
           `array.${method}`,
           [receiver, ...typed],
           b,
-          method === 'filter' ? this.irType(receiver, b) : this.tsCallType(e),
+          method === 'filter'
+            ? this.irType(receiver, b)
+            : mapsTo !== undefined
+              ? { array: mapsTo }
+              : this.tsCallType(e),
           e,
         );
         // filter with a type predicate excluding null (bits-ui's
@@ -12006,6 +12057,42 @@ export class Lowerer {
     if (!this.checker.isArrayType(t)) return false;
     const [el] = this.checker.getTypeArguments(t as ts.TypeReference);
     return el !== undefined && !!(el.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown));
+  }
+
+  /**
+   * Arguments `args` of a call of function value `callee` fitted to its
+   * parameters' IR types: widened where the parameter holds more (a
+   * nullable, a union or a class reference). An argument of another type,
+   * which TypeScript's types of the call let through (bits-ui's Slider
+   * calls `onValueChange(v)` under `@ts-expect-error` with a value that may
+   * be undefined, the function's parameter holding none), is rejected at
+   * the argument.
+   */
+  private fitArgs(callee: Expr, args: Expr[], e: ts.CallExpression, b: FnBuilder): Expr[] {
+    const ft = this.irType(callee, b);
+    if (typeof ft !== 'object' || !('fn' in ft) || ft.fn.params.length !== args.length) return args;
+    return args.map((a, i) => {
+      const want = ft.fn.params[i];
+      const have = this.irType(a, b);
+      if (sameType(have, want) || have === 'dyn' || want === 'dyn') return a;
+      const fitted = this.classes.fit(a, have, want);
+      if (sameType(this.irType(fitted, b), want)) return fitted;
+      return this.fail(
+        e.arguments[i] ?? e,
+        'E_CALL',
+        `An argument of type ${JSON.stringify(have)} is passed where the function's parameter holds ${JSON.stringify(want)}${this.expectsError(e) ? ' (the call is under @ts-expect-error)' : ''}`,
+      );
+    });
+  }
+
+  /** Whether `@ts-expect-error` (or `@ts-ignore`) precedes the statement holding `n`. */
+  private expectsError(n: ts.Node): boolean {
+    let s: ts.Node = n;
+    while (s.parent && !ts.isBlock(s.parent) && !ts.isSourceFile(s.parent)) s = s.parent;
+    const text = s.getSourceFile().text;
+    return (ts.getLeadingCommentRanges(text, s.getFullStart()) ?? []).some(r =>
+      /@ts-(expect-error|ignore)/.test(text.slice(r.pos, r.end)),
+    );
   }
 
   /** Arguments with optional parameters widened to Maybe and missing ones as undefined. */

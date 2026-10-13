@@ -134,6 +134,39 @@ export class Unions {
   }
 
   /**
+   * Whether the census narrowed union type `t` to one of its members (not
+   * to `boolean`, nor to a union of classes). The census narrows a union
+   * type program-wide, while a prop a discriminant narrowed has its own
+   * member: an expression TypeScript types by such a union may hold a value
+   * of another member (`() => value` for bits-ui's Slider `value`, whose
+   * `number | number[]` the census gave `number` from its `step`).
+   */
+  narrowedToOne(t: ts.Type): boolean {
+    if (!t.isUnion()) return false;
+    const m = this.resolved.get(unionKey(t.types));
+    return !!m && !m.isUnion();
+  }
+
+  /**
+   * Whether `t` is or has among its type arguments (to depth 3) a union
+   * `narrowedToOne`: a box of one, `WritableBox<number | number[] |
+   * undefined>`, may hold a value of another member just as well.
+   */
+  mentionsNarrowed(t: ts.Type, depth = 3): boolean {
+    if (this.narrowedToOne(t)) return true;
+    if (depth === 0) return false;
+    const args = [
+      ...(t.aliasTypeArguments ?? []),
+      ...(t.flags & ts.TypeFlags.Object &&
+      (t as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference
+        ? this.checker.getTypeArguments(t as ts.TypeReference)
+        : []),
+      ...(t.isUnion() ? t.types : []),
+    ];
+    return args.some(a => this.mentionsNarrowed(a, depth - 1));
+  }
+
+  /**
    * The member that union `parts` (its non-nullish members, at least two of
    * types the value model cannot unite) is narrowed to. Rejects the union
    * when the values reaching it belong to different members, or, with
