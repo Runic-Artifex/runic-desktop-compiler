@@ -88,11 +88,11 @@ test('inline declarations a stylesheet would report are reported when set', asyn
       ),
   );
   await svelte(
-    '<div id="a" style="-webkit-text-fill-color: transparent">A</div><button id="b" onclick={() => {}}>B</button>',
+    '<div id="a" style="-webkit-text-stroke: 1px red">A</div><button id="b" onclick={() => {}}>B</button>',
     async root =>
       assert.match(
         reported((await lowered(root)).ir, click),
-        /-webkit-text-fill-color: transparent \(Blitz's style engine \(Stylo\) does not support it\)/,
+        /-webkit-text-stroke: 1px red \(Blitz's style engine \(Stylo\) does not support it\)/,
       ),
   );
   // Known only at run time: when the value is set, whatever its kind.
@@ -137,5 +137,29 @@ test('inline declarations verified equivalent are neither rejected nor reported'
     '<div id="a" style="position: -webkit-sticky; position: sticky; top: 0; -moz-column-gap: 1px; column-gap: 2px; -webkit-tap-highlight-color: transparent; text-shadow: none; p-a-d-d-i-n-g: 2px">A</div><button id="b" onclick={() => {}}>B</button>',
     async root =>
       assert.equal(reported((await lowered(root)).ir, [{ kind: 'click', id: 'b' }]), undefined),
+  );
+  // A template building a number past its range (shadcn-svelte's progress
+  // indicator with a value above its maximum): `translateX(--25%)`, which
+  // Chromium drops too (measured, chromium-grammar.txt). A function Stylo
+  // lacks stays reported.
+  await svelte(
+    `<script lang="ts">let value = $state(50); let size = $state('10px');</script>
+<div id="a" style="transform: translateX(-{100 - value}%); width: {size}">A</div>
+<button id="b" onclick={() => (value = 125)}>B</button>
+<button id="c" onclick={() => (size = 'calc-size(auto, size)')}>C</button>`,
+    async root => {
+      const { ir } = await lowered(root);
+      assert.equal(
+        reported(ir, [
+          { kind: 'click', id: 'b' },
+          { kind: 'click', id: 'b' },
+        ]),
+        undefined,
+      );
+      assert.match(
+        reported(ir, [{ kind: 'click', id: 'c' }]),
+        /width: calc-size\(auto, size\) \(Blitz's style engine \(Stylo\) does not support it\)/,
+      );
+    },
   );
 });

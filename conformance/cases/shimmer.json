@@ -1,0 +1,17 @@
+{
+  "description": "shadcn-svelte's shimmer utility as Chromium 153 paints it on virtual time: a background gradient (relative colours from currentColor, colour mixing, a registered angle) clipped to the text (background-clip: text) through a transparent -webkit-text-fill-color, its background-position animated (tw-shimmer, linear, infinite; once; reversed in right-to-left text), with angle, colour, duration and spread variants, in a flex item (Marker.Content) and a truncated block with an ellipsis (the attachment title), and shimmer-none toggled on and off",
+  "fixtures": ["shimmer-svelte"],
+  "viewports": [
+    [800, 600],
+    [420, 600]
+  ],
+  "pixelRegions": ["demo", "large", "angle", "color", "duration", "once", "rtl", "marker", "title", "none"],
+  "actions": [
+    { "kind": "wait", "ms": 250 },
+    { "kind": "wait", "ms": 500 },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "wait", "ms": 750 },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "wait", "ms": 1500 }
+  ]
+}

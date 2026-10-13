@@ -16,13 +16,13 @@ rust-version = "1.98"
 license = "MIT"
 
 [workspace.dependencies]
-blitz-dom = { git = "https://github.com/Runic-Artifex/blitz", rev = "ceb522c32c61c666862185437df9360b277ce9f2", default-features = false, features = ["woff"] }
-blitz-html = { git = "https://github.com/Runic-Artifex/blitz", rev = "ceb522c32c61c666862185437df9360b277ce9f2", default-features = false }
-blitz-shell = { git = "https://github.com/Runic-Artifex/blitz", rev = "ceb522c32c61c666862185437df9360b277ce9f2", default-features = false, features = ["data-uri"] }
+blitz-dom = { git = "https://github.com/Runic-Artifex/blitz", rev = "f2e6b1ad096f762f17097874b46693ba8effd3a6", default-features = false, features = ["woff"] }
+blitz-html = { git = "https://github.com/Runic-Artifex/blitz", rev = "f2e6b1ad096f762f17097874b46693ba8effd3a6", default-features = false }
+blitz-shell = { git = "https://github.com/Runic-Artifex/blitz", rev = "f2e6b1ad096f762f17097874b46693ba8effd3a6", default-features = false, features = ["data-uri"] }
 # Element state bits for checkbox state changes (the version Blitz uses).
 style_dom = { version = "=0.22.0", package = "stylo_dom" }
-blitz-traits = { git = "https://github.com/Runic-Artifex/blitz", rev = "ceb522c32c61c666862185437df9360b277ce9f2", default-features = false }
-blitz-paint = { git = "https://github.com/Runic-Artifex/blitz", rev = "ceb522c32c61c666862185437df9360b277ce9f2", default-features = false }
+blitz-traits = { git = "https://github.com/Runic-Artifex/blitz", rev = "f2e6b1ad096f762f17097874b46693ba8effd3a6", default-features = false }
+blitz-paint = { git = "https://github.com/Runic-Artifex/blitz", rev = "f2e6b1ad096f762f17097874b46693ba8effd3a6", default-features = false }
 anyrender = "=0.14.0"
 kurbo = "=0.13.1"
 peniko = "=0.6.1"
@@ -71,17 +71,17 @@ anyrender_vello = { git = "https://github.com/Runic-Artifex/anyrender", rev = "2
 anyrender_svg = { git = "https://github.com/Runic-Artifex/anyrender", rev = "22b336b19938c911179e391ad19b34309493978c" }
 softbuffer_window_renderer = { git = "https://github.com/Runic-Artifex/anyrender", rev = "22b336b19938c911179e391ad19b34309493978c" }
 wgpu_context = { git = "https://github.com/Runic-Artifex/anyrender", rev = "22b336b19938c911179e391ad19b34309493978c" }
-stylo = { git = "https://github.com/Runic-Artifex/stylo", rev = "3a2013ca92ccb5e73f1f20929bb1393d7ba4e8ad" }
-stylo_atoms = { git = "https://github.com/Runic-Artifex/stylo", rev = "3a2013ca92ccb5e73f1f20929bb1393d7ba4e8ad" }
-stylo_derive = { git = "https://github.com/Runic-Artifex/stylo", rev = "3a2013ca92ccb5e73f1f20929bb1393d7ba4e8ad" }
-stylo_dom = { git = "https://github.com/Runic-Artifex/stylo", rev = "3a2013ca92ccb5e73f1f20929bb1393d7ba4e8ad" }
-stylo_malloc_size_of = { git = "https://github.com/Runic-Artifex/stylo", rev = "3a2013ca92ccb5e73f1f20929bb1393d7ba4e8ad" }
-stylo_static_prefs = { git = "https://github.com/Runic-Artifex/stylo", rev = "3a2013ca92ccb5e73f1f20929bb1393d7ba4e8ad" }
-stylo_traits = { git = "https://github.com/Runic-Artifex/stylo", rev = "3a2013ca92ccb5e73f1f20929bb1393d7ba4e8ad" }
-selectors = { git = "https://github.com/Runic-Artifex/stylo", rev = "3a2013ca92ccb5e73f1f20929bb1393d7ba4e8ad" }
-servo_arc = { git = "https://github.com/Runic-Artifex/stylo", rev = "3a2013ca92ccb5e73f1f20929bb1393d7ba4e8ad" }
-to_shmem = { git = "https://github.com/Runic-Artifex/stylo", rev = "3a2013ca92ccb5e73f1f20929bb1393d7ba4e8ad" }
-to_shmem_derive = { git = "https://github.com/Runic-Artifex/stylo", rev = "3a2013ca92ccb5e73f1f20929bb1393d7ba4e8ad" }
+stylo = { git = "https://github.com/Runic-Artifex/stylo", rev = "c7f58a4e0bc63de8fa0dab20ffe682cb80eccc57" }
+stylo_atoms = { git = "https://github.com/Runic-Artifex/stylo", rev = "c7f58a4e0bc63de8fa0dab20ffe682cb80eccc57" }
+stylo_derive = { git = "https://github.com/Runic-Artifex/stylo", rev = "c7f58a4e0bc63de8fa0dab20ffe682cb80eccc57" }
+stylo_dom = { git = "https://github.com/Runic-Artifex/stylo", rev = "c7f58a4e0bc63de8fa0dab20ffe682cb80eccc57" }
+stylo_malloc_size_of = { git = "https://github.com/Runic-Artifex/stylo", rev = "c7f58a4e0bc63de8fa0dab20ffe682cb80eccc57" }
+stylo_static_prefs = { git = "https://github.com/Runic-Artifex/stylo", rev = "c7f58a4e0bc63de8fa0dab20ffe682cb80eccc57" }
+stylo_traits = { git = "https://github.com/Runic-Artifex/stylo", rev = "c7f58a4e0bc63de8fa0dab20ffe682cb80eccc57" }
+selectors = { git = "https://github.com/Runic-Artifex/stylo", rev = "c7f58a4e0bc63de8fa0dab20ffe682cb80eccc57" }
+servo_arc = { git = "https://github.com/Runic-Artifex/stylo", rev = "c7f58a4e0bc63de8fa0dab20ffe682cb80eccc57" }
+to_shmem = { git = "https://github.com/Runic-Artifex/stylo", rev = "c7f58a4e0bc63de8fa0dab20ffe682cb80eccc57" }
+to_shmem_derive = { git = "https://github.com/Runic-Artifex/stylo", rev = "c7f58a4e0bc63de8fa0dab20ffe682cb80eccc57" }
 
 # The Taffy fork (docs/BLITZ-GAPS.md): Blitz's Taffy revision plus a
 # percentage flex basis against an indefinite main size used as `content`, and

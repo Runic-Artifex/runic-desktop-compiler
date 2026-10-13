@@ -1,0 +1,51 @@
+@font-face { font-family: RunicFixture; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #ffffff; color: #252c28; font-family: RunicFixture; font-size: 14px; line-height: 20px; }
+main { max-width: 520px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+button { font-family: RunicFixture; font-size: 13px; line-height: 16px; padding: 3px 8px; }
+.muted { color: #71717a; }
+.large { font-size: 24px; line-height: 32px; }
+.marker { display: flex; align-items: center; gap: 8px; }
+.marker-icon { width: 14px; height: 14px; border-radius: 7px; background: #a1a1aa; }
+.marker-content { min-width: 0; overflow-wrap: break-word; }
+.title { display: block; max-width: 160px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* shadcn-svelte's shimmer utility (packages/cli/src/tailwind.css at 3ef557c),
+   as Tailwind CSS 4 compiles it, with its variants. */
+@property --shimmer-angle { syntax: "<angle>"; inherits: true; initial-value: 20deg; }
+@property --shimmer-image { syntax: "*"; inherits: false; }
+@property --shimmer-text-fill { syntax: "*"; inherits: false; }
+@keyframes tw-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: 0 0; }
+}
+.shimmer {
+  --_spread: var(--shimmer-spread, calc(3ch + 40px));
+  --_base: currentColor;
+  --_highlight: var(--shimmer-color, oklch(from currentColor l c h / calc(alpha* 0.2)));
+  background-image: var(
+    --shimmer-image,
+    linear-gradient(
+      calc(90deg + var(--shimmer-angle)),
+      var(--_base) calc(50% - var(--_spread)),
+      color-mix(in oklch, var(--_highlight), var(--_base) 50%) calc(50% - var(--_spread) * 0.5),
+      var(--_highlight) 50%,
+      color-mix(in oklch, var(--_highlight), var(--_base) 50%) calc(50% + var(--_spread) * 0.5),
+      var(--_base) calc(50% + var(--_spread))
+    )
+  );
+  background-repeat: no-repeat;
+  background-size: calc(200% + var(--_spread) * 2) 100%;
+  background-position: 0 0;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: var(--shimmer-text-fill, transparent);
+  animation: tw-shimmer var(--shimmer-duration, 2s) linear infinite;
+}
+.shimmer:where([dir="rtl"], [dir="rtl"] *) { animation-direction: reverse; }
+.shimmer-once { animation-iteration-count: 1; }
+.shimmer-none { --shimmer-image: none; --shimmer-text-fill: currentColor; }
+.shimmer-color-blue { --shimmer-color: #3b82f6; }
+.shimmer-duration-1000 { --shimmer-duration: calc(1000 * 1ms); }
+.shimmer-spread-24 { --shimmer-spread: calc(0.25rem * 24); }
+.shimmer-angle-45 { --shimmer-angle: calc(45 * 1deg); }

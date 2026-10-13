@@ -216,7 +216,7 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
   // Reported, with the line of the rule or declaration.
   await check('p { color: red }\n@container style(--x: 1) { p { color: blue } }', 'E_CSS', 2);
   await check('p { color: red }\np { container-type: scroll-state }', 'E_CSS_PROPERTY', 2);
-  await check('p { color: red }\np::before { -webkit-text-fill-color: red }', 'E_CSS_PROPERTY', 2);
+  await check('p { color: red }\np::before { -webkit-text-stroke: 1px red }', 'E_CSS_PROPERTY', 2);
   // Chromium 153 does not parse the standard `line-clamp` (CSSLineClamp is
   // off), nor properties it does not know: both engines drop them.
   await check('p::before { line-clamp: 2; p-a-d-d-i-n-g: 2px }', undefined);
@@ -235,7 +235,7 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
       { 's.css': css },
     );
   assert.deepEqual(
-    (await guards('p { color: red }\n.a, .b > p { -webkit-text-fill-color: red }')).map(
+    (await guards('p { color: red }\n.a, .b > p { -webkit-text-stroke: 1px red }')).map(
       g => g.selector,
     ),
     ['.a, .b > p'],

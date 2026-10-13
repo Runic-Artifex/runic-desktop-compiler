@@ -1,0 +1,299 @@
+# Measured by conformance/chromium-grammar.mjs; corpus:
+# ../../../../RunicArtifex/.cache/bootstrap-5.3.8/x/package/dist/css/bootstrap.css 4a50207b956a4ab9
+# examples/7guis-cells-react/style.css 6096de2f81bd918e
+# examples/7guis-cells-svelte/style.css 6096de2f81bd918e
+# examples/7guis-cells-vue/style.css 6096de2f81bd918e
+# examples/7guis-circles-react/style.css 257d6e0e11ff532a
+# examples/7guis-circles-svelte/style.css 257d6e0e11ff532a
+# examples/7guis-circles-vue/style.css 257d6e0e11ff532a
+# examples/7guis-counter-react/style.css dd45327c4282cde4
+# examples/7guis-counter-svelte/style.css dd45327c4282cde4
+# examples/7guis-counter-vue/style.css dd45327c4282cde4
+# examples/7guis-crud-react/style.css a835cc74bf37b685
+# examples/7guis-crud-svelte/style.css a835cc74bf37b685
+# examples/7guis-crud-vue/style.css a835cc74bf37b685
+# examples/7guis-flight-react/style.css dc0a9bd371967c82
+# examples/7guis-flight-svelte/style.css dc0a9bd371967c82
+# examples/7guis-flight-vue/style.css dc0a9bd371967c82
+# examples/7guis-temperature-react/style.css dd45327c4282cde4
+# examples/7guis-temperature-svelte/style.css dd45327c4282cde4
+# examples/7guis-temperature-vue/style.css dd45327c4282cde4
+# examples/7guis-timer-react/style.css 5352f428831fcd2b
+# examples/7guis-timer-svelte/style.css 5352f428831fcd2b
+# examples/7guis-timer-vue/style.css 5352f428831fcd2b
+# examples/ledger-react/style.css dd45327c4282cde4
+# examples/ledger-svelte/style.css dd45327c4282cde4
+# examples/ledger-vue/style.css dd45327c4282cde4
+# examples/todomvc-react/style.css ef166e16d131a052
+# examples/todomvc-svelte/style.css ef166e16d131a052
+# examples/todomvc-vue/style.css ef166e16d131a052
+# examples/virtual-list-react/style.css 53a495864c817268
+# examples/virtual-list-svelte/style.css 53a495864c817268
+# examples/virtual-list-vue/style.css 53a495864c817268
+# fixtures/animations-react/style.css cb0ef9d769d4d631
+# fixtures/animations-svelte/style.css cb0ef9d769d4d631
+# fixtures/animations-vue/style.css cb0ef9d769d4d631
+# fixtures/anonymous-restyle-svelte/style.css 9c1ea1f47ae93767
+# fixtures/backdrop-svelte/style.css bb4279cd28ec2ab5
+# fixtures/bind-chain-svelte/style.css 85201137be481c01
+# fixtures/bits-accordion-multiple-svelte/src/app.css 27812d25e8543e68
+# fixtures/bits-accordion-svelte/src/app.css 27812d25e8543e68
+# fixtures/bits-avatar-svelte/src/app.css a0c07e948b4d1d55
+# fixtures/bits-checkbox-examples-svelte/src/app.css d40821cf87f17149
+# fixtures/bits-checkbox-svelte/src/app.css d40821cf87f17149
+# fixtures/bits-collapsible-svelte/src/app.css a9d2b3adf9d74686
+# fixtures/bits-command-svelte/src/app.css fa6afff278c8b07e
+# fixtures/bits-dialog-svelte/src/app.css 5bc9a3210e4a9560
+# fixtures/bits-dropdown-menu-svelte/src/app.css c57826bda590d8b6
+# fixtures/bits-pagination-svelte/src/app.css 52d1ac9e5e7a729d
+# fixtures/bits-popover-svelte/src/app.css 6a0d9c81fd5ae1d9
+# fixtures/bits-progress-svelte/src/app.css cb97a6706cd22154
+# fixtures/bits-select-svelte/src/app.css 13142726d01e7984
+# fixtures/bits-separator-svelte/src/app.css 90edb81b063ba848
+# fixtures/bits-sheet-svelte/src/app.css 46e8a52fdf02bc71
+# fixtures/bits-switch-svelte/src/app.css 9210e747736bafc6
+# fixtures/bits-tabs-svelte/src/app.css ff5ccb2b66674cd1
+# fixtures/bits-toggle-group-single-svelte/src/app.css 376ccdc5e6ced9a3
+# fixtures/bits-toggle-group-svelte/src/app.css 376ccdc5e6ced9a3
+# fixtures/bits-toggle-svelte/src/app.css 893b0fb693e25501
+# fixtures/bits-tooltip-svelte/src/app.css 7de1595fff07c0f9
+# fixtures/blend-svelte/style.css a2d1a089a0ff8394
+# fixtures/blitz-button-baseline-svelte/style.css 8812f7ac4c3930e8
+# fixtures/blitz-buttons-svelte/style.css 88a68a0cf5759cca
+# fixtures/blitz-container-queries-svelte/style.css c323500b392b0d55
+# fixtures/blitz-control-line-height-svelte/style.css 9c27257cd3dc0a4e
+# fixtures/blitz-filter-layers-svelte/style.css fea0d5ac6f9e4abc
+# fixtures/blitz-fork-svelte/style.css e49d3ad34183e0a4
+# fixtures/blitz-gradients-svelte/style.css 704f64c258536a21
+# fixtures/blitz-inline-baselines-svelte/style.css 4ee5ca6eeb0cc614
+# fixtures/blitz-svg-css-svelte/style.css 53719d551c2d7ff7
+# fixtures/capitalize-svelte/style.css bd51601e04dfb567
+# fixtures/capture-svelte/src/app.css 226c605fa974d0e5
+# fixtures/class-hierarchy-react/style.css 890bc18f2ce337f1
+# fixtures/class-hierarchy-svelte/style.css 890bc18f2ce337f1
+# fixtures/class-hierarchy-vue/style.css 890bc18f2ce337f1
+# fixtures/class-model-react/style.css 58d587c98e5c105b
+# fixtures/class-model-svelte/style.css 58d587c98e5c105b
+# fixtures/class-model-vue/style.css 58d587c98e5c105b
+# fixtures/classes-svelte/style.css 5e9e703db1fcfe39
+# fixtures/classes-vue/style.css 5e9e703db1fcfe39
+# fixtures/closures-react/style.css 58d587c98e5c105b
+# fixtures/closures-svelte/style.css 58d587c98e5c105b
+# fixtures/closures-vue/style.css 58d587c98e5c105b
+# fixtures/column-flex-intrinsic-svelte/style.css ed711fad9dc63b48
+# fixtures/components-react/style.css f879b6d3a9e70e6a
+# fixtures/components-svelte/style.css f879b6d3a9e70e6a
+# fixtures/components-vue/style.css f879b6d3a9e70e6a
+# fixtures/comprefs-react/style.css 4ea09247dad82180
+# fixtures/comprefs-svelte/style.css 4ea09247dad82180
+# fixtures/comprefs-vue/style.css 4ea09247dad82180
+# fixtures/counter-react/style.css 7d46da7937c775c7
+# fixtures/counter-svelte/style.css 7d46da7937c775c7
+# fixtures/counter-vue/style.css 7d46da7937c775c7
+# fixtures/deep-tracking-svelte/style.css 58d587c98e5c105b
+# fixtures/deep-tracking-vue/style.css 58d587c98e5c105b
+# fixtures/default-parameters-react/style.css 91cf71681eaea5a3
+# fixtures/default-parameters-svelte/style.css 91cf71681eaea5a3
+# fixtures/derived-equality-svelte/style.css 25f758c4ee4b6d23
+# fixtures/derived-timing-svelte/style.css 58d587c98e5c105b
+# fixtures/derived-timing-vue/style.css 58d587c98e5c105b
+# fixtures/dyn-mismatch-svelte/style.css 2b0c17549ac66c83
+# fixtures/dyn-values-svelte/style.css 2b0c17549ac66c83
+# fixtures/edit-react/style.css bdcf6670ed0c0931
+# fixtures/edit-svelte/style.css bdcf6670ed0c0931
+# fixtures/edit-vue/style.css bdcf6670ed0c0931
+# fixtures/editor-react/style.css 7d46da7937c775c7
+# fixtures/editor-svelte/style.css 7d46da7937c775c7
+# fixtures/editor-vue/style.css 7d46da7937c775c7
+# fixtures/effect-order-svelte/style.css 58d587c98e5c105b
+# fixtures/effect-root-svelte/src/app.css 2252f55b9aeb7e7a
+# fixtures/effect-writes-state-react/style.css 58d587c98e5c105b
+# fixtures/effect-writes-state-vue/style.css 58d587c98e5c105b
+# fixtures/effects-react/style.css 58d587c98e5c105b
+# fixtures/effects-svelte/style.css 58d587c98e5c105b
+# fixtures/effects-swap-react/style.css 58d587c98e5c105b
+# fixtures/effects-vue/style.css 58d587c98e5c105b
+# fixtures/events-react/style.css 4ea09247dad82180
+# fixtures/events-svelte/style.css 4ea09247dad82180
+# fixtures/events-vue/style.css 4ea09247dad82180
+# fixtures/field-sizing-svelte/style.css f1103cfa73286658
+# fixtures/fieldset-svelte/style.css 90ab50db0e213af6
+# fixtures/filters-svelte/style.css 7be18465f4492a19
+# fixtures/fixup-svelte/style.css af2d16ec3b457181
+# fixtures/floating-svelte/src/app.css e4baf60fc13c7ee2
+# fixtures/flush-timing-svelte/style.css 58d587c98e5c105b
+# fixtures/flush-timing-vue/style.css 58d587c98e5c105b
+# fixtures/focus-react/style.css 7566b998149d2a13
+# fixtures/focus-svelte/style.css 7566b998149d2a13
+# fixtures/focus-vue/style.css 7566b998149d2a13
+# fixtures/font-subsets-svelte/style.css 1e7a5db0035c4a8b
+# fixtures/form-submit-element-listeners-svelte/style.css f26114545d22726d
+# fixtures/form-submit-element-listeners-vue/style.css f26114545d22726d
+# fixtures/form-submit-listeners-svelte/style.css f26114545d22726d
+# fixtures/form-submit-listeners-vue/style.css f26114545d22726d
+# fixtures/form-submit-react/style.css 0e29fd99226ffa6c
+# fixtures/form-submit-stops-vue/style.css ee2f6ddba84cba73
+# fixtures/form-submit-svelte/style.css 0e29fd99226ffa6c
+# fixtures/form-submit-vue/style.css 0e29fd99226ffa6c
+# fixtures/forms-react/style.css e722ea3044da8f05
+# fixtures/forms-svelte/style.css e722ea3044da8f05
+# fixtures/forms-vue/style.css 91630828d0139b2f
+# fixtures/gradients-svelte/style.css b523007fef2ea56e
+# fixtures/host-svelte/style.css 5d2995e7c30eabfb
+# fixtures/hover-events-react/style.css 6e5983d49e1bcc9b
+# fixtures/hover-events-svelte/style.css 6e5983d49e1bcc9b
+# fixtures/hover-events-vue/style.css 6e5983d49e1bcc9b
+# fixtures/icons-react/style.css dcd44911d3a08a56
+# fixtures/icons-svelte/style.css dcd44911d3a08a56
+# fixtures/icons-vue/style.css dcd44911d3a08a56
+# fixtures/id-counter-svelte/style.css 3b5fd7fed16162ba
+# fixtures/images-svelte/style.css c39159e01b8a8a02
+# fixtures/key-svelte/style.css 58d587c98e5c105b
+# fixtures/kit-docs-svelte/src/app.css 2514e2d5aadbd857
+# fixtures/kit-hash-svelte/src/app.css 727501807e48ee82
+# fixtures/kit-routes-svelte/src/app.css b89bf4cb78bb4b34
+# fixtures/layout-effect-writes-state-react/style.css 58d587c98e5c105b
+# fixtures/line-clamp-svelte/style.css a84d31ac796ff977
+# fixtures/link-spreads-svelte/style.css f3ee2c25b4bca55b
+# fixtures/measure-svelte/style.css 2fe27e47969197c1
+# fixtures/media-preferences-svelte/style.css 125f833b25f30eb9
+# fixtures/modules-react/style.css 3601ba59364ab80c
+# fixtures/modules-svelte/style.css 3601ba59364ab80c
+# fixtures/modules-vue/style.css 3601ba59364ab80c
+# fixtures/options-hierarchy-svelte/style.css b16c4cf364fa007b
+# fixtures/overlay-host-svelte/src/app.css d7dc69751ff9c148
+# fixtures/ownership-svelte/style.css 58d587c98e5c105b
+# fixtures/packs-react/style.css 1f792cdf18f3baa2
+# fixtures/packs-svelte/style.css 1f792cdf18f3baa2
+# fixtures/packs-vue/style.css 1f792cdf18f3baa2
+# fixtures/patterns-svelte/style.css a5c2087f06450326
+# fixtures/plural-names-react/style.css e306e3665ae963b3
+# fixtures/plural-names-svelte/style.css e306e3665ae963b3
+# fixtures/plural-names-vue/style.css e306e3665ae963b3
+# fixtures/portal-svelte/src/app.css 2252f55b9aeb7e7a
+# fixtures/pricing/src/base.css a9c32e838b657555
+# fixtures/pricing/src/theme.css c15202d09a8d57e0
+# fixtures/promises-svelte/style.css 58d587c98e5c105b
+# fixtures/quantity/src/style.css fea50b5ec62201e7
+# fixtures/radio-react/style.css af2d16ec3b457181
+# fixtures/radio-script-svelte/style.css af2d16ec3b457181
+# fixtures/radio-svelte/style.css af2d16ec3b457181
+# fixtures/radio-vue/style.css af2d16ec3b457181
+# fixtures/reactive-class-svelte/style.css 89386167e0eaf6e8
+# fixtures/refchain-react/style.css 4ea09247dad82180
+# fixtures/refs-react/style.css 1c6b30dbf3eedcb7
+# fixtures/refs-svelte/style.css 1c6b30dbf3eedcb7
+# fixtures/refs-vue/style.css 1c6b30dbf3eedcb7
+# fixtures/rejections-react/style.css e306e3665ae963b3
+# fixtures/rejections-svelte/style.css e306e3665ae963b3
+# fixtures/rejections-vue/style.css e306e3665ae963b3
+# fixtures/reorder-react/style.css 9dea2ee33f1f0506
+# fixtures/reorder-svelte/style.css 9dea2ee33f1f0506
+# fixtures/reorder-vue/style.css 9dea2ee33f1f0506
+# fixtures/resize-react/style.css a845a49597a90f13
+# fixtures/resize-svelte/src/app.css 98ff1b15a193e8ea
+# fixtures/resize-vue/style.css a845a49597a90f13
+# fixtures/rest-react/style.css 6d8e20dd6372de89
+# fixtures/rest-svelte/style.css 6d8e20dd6372de89
+# fixtures/rest-vue/style.css 6d8e20dd6372de89
+# fixtures/restattrs-react/style.css 6d8e20dd6372de89
+# fixtures/roving-svelte/style.css b16c4cf364fa007b
+# fixtures/script-dom-announcer-svelte/src/app.css 67eafb2644064d9b
+# fixtures/script-dom-nodes-svelte/src/app.css 8178ff51984339e7
+# fixtures/scroll-lane-react/style.css c9d81757e518d895
+# fixtures/scrolling-react/style.css 3ad958a9ca058dcc
+# fixtures/scrolling-svelte/style.css 3ad958a9ca058dcc
+# fixtures/scrolling-vue/style.css 3ad958a9ca058dcc
+# fixtures/select-react/style.css 4a8c0d070abc762c
+# fixtures/select-svelte/style.css 4a8c0d070abc762c
+# fixtures/select-vue/style.css 4a8c0d070abc762c
+# fixtures/settings-wizard/src/base.css a9c32e838b657555
+# fixtures/settings-wizard/src/theme.css 835899b73556f2e0
+# fixtures/shadcn-basics-svelte/src/app.css d7a8d14121c0a447
+# fixtures/shimmer-svelte/style.css c3e94c5e057f7aa3
+# fixtures/shortcuts-react/style.css bbbe55e13e6bf12b
+# fixtures/shortcuts-svelte/style.css bbbe55e13e6bf12b
+# fixtures/shortcuts-vue/style.css bbbe55e13e6bf12b
+# fixtures/slots-react/style.css f879b6d3a9e70e6a
+# fixtures/slots-svelte/style.css f879b6d3a9e70e6a
+# fixtures/slots-vue/style.css f879b6d3a9e70e6a
+# fixtures/smoke/src/style.css 6abc40ec15c2c023
+# fixtures/sticky-svelte/style.css 2320000048694a5a
+# fixtures/styles-react/style.css 4ea09247dad82180
+# fixtures/styles-svelte/style.css 4ea09247dad82180
+# fixtures/styles-vue/style.css 4ea09247dad82180
+# fixtures/symbol-context-svelte/style.css ca6e3d24870d69eb
+# fixtures/table-react/style.css 04d850780b489642
+# fixtures/table-svelte/style.css 04d850780b489642
+# fixtures/table-vue/style.css 04d850780b489642
+# fixtures/table-width-svelte/style.css 4a0df55b5135cc55
+# fixtures/tailwind-svelte/style.css 4c300380db156ee9
+# fixtures/text-elements-react/style.css 47d0132416278ee5
+# fixtures/text-elements-svelte/style.css 47d0132416278ee5
+# fixtures/text-elements-vue/style.css 47d0132416278ee5
+# fixtures/text-wrap-balance-svelte/style.css b6ad1d3dde1d757a
+# fixtures/text-wrap-pretty-svelte/style.css 88375d8e45f53914
+# fixtures/theme-react/style.css 38a199b850ce66f6
+# fixtures/theme-svelte/style.css 38a199b850ce66f6
+# fixtures/theme-vue/style.css 38a199b850ce66f6
+# fixtures/thermostat/src/style.css 093caa5366af7ec9
+# fixtures/time-svelte/style.css 75cf24d5a3797649
+# fixtures/timers-svelte/style.css 58d587c98e5c105b
+# fixtures/toolbelt-svelte/style.css 89386167e0eaf6e8
+# fixtures/tw-react/style.css 685b8fe9b305cfdf
+# fixtures/tw-svelte/style.css 685b8fe9b305cfdf
+# fixtures/tw-vue/style.css 685b8fe9b305cfdf
+# fixtures/uncontrolled-checkbox-svelte/style.css e722ea3044da8f05
+# fixtures/unions-svelte/style.css aef1747dc96d465a
+# fixtures/viewport-svelte/style.css 59b992e392a39eed
+# -moz-transition: disagree on background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out (Chromium drops it)
+# -webkit-margin-end: disagree on 0.75rem (Chromium keeps it)
+-webkit-mask-image	41	linear-gradient rgba	deg	infinity nan
+# -webkit-tap-highlight-color: disagree on rgba(0, 0, 0, 0) (Chromium keeps it)
+# -webkit-text-size-adjust: disagree on 100% (Chromium keeps it)
+-webkit-transition	37		s	background-color border-color box-shadow color ease-in-out
+animation	87	cubic-bezier	ms s	backwards ease-in-out ease-out enter infinite infinity linear nan placeholder-glow placeholder-wave progress-bar-stripes pulse spin
+backdrop-filter	41	blur brightness contrast grayscale hue-rotate invert	deg px	infinity nan
+background	641	linear-gradient radial-gradient repeating-linear-gradient rgb rgba	deg px	at circle infinity nan transparent
+background-color	36	rgb		infinity nan
+background-image	1140	conic-gradient linear-gradient radial-gradient repeating-linear-gradient repeating-radial-gradient rgb rgba url	deg px	at bottom center circle closest-side ellipse farthest-corner from infinity nan right to transparent
+background-position	97	calc	em rem	center infinity left nan right top
+background-size	87	calc	em px rem	infinity nan
+border	248	rgb	px	black dashed infinity nan solid transparent
+border-bottom	74		em px	solid transparent
+border-color	33	rgba		infinity nan
+border-left	20		em px	solid transparent
+border-radius	42		em px rem	infinity nan
+border-right	26		em px	solid transparent
+border-top	38		em px	solid transparent
+box-shadow	134	rgba	px rem	infinity nan
+clip	21	rect		infinity nan
+color	140	rgb rgba		infinity nan
+filter	263	blur brightness contrast drop-shadow grayscale hue-rotate invert opacity rgb saturate sepia	deg px	currentcolor infinity nan
+flex	87		px	auto infinity nan
+font-size	165	calc	em px rem vw	
+gap	34		px rem	
+grid-template-columns	37	repeat	fr px	auto infinity nan
+height	141	calc	em px rem svh vh	infinity nan
+inset	34		px rem	infinity nan
+left	29		px	infinity nan
+line-height	40		px	
+margin	457		px rem	auto infinity nan
+margin-bottom	26		px rem	
+margin-left	54		em px rem	infinity nan
+margin-right	29		em px rem	-infinity infinity nan
+margin-top	28		em px rem	
+mask-image	41	linear-gradient rgba	deg	infinity nan
+max-width	38		px	infinity nan
+min-height	30		em px rem vh	
+opacity	24			
+padding	455		em px rem	infinity nan
+padding-bottom	24		px rem	
+padding-left	44		em px rem	
+padding-right	49	calc	em px rem	
+padding-top	28		px rem	
+top	34		em px	infinity nan
+transform	124	rotate scale translate translatex translatey	deg px rem	-infinity infinity nan
+transition	165		ms s	background-color background-position border-color box-shadow color ease ease-in-out ease-out filter height linear opacity transform width
+width	182	calc	em px rem vw	infinity nan
+z-index	24			
