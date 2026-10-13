@@ -1,0 +1,23 @@
+{
+  "description": "Links whose href arrives through spread attributes (shadcn-svelte's BreadcrumbLink pattern: a derived bag holding the href prop and the rest props; a constant bag; an explicit href after a spread with an open one), clicked and followed with Enter: fragments naming no element (popstate, hashchange as a task), a value switched between two fragments, a link without an href doing nothing, and the document top below the fold after a wheel scroll, reached with Tab (# and #top: the document element scrolled into view, focus left on the link, hashchange only where the URL changed; Enter on the focused link scrolled out of view again following it again)",
+  "fixtures": ["link-spreads-svelte"],
+  "viewports": [[800, 600], [420, 600]],
+  "actions": [
+    { "kind": "click", "id": "to-alpha" },
+    { "kind": "click", "id": "to-top" },
+    { "kind": "click", "id": "far" },
+    { "kind": "click", "id": "to-choice" },
+    { "kind": "click", "id": "no-href" },
+    { "kind": "click", "id": "to-bag" },
+    { "kind": "click", "id": "to-override" },
+    { "kind": "wheel", "id": "hash", "deltaY": 600 },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "wheel", "id": "hash", "deltaY": 600 },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "wheel", "id": "hash", "deltaY": 600 },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "click", "id": "to-top" }
+  ]
+}

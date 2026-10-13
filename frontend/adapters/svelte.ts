@@ -5385,22 +5385,55 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
     /**
      * A link's `href` values: following a link is a fragment navigation of
      * this document (`#name`); the values must be known (literals, finite
-     * sets), name no element (scrolling to and focusing a fragment's target
-     * are not modelled) and not be the document top (`#`, `#top`).
+     * sets) and name no element (scrolling to and focusing a fragment's
+     * target are not modelled here); `#` and `#top` are the top of the
+     * document, which the runtime scrolls to (HTML's "find a potential
+     * indicated element"). An href a spread gives is checked the same way:
+     * the bag's values (frontend/bags.ts), from the last spread after the
+     * attribute.
      */
     const linkTargets = (n: SNode) => {
-      const at = n.attributes.find((a: SNode) => a.type === 'Attribute' && a.name === 'href');
-      for (const a of n.attributes)
-        if (
-          a.type === 'SpreadAttribute' &&
-          mayHold(shapes.of(nodeIn(u, a.expression) as ts.Expression), 'href')
-        )
+      const what =
+        'links are supported to fragments of this document (#name) that name no element and to its top (#, #top), with a finite set of values';
+      const check = (values: unknown[], at: SNode, from: string) => {
+        for (const v of values) {
+          // No attribute: not a link.
+          if (v === undefined || v === null || v === ABSENT) continue;
+          const name =
+            typeof v === 'string' && v.startsWith('#') ? decodeFragment(v.slice(1)) : undefined;
+          if (name === undefined)
+            fail('E_TEMPLATE', `The <a> may link to ${JSON.stringify(v)}${from}: ${what}`, loc(at));
+          // (An empty fragment is the top of the document; `#top` is where
+          // no element has that id or, as an <a>, that name, checked below.)
+          if (name) linkFragments.push({ name: name!, at: loc(at) });
+        }
+      };
+      const hrefAt = n.attributes.findLastIndex(
+        (a: SNode) => a.type === 'Attribute' && a.name === 'href',
+      );
+      // Spreads after the attribute, from the last (a later one wins, as
+      // Svelte's attributes merge): each one's values (frontend/bags.ts),
+      // checked as an explicit href's; one that may lack href leaves it to
+      // those before it.
+      const later = n.attributes
+        .slice(hrefAt + 1)
+        .filter((a: SNode) => a.type === 'SpreadAttribute')
+        .reverse();
+      for (const spread of later) {
+        const bag = nodeIn(u, spread.expression) as ts.Expression;
+        if (!mayHold(shapes.of(bag), 'href')) continue;
+        const values = shapes.values(bag, 'href');
+        if (!values)
           fail(
             'E_TEMPLATE',
-            'A link whose href may come from spread attributes is not supported; pass href explicitly',
-            loc(n),
+            `The href this spread may give the <a> is open: ${what}; or set href as an attribute after the spread`,
+            loc(spread),
           );
-      if (!at) return;
+        check(values!, spread, ' (from this spread)');
+        if (!values!.includes(ABSENT)) return;
+      }
+      if (hrefAt < 0) return;
+      const at = n.attributes[hrefAt];
       const values: unknown[] | undefined =
         at.value === true
           ? ['']
@@ -5409,17 +5442,8 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
               ? [at.value[0].data]
               : undefined
             : valueSet({ lower, label: '<a href>' }, exprNode(at.value.expression));
-      const what =
-        'links are supported to fragments of this document (#name) that name no element, with a finite set of values';
       if (!values) fail('E_TEMPLATE', `The href of this <a> is open: ${what}`, loc(at));
-      for (const v of values!) {
-        if (v === undefined || v === null) continue;
-        const name =
-          typeof v === 'string' && v.startsWith('#') ? decodeFragment(v.slice(1)) : undefined;
-        if (name === undefined || name === '' || name.toLowerCase() === 'top')
-          fail('E_TEMPLATE', `The <a> may link to ${JSON.stringify(v)}: ${what}`, loc(at));
-        linkFragments.push({ name: name!, at: loc(at) });
-      }
+      check(values!, at, '');
     };
     /**
      * An image's sources (M6 images, docs/design/M6-IMAGES.md): every value

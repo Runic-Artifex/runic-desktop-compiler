@@ -50,7 +50,7 @@ Part of the [gap register](../GAPS.md). Rendering details of Blitz, Stylo and Ta
 | `MutationObserver` beyond child lists; `IntersectionObserver` with element roots, `scrollMargin`, targets under non-translation transforms or `clip-path`; Chromium's notification order | run time / E_CALL | Not covered | Per option | builtins.rs:678; layout.rs:340-355 |
 | `next/previousElementSibling` or `firstNonCommentChild` reaching the container or a text node (except the covered data-read case) | run time | Script values are elements | Node values | dom.rs:745-791 |
 | Tab navigation right after a reorder continues from the moved element, not Chromium's live range | known gap | Exact framework move sequence | Live-range model (M8) | case `reorder-navigation` |
-| Links: to other documents, to `#`/`#top`, to named anchors, to fragments naming elements (outside Kit) | run time / E_TEMPLATE | Navigation and scrolling to targets not modelled | Scroll and focus targets | events.rs:1142-1195; svelte.ts:2827 |
+| Links: to other documents (shadcn-svelte's breadcrumb-ellipsis, -separator and -dropdown: `href="/"`), to named anchors, to fragments naming elements (outside Kit) | run time / E_TEMPLATE | Navigation and scrolling to targets not modelled | Document navigation; scroll and focus targets | events.rs:1212; svelte.ts:5389 (`linkTargets`) |
 
 ## CSS and rendering (P4)
 
