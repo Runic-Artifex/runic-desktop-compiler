@@ -6,14 +6,18 @@
 //! runtime makes (`timeline::resolve`), the document's animations are
 //! matched to the ones it tracks: a CSS animation by its element and
 //! keyframes name while Stylo keeps it, a transition by its element,
-//! property and start time. One that Stylo no longer has has ended:
+//! property and start time. A CSS animation finishes when Stylo reports it
+//! finished: the Stylo fork keeps a finished CSS animation until it is
+//! cancelled, so it stays tracked, and `getAnimations()` lists it while its
+//! `animation-fill-mode` keeps it in effect (`forwards` or `both`), as
+//! Chromium does. One that Stylo no longer has has ended:
 //!
-//! - **finished**: a CSS animation whose element still names it (Stylo
-//!   drops an animation once it finished, at the element's next restyle,
-//!   which is the same resolution: Blitz restyles every animating element),
-//!   or a transition that reached its end and was not replaced;
+//! - **finished**: a transition that reached its end and was not replaced,
+//!   or a CSS animation its element still names that Stylo had not
+//!   reported finished;
 //! - **cancelled**: otherwise (the style no longer names it, the element
-//!   left the document or is not rendered, a transition was replaced).
+//!   left the document or is not rendered, a transition was replaced, a
+//!   finished CSS animation was cancelled).
 //!
 //! As in Chromium, a cancellation takes effect at the style resolution that
 //! makes it (the app rejects `finished` right after the script's layout read
@@ -34,7 +38,7 @@ enum Kind {
     Transition(String, u64),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct Live {
     id: u64,
     node: u64,
@@ -66,8 +70,9 @@ struct Registry {
     live: Vec<Live>,
     /// Animations the app holds that ended and that it has not been given
     /// yet, in order. A finished one counts as running until a frame
-    /// takes it.
-    ended: Vec<(Live, Ended)>,
+    /// takes it, unless it settles at once (`true`: the app first took it
+    /// after it had finished, so its `finished` promise is resolved).
+    ended: Vec<(Live, Ended, bool)>,
 }
 
 thread_local! {
@@ -89,7 +94,8 @@ pub(crate) fn reset(enabled: bool) {
 pub(crate) fn active() -> bool {
     REGISTRY.with(|r| {
         let r = r.borrow();
-        r.enabled && (!r.live.is_empty() || !r.ended.is_empty())
+        r.enabled
+            && (r.live.iter().any(|l| l.phase != AnimationPhase::Finished) || !r.ended.is_empty())
     })
 }
 
@@ -145,7 +151,11 @@ pub(crate) fn observe(doc: &BaseDocument, now: f64) {
                 continue;
             }
             for s in snapshots {
-                if matches!(s.phase, AnimationPhase::Finished | AnimationPhase::Canceled) {
+                // Stylo keeps a finished CSS animation until it is cancelled
+                // (and drops a finished transition).
+                if s.phase == AnimationPhase::Canceled
+                    || (s.phase == AnimationPhase::Finished && s.animation_name.is_none())
+                {
                     continue;
                 }
                 let kind = match (s.animation_name, s.transition_property) {
@@ -165,12 +175,17 @@ pub(crate) fn observe(doc: &BaseDocument, now: f64) {
                 .position(|(i, c)| !taken[i] && c.0 == l.node && c.1 == l.kind);
             if let Some(i) = found {
                 taken[i] = true;
+                let finishes =
+                    current[i].2 == AnimationPhase::Finished && l.phase != AnimationPhase::Finished;
                 (l.phase, l.start, l.duration) = (current[i].2, current[i].3, current[i].4);
+                if finishes && l.handled {
+                    r.ended.push((l.clone(), Ended::Finished, false));
+                }
                 r.live.push(l);
                 continue;
             }
             let node = NodeId::from_u64(l.node);
-            let how = if !rendered(doc, node) {
+            let how = if !rendered(doc, node) || l.phase == AnimationPhase::Finished {
                 Ended::Canceled
             } else {
                 match &l.kind {
@@ -189,7 +204,7 @@ pub(crate) fn observe(doc: &BaseDocument, now: f64) {
                 }
             };
             if l.handled {
-                r.ended.push((l, how));
+                r.ended.push((l, how, false));
             }
         }
         let generation = r.resolutions;
@@ -224,29 +239,31 @@ pub(crate) fn commit() {
     });
 }
 
+/// Whether the computed style of `node` fills CSS animation `name`
+/// forwards (`forwards` or `both`), so that it stays in effect after it
+/// finished.
+fn fills(doc: &BaseDocument, node: NodeId, name: &str) -> bool {
+    use style::properties::longhands::animation_fill_mode::computed_value::single_value::T as Fill;
+    doc.get_node(node)
+        .and_then(|n| n.primary_styles())
+        .is_some_and(|s| {
+            let ui = s.get_ui();
+            ui.animation_name_iter()
+                .position(|n| n.as_atom().is_some_and(|a| &**a == name))
+                .is_some_and(|i| {
+                    matches!(ui.animation_fill_mode_mod(i), Fill::Forwards | Fill::Both)
+                })
+        })
+}
+
 /// The ids of the CSS animations and transitions of `node` that
 /// `getAnimations()` returns, in Chromium's order: transitions by
 /// generation, then property name, then CSS animations in the order of
 /// `animation-name` (call after a resolution). A finished one the app
-/// holds stays running until a frame takes it.
+/// holds stays running until a frame takes it; after that a CSS animation
+/// stays listed while its fill keeps it in effect (Chromium's relevant
+/// animations).
 pub(crate) fn of(doc: &BaseDocument, node: NodeId) -> Vec<u64> {
-    // Stylo drops a finished animation's fill when its element is next
-    // restyled, where Chromium keeps it in effect (and listed). The
-    // stylesheet's fills are rejected by the compiler; inline styles are not
-    // checked.
-    if let Some(s) = doc.get_node(node).and_then(|n| n.primary_styles()) {
-        use style::properties::longhands::animation_fill_mode::computed_value::single_value::T as Fill;
-        let ui = s.get_ui();
-        let filled = ui.animation_name_iter().enumerate().any(|(i, n)| {
-            n.as_atom().is_some()
-                && matches!(ui.animation_fill_mode_mod(i), Fill::Forwards | Fill::Both)
-        });
-        if filled {
-            crate::unsupported(
-                "getAnimations() on an element whose animation-fill-mode is forwards or both (Stylo drops a finished animation's fill; Chromium keeps it listed)",
-            );
-        }
-    }
     let order = |doc: &BaseDocument, l: &Live| -> (u8, u64, String, usize) {
         match &l.kind {
             Kind::Transition(p, _) => (0, l.generation, p.clone(), 0),
@@ -266,14 +283,30 @@ pub(crate) fn of(doc: &BaseDocument, node: NodeId) -> Vec<u64> {
     };
     REGISTRY.with(|r| {
         let mut r = r.borrow_mut();
+        let r = &mut *r;
         let key = node.as_u64();
         let mut found: Vec<((u8, u64, String, usize), u64)> = Vec::new();
         for l in r.live.iter_mut().filter(|l| l.node == key) {
+            if l.phase == AnimationPhase::Finished {
+                let ending = r.ended.iter().any(|e| e.0.id == l.id);
+                let Kind::Animation(name) = &l.kind else {
+                    continue;
+                };
+                if !ending && !fills(doc, node, name) {
+                    continue;
+                }
+                // The app takes an animation that had already finished: its
+                // `finished` promise is resolved, and it is not pending.
+                if !l.handled && !ending {
+                    l.committed = true;
+                    r.ended.push((l.clone(), Ended::Finished, true));
+                }
+            }
             l.handled = true;
             found.push((order(doc, l), l.id));
         }
-        for (l, how) in &r.ended {
-            if l.node == key && *how == Ended::Finished {
+        for (l, how, _) in &r.ended {
+            if l.node == key && *how == Ended::Finished && !found.iter().any(|f| f.1 == l.id) {
                 found.push((order(doc, l), l.id));
             }
         }
@@ -284,21 +317,31 @@ pub(crate) fn of(doc: &BaseDocument, node: NodeId) -> Vec<u64> {
 
 /// `animation.playState` (after a resolution): `running` (also while
 /// delayed, and finished but not yet taken by a frame), `paused`,
-/// `finished` or `idle` (cancelled); None once the app took its end.
+/// `finished` or `idle` (cancelled); None once the app took its end and
+/// the runtime no longer tracks it.
 pub(crate) fn play_state(id: u64) -> Option<&'static str> {
     REGISTRY.with(|r| {
         let r = r.borrow();
-        if let Some(l) = r.live.iter().find(|l| l.id == id) {
-            return Some(match l.phase {
-                AnimationPhase::Paused => "paused",
-                _ => "running",
+        if let Some(e) = r.ended.iter().find(|e| e.0.id == id) {
+            return Some(match e.1 {
+                Ended::Finished if e.2 => "finished",
+                Ended::Finished => "running",
+                Ended::Canceled => "idle",
             });
         }
-        r.ended.iter().find(|e| e.0.id == id).map(|e| match e.1 {
-            Ended::Finished => "running",
-            Ended::Canceled => "idle",
+        r.live.iter().find(|l| l.id == id).map(|l| match l.phase {
+            AnimationPhase::Paused => "paused",
+            AnimationPhase::Finished => "finished",
+            _ => "running",
         })
     })
+}
+
+/// Whether the runtime still tracks animation `id` (a finished CSS
+/// animation Stylo keeps until it is cancelled): the app keeps its object
+/// after its finish settled, as `getAnimations()` may return it again.
+pub(crate) fn retained(id: u64) -> bool {
+    REGISTRY.with(|r| r.borrow().live.iter().any(|l| l.id == id))
 }
 
 /// `animation.pending` (after a resolution): no frame has seen it yet.
@@ -318,8 +361,8 @@ pub(crate) fn take_ended(frame: bool) -> Vec<(u64, Ended)> {
     REGISTRY.with(|r| {
         let mut r = r.borrow_mut();
         let mut out = Vec::new();
-        r.ended.retain(|(l, how)| {
-            if frame || *how == Ended::Canceled {
+        r.ended.retain(|(l, how, now)| {
+            if frame || *how == Ended::Canceled || *now {
                 out.push((l.id, *how));
                 false
             } else {
@@ -336,6 +379,6 @@ pub(crate) fn has_ended(frame: bool) -> bool {
         r.borrow()
             .ended
             .iter()
-            .any(|e| frame || e.1 == Ended::Canceled)
+            .any(|e| frame || e.1 == Ended::Canceled || e.2)
     })
 }

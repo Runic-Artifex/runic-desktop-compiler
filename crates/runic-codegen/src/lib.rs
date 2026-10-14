@@ -3183,11 +3183,13 @@ pub fn generate(
              h\n}\n\
              /// Settle the `finished` promises of the objects whose animations ended:\n\
              /// cancelled ones reject with an AbortError at once, finished ones fulfil\n\
-             /// with the animation at a frame's animation step (`frame`).\n\
+             /// with the animation at a frame's animation step (`frame`). A finished\n\
+             /// CSS animation the runtime still tracks keeps its object (a filled one\n\
+             /// stays listed by getAnimations()).\n\
              fn anim_settle(cx: &mut Cx, frame: bool) {\n\
              for (id, finished) in cx.dom.animation_ends(frame) {\n\
              let Some(i) = cx.anims.iter().position(|h| anim_of(h).id == id) else { continue };\n\
-             let h = cx.anims.remove(i);\n\
+             let h = if finished && cx.dom.animation_retained(id) { cx.anims[i].clone() } else { cx.anims.remove(i) };\n\
              let a = anim_of(&h);\n\
              a.ended.set(if finished { \"finished\" } else { \"idle\" });\n\
              let p = a.finished.borrow().clone();\n\

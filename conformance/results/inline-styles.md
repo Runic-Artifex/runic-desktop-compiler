@@ -6,7 +6,7 @@ CSS compatibility slice 1b. Until now the compiler checked stylesheets only: `<d
 
 `runic_css::inline::problems` applies, to the declarations of one inline style and its element, the declaration checks `compiler/collect.mjs` gives stylesheet declarations (its tables mirror collect.mjs's):
 
-- **Rejected where literal** (a stylesheet rejects these wherever its rule may apply): fill modes `forwards`/`both`, scroll-driven animation properties, `allow-discrete`, filter functions the renderers do not draw (`url()`), images in `content` (on an element Chromium uses only those), `text-transform: full-width`/`full-size-kana`, SVG paint servers and SVG-only properties. The validator (`runic-ir` `inline_style_check`) gives `E_CSS_PROPERTY` at the element for a literal `style` attribute, style text or style property (Svelte, Vue, React).
+- **Rejected where literal** (a stylesheet rejects these wherever its rule may apply) (fill modes `forwards`/`both` until CSS slice 3a, [animation-fill](animation-fill.md)): scroll-driven animation properties, `allow-discrete`, filter functions the renderers do not draw (`url()`), images in `content` (on an element Chromium uses only those), `text-transform: full-width`/`full-size-kana`, SVG paint servers and SVG-only properties. The validator (`runic-ir` `inline_style_check`) gives `E_CSS_PROPERTY` at the element for a literal `style` attribute, style text or style property (Svelte, Vue, React).
 - **Reported when set** (a stylesheet gives a style guard): a declaration Stylo drops that Chromium 153 parses, unless verified equivalent (the `EQUIVALENT_*` tables, `resize`) or overridden later in the same style; `-moz-box-orient`; `text-shadow`; `text-wrap: balance`/`pretty` on a text area; `field-sizing: content` on a select or a search, number, password or file input. The runtime (`Dom::check_inline_style`, at every write of the `style` attribute and before the CSSOM composes a style value and its properties, which drops what Stylo does not parse) and the reference interpreter report each once.
 - **Values known only at run time** are reported when set, whatever their kind.
 
@@ -26,7 +26,7 @@ The full differential found bits-progress-svelte stopping in 4 of 20 random trac
 
 ## Verification
 
-- `tests/inline-styles.test.mjs`: literal rejections in Svelte attributes and directives; reports of static, dynamic (a directive set to `forwards` on a click) and React style-object declarations; equivalent declarations neither rejected nor reported. `runic-css` unit test `inline_declarations_get_the_stylesheet_checks`.
+- `tests/inline-styles.test.mjs`: literal rejections in Svelte attributes and directives; reports of static, dynamic (a directive set to `forwards` on a click; since CSS slice 3a, `allow-discrete`) and React style-object declarations; equivalent declarations neither rejected nor reported. `runic-css` unit test `inline_declarations_get_the_stylesheet_checks`.
 - Every fixture and example (240 that lower) mounted in the interpreter with each case's actions: no inline style report after the Chromium property list (before it, only `styles-vue`'s `p-a-d-d-i-n-g`).
 - `npm test` and `node compiler/cargo.mjs test --offline --workspace`.
 
