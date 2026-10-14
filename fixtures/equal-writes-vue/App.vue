@@ -24,6 +24,10 @@ function flip() {
   // Reversing [1, 2, 1] sets indices 0 and 2 to the values they hold.
   state.value.items.reverse();
 }
+function push() {
+  // Writes a new index and the length, which the watcher does not read.
+  state.value.items.push(9);
+}
 function dump() {
   log.value = entries.join(' | ');
   entries.splice(0, entries.length);
@@ -35,6 +39,6 @@ function dump() {
     <h1 id="title">Equal writes</h1>
     <p id="values">{{ state.count }} {{ state.items.join(',') }} {{ n }}</p>
     <p id="log">{{ log }}</p>
-    <div class="controls"><button id="same" @click="same">Same</button><button id="palindrome" @click="palindrome">Palindrome</button><button id="flip" @click="flip">Flip</button><button id="dump" @click="dump">Dump</button></div>
+    <div class="controls"><button id="same" @click="same">Same</button><button id="palindrome" @click="palindrome">Palindrome</button><button id="flip" @click="flip">Flip</button><button id="push" @click="push">Push</button><button id="dump" @click="dump">Dump</button></div>
   </main>
 </template>

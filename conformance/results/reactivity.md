@@ -328,6 +328,27 @@ Vue:
   tell apart. It left case `deep-tracking`, whose Svelte fixture stays.
 - No other fixture changes: lowering every Vue fixture before and after
   the check differs only in `deep-tracking-vue` and the new fixtures.
-- Found while checking `reverse` (open, resume list): a write of the value
-  a deep ref's slot holds notifies nothing in Vue, natively a watchEffect
-  reading it runs again (`equal-writes-vue`).
+- Found while checking `reverse`: a write of the value a deep ref's slot
+  holds notifies nothing in Vue, natively a watchEffect reading it ran
+  again (`equal-writes-vue`); fixed below.
+
+## Equal writes and per-element array methods (R4)
+
+A write of a value equal to the one a slot holds now changes nothing for
+objects deep reactive state reaches (Vue: SameValue, as `hasChanged`), as
+it already did for proxies (Svelte: `===`); `JsRef::equal_write` tells the
+rule. `reverse`, `sort` and `fill` read and set element by element, as the
+proxies' traps see them, writing only the elements that change, and `fill`
+stores the value into each element as a set does.
+
+- `equal-writes` (Vue 3.5 in Chromium): a field, an element and a ref set
+  to their values, a palindrome reversed and a push leave the watchEffect
+  alone; reversing `[1, 2, 1, 9]` runs it once (`run 0 9 0`). Before, the
+  interpreter (and native code, the same heap model) ran it after the
+  equal writes and the palindrome's reversal (`run 0 1 0`, 3 mismatches).
+- `array-writes` (Svelte 5.57.1 in Chromium): the effect reading the
+  middle element stays after `reverse`, `sort` and a `fill` of its value,
+  and `fill({ n: 5 })` stores a proxy per index (`6 5` after one write).
+  Before: `mid 2` after each method and `6 6` (11 mismatches).
+- Gap row added: `pop`, `shift`, `unshift`, `splice` and `copyWithin` still
+  read and write the whole array natively.

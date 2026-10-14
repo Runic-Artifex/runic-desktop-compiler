@@ -285,6 +285,59 @@ test('Vue watchers in a proven order agree with Chromium', async () => {
   );
 });
 
+test('writes of an equal value change nothing; reverse, sort and fill write the elements they change (R4)', async () => {
+  // Case array-writes (Svelte 5.57.1 in Chromium): the effect reading the
+  // middle element does not run for reverse, sort or fill, which leave it as
+  // it is; fill stores a new proxy of the plain object at each index.
+  const svelte = interpret(
+    (await lowered('fixtures/array-writes-svelte')).ir,
+    [
+      'dump',
+      'reverse',
+      'dump',
+      'sort',
+      'dump',
+      'fill-same',
+      'dump',
+      'fill-first',
+      'dump',
+      'fill-objs',
+      'bump',
+      'dump',
+    ].map(click),
+    {},
+  );
+  assert.equal(shown(svelte[3], 'log'), 'first 3');
+  assert.equal(shown(svelte[5], 'log'), 'first 1');
+  assert.equal(shown(svelte[7], 'log'), '');
+  assert.equal(shown(svelte[9], 'log'), 'first 7');
+  assert.equal(shown(svelte[11], 'objs'), '6 5');
+  // Case equal-writes (Vue 3.5 in Chromium): a deep ref's field, element or
+  // a ref set to its value, a palindrome reversed and a push notify nothing
+  // the watchEffect reads (hasChanged); a reversal that changes it does.
+  const vue = interpret(
+    (await lowered('fixtures/equal-writes-vue')).ir,
+    [
+      'dump',
+      'same',
+      'dump',
+      'palindrome',
+      'dump',
+      'flip',
+      'dump',
+      'push',
+      'dump',
+      'flip',
+      'dump',
+    ].map(click),
+    {},
+  );
+  assert.equal(shown(vue[3], 'log'), '');
+  assert.equal(shown(vue[7], 'log'), '');
+  assert.equal(shown(vue[9], 'log'), '');
+  assert.equal(shown(vue[11], 'log'), 'run 0 9 0');
+});
+
 test('a Vue shallowRef mutated in place is rejected', async () => {
   // shallowRef tracks .value only: Vue shows an in-place change at the
   // component's next render (the cross-framework matrix's shallow row).

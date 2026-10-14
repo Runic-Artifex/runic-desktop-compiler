@@ -257,6 +257,9 @@ impl js::StrictEq for Val {
             _ => false,
         }
     }
+    fn same_value(&self, other: &Self) -> bool {
+        self.same(other)
+    }
 }
 
 impl js::Truthy for Val {
@@ -2271,12 +2274,19 @@ impl<'p> Machine<'p> {
                 Val::Record(r) => {
                     let reactive = self.program.records[r.peek().record].fields[*field].reactive;
                     match reactive {
-                        // (A proxy's field already `===` the value: nothing
-                        // changes, as in Svelte's sources.)
+                        // (A proxy's field already `===` the value, or a
+                        // reactive object's SameValue: nothing changes, as
+                        // in Svelte's sources and Vue's set trap.)
                         Option::None => {
                             let v = js::own_into(&r, v);
-                            if !r.unchanged(*field as u32, |b| strict_equal(&b.fields[*field], &v))
-                            {
+                            if !r.unchanged(*field as u32, |b, sv| {
+                                let old = &b.fields[*field];
+                                if sv {
+                                    old.same(&v)
+                                } else {
+                                    strict_equal(old, &v)
+                                }
+                            }) {
                                 r.write_slots(&[*field as u32]).fields[*field] = v
                             }
                         }
@@ -2302,8 +2312,9 @@ impl<'p> Machine<'p> {
                 let i = self.eval(index, f)?.num();
                 let v = js::own_into(&a, v);
                 let same = js::array_ops::element_index(i).is_some_and(|k| {
-                    a.unchanged(k as u32 + 1, |b| {
-                        b.get(k).is_some_and(|x| strict_equal(x, &v))
+                    a.unchanged(k as u32 + 1, |b, sv| {
+                        b.get(k)
+                            .is_some_and(|x| if sv { x.same(&v) } else { strict_equal(x, &v) })
                     })
                 });
                 if !same {
@@ -2497,7 +2508,7 @@ impl<'p> Machine<'p> {
         // Items inserted into a proxied array become proxies.
         let inserted = match name {
             "array.push" | "array.unshift" => 1..usize::MAX,
-            "array.fill" => 1..2,
+            // (`fill` stores its value into each element itself, as a set does.)
             "array.splice" => 3..usize::MAX,
             _ => 0..0,
         };

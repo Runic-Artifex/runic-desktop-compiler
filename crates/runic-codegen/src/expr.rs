@@ -182,11 +182,12 @@ impl<'a> FnCtx<'a> {
                     "{own}let same = {{ let b = o.peek(); {same} }}; if !same {{ o.write_signal({field}).f{field} = v; cx.jobs.queue_flush(); }}"
                 )
             }
-            // (A proxy's field already `===` the value: nothing changes.)
+            // (A proxy's field already `===` the value, or a reactive
+            // object's SameValue: nothing changes.)
             Option::None => {
-                let same = crate::strict_expr(&f.ty, &format!("b.f{field}"), "v");
+                let same = crate::unchanged_expr(&f.ty, &format!("b.f{field}"), "v");
                 format!(
-                    "let v = js::own_into(&o, v); if !o.unchanged({field}, |b| {same}) {{ o.write_slots(&[{field}]).f{field} = v; }}"
+                    "let v = js::own_into(&o, v); if !o.unchanged({field}, |b, sv| {same}) {{ o.write_slots(&[{field}]).f{field} = v; }}"
                 )
             }
         }
@@ -1122,11 +1123,12 @@ impl<'a> FnCtx<'a> {
                     let i = self.expr(index);
                     let v = self.expr(value);
                     let set = self.q("js::array_ops::set(&a, i, v)");
-                    // (A proxy's element already `===` the value: nothing changes.)
-                    let same = crate::strict_expr(&element, "(*x)", "v");
+                    // (A proxy's element already `===` the value, or a
+                    // reactive array's SameValue: nothing changes.)
+                    let same = crate::unchanged_expr(&element, "(*x)", "v");
                     let _ = writeln!(
                         out,
-                        "{{ let a = {a}; let i = {i}; let v = {v}; let v = js::own_into(&a, v); let same = js::array_ops::element_index(i).is_some_and(|k| a.unchanged(k as u32 + 1, |b| b.get(k).is_some_and(|x| {same}))); if !same {{ {set}; }} }}"
+                        "{{ let a = {a}; let i = {i}; let v = {v}; let v = js::own_into(&a, v); let same = js::array_ops::element_index(i).is_some_and(|k| a.unchanged(k as u32 + 1, |b, sv| b.get(k).is_some_and(|x| {same}))); if !same {{ {set}; }} }}"
                     );
                 }
             },

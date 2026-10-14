@@ -52,6 +52,12 @@ impl<R: StrictEq> StrictEq for Union<R> {
             _ => false,
         }
     }
+    fn same_value(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Union::Number(a), Union::Number(b)) => a.same_value(b),
+            _ => self.strict_eq(other),
+        }
+    }
 }
 
 macro_rules! delegate {

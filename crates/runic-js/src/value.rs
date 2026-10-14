@@ -255,10 +255,24 @@ impl<T: TypeOf> TypeOf for Maybe<T> {
 /// `===` (IsStrictlyEqual) between values of one static type.
 pub trait StrictEq {
     fn strict_eq(&self, other: &Self) -> bool;
+    /// SameValue (`Object.is`): `===` except that NaN is NaN and +0 is not
+    /// -0. Types that may hold a number override it.
+    fn same_value(&self, other: &Self) -> bool {
+        self.strict_eq(other)
+    }
 }
 impl StrictEq for f64 {
     fn strict_eq(&self, other: &Self) -> bool {
         self == other
+    }
+    fn same_value(&self, other: &Self) -> bool {
+        crate::same_value(*self, *other)
+    }
+}
+/// Function values compare by identity.
+impl<T: ?Sized> StrictEq for std::rc::Rc<T> {
+    fn strict_eq(&self, other: &Self) -> bool {
+        std::rc::Rc::ptr_eq(self, other)
     }
 }
 impl StrictEq for bool {
@@ -302,6 +316,13 @@ impl<T: StrictEq> StrictEq for Maybe<T> {
     fn strict_eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Maybe::Some(a), Maybe::Some(b)) => a.strict_eq(b),
+            (Maybe::Null, Maybe::Null) | (Maybe::Undefined, Maybe::Undefined) => true,
+            _ => false,
+        }
+    }
+    fn same_value(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Maybe::Some(a), Maybe::Some(b)) => a.same_value(b),
             (Maybe::Null, Maybe::Null) | (Maybe::Undefined, Maybe::Undefined) => true,
             _ => false,
         }

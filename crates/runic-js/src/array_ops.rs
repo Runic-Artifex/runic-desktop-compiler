@@ -23,8 +23,8 @@
 //!   return the key as first inserted (`-0` stays `-0`). Lookup is unaffected.
 
 use crate::{
-    ArrayElement, JsArray, JsMap, JsRef, JsResult, JsSet, JsString, MapData, MapKey, Maybe,
-    SetData, StrictEq, Throw, ToMapKey, array, mutation_epoch, number_to_string,
+    ArrayElement, JsArray, JsMap, JsRef, JsResult, JsSet, JsString, MapData, MapKey, Maybe, Own,
+    SetData, StrictEq, Throw, ToMapKey, array, mutation_epoch, number_to_string, own_into,
 };
 use indexmap::map::Entry;
 
@@ -504,11 +504,59 @@ pub fn reduce_right<T: Clone, U>(
 
 // Ordering --------------------------------------------------------------------------
 
-/// In place; returns the same array.
-pub fn reverse<T>(a: &JsArray<T>) -> JsArray<T> {
-    if a.borrow().len() > 1 {
-        a.borrow_mut().reverse();
+/// Whether writing `new` over `old` in element `i` of `a` changes it
+/// (docs/design/REACTIVITY-ALIASING.md, R4): a proxy's element `===` the
+/// value and a reactive array's SameValue one stay as they are, as Svelte's
+/// sources and Vue's set trap ignore such sets; a raw array's elements are
+/// always written.
+fn element_changes<T: StrictEq>(a: &JsArray<T>, i: usize, old: &T, new: &T) -> bool {
+    match a.equal_write(i as u32 + 1) {
+        None => true,
+        Some(true) => !old.same_value(new),
+        Some(false) => !old.strict_eq(new),
     }
+}
+
+/// Write `values[j]` to element `start + j` where it changes (`element_changes`).
+fn write_changed<T: Clone + StrictEq>(
+    a: &JsArray<T>,
+    start: usize,
+    values: &[T],
+    skip: Option<usize>,
+) {
+    let changed: Vec<u32> = {
+        let old = a.peek();
+        (0..values.len())
+            .filter(|&j| {
+                Some(start + j) != skip
+                    && element_changes(a, start + j, &old[start + j], &values[j])
+            })
+            .map(|j| (start + j) as u32 + 1)
+            .collect()
+    };
+    if !changed.is_empty() {
+        let mut v = a.write_slots(&changed);
+        for &s in &changed {
+            let i = s as usize - 1;
+            v[i] = values[i - start].clone();
+        }
+    }
+}
+
+/// In place; returns the same array. As Array.prototype.reverse through a
+/// proxy: it reads the length and every element but the middle one, then
+/// sets each swapped pair, which writes the elements that change.
+pub fn reverse<T: Clone + StrictEq>(a: &JsArray<T>) -> JsArray<T> {
+    let len = a.read_slot(0).len();
+    if len < 2 {
+        return a.clone();
+    }
+    let middle = (len % 2 == 1).then_some(len / 2);
+    for i in (0..len).filter(|&i| Some(i) != middle) {
+        drop(a.read_slot(i as u32 + 1));
+    }
+    let reversed: Vec<T> = a.peek().iter().rev().cloned().collect();
+    write_changed(a, 0, &reversed, middle);
     a.clone()
 }
 
@@ -577,29 +625,32 @@ fn sort_order<T: ArrayElement>(
 
 /// In place, stable. Without a comparator elements compare by their string
 /// form (code-unit order) with undefined last. As in the specification, the
-/// elements are copied before sorting and written back afterwards, so a
-/// throwing comparator leaves the array unchanged. The write-back is skipped
-/// (no mutation is recorded) when the order is unchanged and nothing was
-/// mutated while sorting.
-pub fn sort<T: Clone + ArrayElement>(
+/// elements (and the length) are read and copied before sorting and set
+/// back afterwards index by index, so a throwing comparator leaves the array
+/// unchanged and only the elements that change are written
+/// (`element_changes`); nothing is written when the order is unchanged and
+/// nothing was mutated while sorting.
+pub fn sort<T: Clone + ArrayElement + StrictEq>(
     a: &JsArray<T>,
     compare: Option<&mut dyn FnMut(&T, &T) -> JsResult<f64>>,
 ) -> JsResult<JsArray<T>> {
     let items: Vec<T> = a.borrow().clone();
     let epoch = mutation_epoch();
     let order = sort_order(&items, compare)?;
-    let unchanged = mutation_epoch() == epoch && order.iter().enumerate().all(|(i, &j)| i == j);
-    if !unchanged {
-        let mut items: Vec<Option<T>> = items.into_iter().map(Some).collect();
-        let mut target = a.borrow_mut();
-        for (j, &src) in order.iter().enumerate() {
-            let item = items[src].take().expect("permutation");
-            if j < target.len() {
-                target[j] = item;
-            } else {
-                target.push(item);
-            }
-        }
+    if mutation_epoch() == epoch && order.iter().enumerate().all(|(i, &j)| i == j) {
+        return Ok(a.clone());
+    }
+    let sorted: Vec<T> = order.iter().map(|&i| items[i].clone()).collect();
+    // A comparator that shortened or grew the array: the sorted items are
+    // set from index 0, past the current end too.
+    let len = a.peek().len();
+    let within = sorted.len().min(len);
+    write_changed(a, 0, &sorted[..within], None);
+    if sorted.len() > len {
+        let slots: Vec<u32> = std::iter::once(0)
+            .chain((len + 1) as u32..=sorted.len() as u32)
+            .collect();
+        a.write_slots(&slots).extend(sorted[len..].iter().cloned());
     }
     Ok(a.clone())
 }
@@ -629,14 +680,22 @@ pub fn with<T: Clone>(a: &JsArray<T>, i: f64, v: T) -> JsResult<JsArray<T>> {
     items[k as usize] = v;
     Ok(array(items))
 }
-pub fn fill<T: Clone>(a: &JsArray<T>, v: T, start: Maybe<f64>, end: Maybe<f64>) -> JsArray<T> {
-    let len = a.borrow().len();
+/// As Array.prototype.fill through a proxy: it reads the length and sets
+/// each index of the range, storing the value as each set does (a proxy
+/// array takes a new proxy of a plain value at each index), which writes the
+/// elements that change (`element_changes`).
+pub fn fill<T: Clone + StrictEq + Own>(
+    a: &JsArray<T>,
+    v: T,
+    start: Maybe<f64>,
+    end: Maybe<f64>,
+) -> JsArray<T> {
+    let len = a.read_slot(0).len();
     let k = relative_index(arg_number(&start), len);
     let fin = relative_end(&end, len);
     if k < fin {
-        for x in &mut a.borrow_mut()[k..fin] {
-            *x = v.clone();
-        }
+        let values: Vec<T> = (k..fin).map(|_| own_into(a, v.clone())).collect();
+        write_changed(a, k, &values, None);
     }
     a.clone()
 }
