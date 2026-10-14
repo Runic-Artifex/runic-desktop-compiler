@@ -205,7 +205,7 @@ A case's `pixelRegions` compare each named element's box with the same 3/255 tol
 
 **Rejected** with located `E_CSS_PROPERTY`:
 - `transition-behavior: allow-discrete`.
-- Scroll-driven animations (`animation-timeline`, `animation-range*`, `scroll-timeline*`, `view-timeline*`, `timeline-scope`).
+- Scroll-driven animations beyond `scroll()` timelines with ranges of lengths and percentages: `view()`, named timelines, `none` and `var()` in `animation-timeline`, named ranges, `scroll-timeline*`, `view-timeline*`, `timeline-scope` (CSS slice 3b part 2, [results](../../conformance/results/scroll-timelines.md); `scroll()` timelines run in the Stylo and Blitz forks).
 
 `@starting-style` remains an unsupported at-rule.
 
