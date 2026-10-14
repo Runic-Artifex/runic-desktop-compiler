@@ -46,6 +46,7 @@ import {
   declarationOverrides,
   displayPath,
   DTS_PREFIX,
+  bundleOverrides,
   exportAllDeclarations,
   implementationOf,
   inferFields,
@@ -1446,6 +1447,8 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
     for (const m of packageModules.values()) {
       files.set(m.virtual, m.text);
       if (m.dts) files.set(m.dts, exportAllDeclarations(m.dts, declarationOverrides(m.inferred)));
+      for (const dts of m.bundleDts ?? [])
+        files.set(dts, exportAllDeclarations(dts, bundleOverrides(m.inferred, dts)));
     }
     // A SvelteKit app's generated modules that are imported for types only.
     for (const [f, code] of graph.kit?.typeFiles ?? []) if (!files.has(f)) files.set(f, code);

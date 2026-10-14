@@ -18,7 +18,7 @@
 // rejected as anywhere else.
 import ts from 'typescript';
 import path from 'node:path';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { ModuleResolver } from './modules.ts';
 
@@ -37,6 +37,9 @@ const EVENT_INTERFACE: Map<string, string> = (() => {
   return map;
 })();
 
+/** The compiler's host declarations. */
+const DOM_DECLARATIONS = path.join(path.dirname(fileURLToPath(import.meta.url)), 'dom.d.ts');
+
 /** The module specifier prefix that names a declaration file directly. */
 export const DTS_PREFIX = 'runic-dts:';
 
@@ -48,6 +51,11 @@ export interface PackageModule {
   virtual: string;
   /** Its declaration file, if the package ships one. */
   dts?: string;
+  /**
+   * A bundle's declaration files (`bundleDeclarations`), which declare its
+   * top-level names; no `dts` then.
+   */
+  bundleDts?: string[];
   /** The virtual module's text. */
   text: string;
   /** Ranges of the virtual text copied from the original (for diagnostics). */
@@ -117,7 +125,13 @@ interface Declared {
  * `__dts.`, except the type parameters in scope (`local`) and those
  * declared inside `n`.
  */
-function qualified(n: ts.Node, sf: ts.SourceFile, top: Set<string>, local: Set<string>): string {
+function qualified(
+  n: ts.Node,
+  sf: ts.SourceFile,
+  top: Set<string>,
+  local: Set<string>,
+  ns = '__dts',
+): string {
   const inner = new Set(local);
   const collect = (x: ts.Node) => {
     if (ts.isTypeParameterDeclaration(x)) inner.add(x.name.text);
@@ -146,7 +160,7 @@ function qualified(n: ts.Node, sf: ts.SourceFile, top: Set<string>, local: Set<s
   const start = n.getStart(sf);
   let text = n.getText(sf);
   for (const pos of at.sort((a, b) => b - a))
-    text = text.slice(0, pos - start) + '__dts.' + text.slice(pos - start);
+    text = text.slice(0, pos - start) + ns + '.' + text.slice(pos - start);
   return text;
 }
 
@@ -310,6 +324,114 @@ export function declarationFile(file: string): string | undefined {
 }
 
 /**
+ * The package directory holding `file`: the nearest directory above it with
+ * a package.json that names a package.
+ */
+function packageRoot(file: string): { dir: string; json: Record<string, unknown> } | undefined {
+  for (let dir = path.dirname(file); dir !== path.dirname(dir); dir = path.dirname(dir)) {
+    const p = path.join(dir, 'package.json');
+    if (!existsSync(p)) continue;
+    try {
+      const json = JSON.parse(readFileSync(p, 'utf8'));
+      if (json && typeof json.name === 'string') return { dir, json };
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The types entry of the package condition whose JavaScript is `file`:
+ * `exports["."]`'s `import` (or the root condition) with `types` and
+ * `default`, or the top-level `module` with `types`.
+ */
+function bundleTypesEntry(file: string): string | undefined {
+  const root = packageRoot(file);
+  if (!root) return undefined;
+  const at = (rel: unknown) => (typeof rel === 'string' ? path.resolve(root.dir, rel) : undefined);
+  const exp = root.json.exports as Record<string, unknown> | undefined;
+  const dot = exp && typeof exp === 'object' ? (exp['.'] as Record<string, unknown>) : undefined;
+  for (const cond of dot && typeof dot === 'object' ? [dot.import, dot] : []) {
+    if (!cond || typeof cond !== 'object') continue;
+    const c = cond as Record<string, unknown>;
+    if (at(c.default) === file && at(c.types)) return at(c.types);
+  }
+  if (at(root.json.module) === file && at(root.json.types)) return at(root.json.types);
+  return undefined;
+}
+
+/**
+ * A bundle's declarations (M6 script DOM, slice 4: embla-carousel and its
+ * packages, user decision 2026-10-14): a package that publishes its modules
+ * as one untyped bundle (`esm/embla-carousel.esm.js`) ships a declaration
+ * file per source module instead of one beside the bundle
+ * (`esm/components/*.d.ts`). Where no `x.d.ts` lies beside the module and
+ * the package's export condition resolving to it names a types entry
+ * (`esm/index.d.ts`), the declaration files are those in the entry's
+ * directory and below it (the package's declarations of that build, also
+ * of modules the entry does not re-export), and each top-level
+ * function, class or constant of the bundle is bound to the one file
+ * declaring it at its top level under the same name (a name declared by
+ * none or by several stays untyped, as without declarations).
+ */
+export function bundleDeclarations(
+  file: string,
+  sf: ts.SourceFile,
+):
+  | { entry: string; files: { dts: string; declared: Declared }[]; names: Map<string, number> }
+  | undefined {
+  const entry = bundleTypesEntry(file);
+  if (!entry || !existsSync(entry)) return undefined;
+  const reached: string[] = [];
+  const walk = (dir: string) => {
+    for (const e of readdirSync(dir, { withFileTypes: true }).sort((x, y) =>
+      x.name < y.name ? -1 : x.name > y.name ? 1 : 0,
+    )) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory() && e.name !== 'node_modules') walk(p);
+      else if (e.isFile() && /\.d\.m?ts$/.test(e.name)) reached.push(p);
+    }
+  };
+  walk(path.dirname(entry));
+  const files = reached.map(dts => ({ dts, declared: declarations(dts) }));
+  const names = new Map<string, number>();
+  const declares = (d: Declared, name: string) =>
+    d.functions.has(name) || d.classes.has(name) || d.variables.has(name);
+  for (const stmt of sf.statements) {
+    const found: string[] = [];
+    if (ts.isFunctionDeclaration(stmt) || ts.isClassDeclaration(stmt)) {
+      if (stmt.name) found.push(stmt.name.text);
+    } else if (ts.isVariableStatement(stmt))
+      for (const v of stmt.declarationList.declarations)
+        if (ts.isIdentifier(v.name)) found.push(v.name.text);
+    for (const name of found) {
+      const by = files.flatMap((f, i) => (declares(f.declared, name) ? [i] : []));
+      if (by.length === 1) names.set(name, by[0]);
+    }
+  }
+  return { entry, files, names };
+}
+
+/**
+ * The declaration file declaring top-level `name` of package module
+ * `file`: the one beside it, or a bundle's (`bundleDeclarations`).
+ */
+export function declarationFileOf(file: string, name: string): string | undefined {
+  const dts = declarationFile(file);
+  if (dts) return dts;
+  if (!bundleCache.has(file)) {
+    const code = existsSync(file) ? readFileSync(file, 'utf8') : '';
+    const sf = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+    bundleCache.set(file, bundleDeclarations(file, sf));
+  }
+  const bundle = bundleCache.get(file);
+  const at = bundle?.names.get(name);
+  return at === undefined ? undefined : bundle!.files[at].dts;
+}
+const bundleCache = new Map<string, ReturnType<typeof bundleDeclarations>>();
+
+/**
  * The names of the class fields of a module that hold an attachment
  * (initialised by svelte-toolbelt's `attachRef(…)`): an object literal
  * spreading one (`...this.wrapperAttachment`) builds an attribute bag.
@@ -432,6 +554,39 @@ function returnedLiteral(fn: ts.FunctionDeclaration): ts.VariableDeclaration | u
 }
 
 /**
+ * The number of parameters member `member` of what function `fn` returns
+ * is declared with, where `fn`'s declared result names a type literal (an
+ * alias or an interface of the same declaration file) declaring the member
+ * as a function type or a method; undefined where it is declared otherwise.
+ */
+function declaredMemberArity(declared: Declared, fn: string, member: string): number | undefined {
+  const sf = declared.sf;
+  const decl = sf?.statements.find(
+    (s): s is ts.FunctionDeclaration => ts.isFunctionDeclaration(s) && s.name?.text === fn,
+  );
+  const result = decl?.type;
+  if (!sf || !result || !ts.isTypeReferenceNode(result) || !ts.isIdentifier(result.typeName))
+    return undefined;
+  const name = result.typeName.text;
+  const target = sf.statements.find(
+    s => (ts.isTypeAliasDeclaration(s) || ts.isInterfaceDeclaration(s)) && s.name.text === name,
+  ) as ts.TypeAliasDeclaration | ts.InterfaceDeclaration | undefined;
+  const members = !target
+    ? undefined
+    : ts.isInterfaceDeclaration(target)
+      ? target.members
+      : ts.isTypeLiteralNode(target.type)
+        ? target.type.members
+        : undefined;
+  const m = members?.find(x => x.name && ts.isIdentifier(x.name) && x.name.text === member);
+  if (!m) return undefined;
+  if (ts.isMethodSignature(m)) return m.parameters.length;
+  if (ts.isPropertySignature(m) && m.type && ts.isFunctionTypeNode(m.type))
+    return m.type.parameters.length;
+  return undefined;
+}
+
+/**
  * The functions a function declares in its body and returns as members of
  * the object literal its last statement returns (`return { announce }`, or
  * `announce: announce`), with their member names; none where another
@@ -441,8 +596,12 @@ function returnedFunctions(fn: ts.FunctionDeclaration): [string, ts.FunctionDecl
   const body = fn.body!.statements;
   const last = body.at(-1);
   if (!last || !ts.isReturnStatement(last) || !last.expression) return [];
-  const literal = last.expression;
-  if (!ts.isObjectLiteralExpression(literal)) return [];
+  // (Also of the constant it builds and returns, `returnedLiteral`:
+  // embla-carousel's factories, `const self = { add, clear }; return self`.)
+  const literal = ts.isIdentifier(last.expression)
+    ? returnedLiteral(fn)?.initializer
+    : last.expression;
+  if (!literal || !ts.isObjectLiteralExpression(literal)) return [];
   let returns = 0;
   const visit = (n: ts.Node): void => {
     if (ts.isFunctionLike(n)) return;
@@ -483,10 +642,26 @@ export function annotate(
 ): PackageModule {
   const virtual = file + '.__runic.ts';
   const dts = declarationFile(file);
-  const declared: Declared = dts
-    ? declarations(dts)
-    : { functions: new Map(), classes: new Map(), variables: new Set(), top: new Set<string>() };
   const sf = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  // The declarations of each top-level name, and the namespace the
+  // annotations name them through: the one file beside the module
+  // (`__dts`), or for a bundle the file declaring that name
+  // (`bundleDeclarations`, `__dts0`, `__dts1`, …).
+  const none: Declared = {
+    functions: new Map(),
+    classes: new Map(),
+    variables: new Set(),
+    top: new Set<string>(),
+  };
+  const single: Declared | undefined = dts ? declarations(dts) : undefined;
+  const bundle = dts ? undefined : bundleDeclarations(file, sf);
+  const of = (name: string): { declared: Declared; ns: string } => {
+    if (single) return { declared: single, ns: '__dts' };
+    const bound = bundle?.names.get(name);
+    return bound !== undefined
+      ? { declared: bundle!.files[bound].declared, ns: `__dts${bound}` }
+      : { declared: none, ns: '__dts' };
+  };
   const attachments = attachmentFields(sf);
   const inserts: { at: number; text: string }[] = [];
   const add = (at: number, text: string) => inserts.push({ at, text });
@@ -506,12 +681,15 @@ export function annotate(
   for (const stmt of sf.statements) {
     // Exported constants take their declared types (runed `Context<T>` keys).
     if (ts.isVariableStatement(stmt)) {
-      for (const d of stmt.declarationList.declarations)
-        if (ts.isIdentifier(d.name) && !d.type && declared.variables.has(d.name.text))
-          add(d.name.end, `: typeof __dts.${d.name.text}`);
+      for (const d of stmt.declarationList.declarations) {
+        if (!ts.isIdentifier(d.name) || d.type) continue;
+        const { declared, ns } = of(d.name.text);
+        if (declared.variables.has(d.name.text)) add(d.name.end, `: typeof ${ns}.${d.name.text}`);
+      }
       continue;
     }
     if (ts.isFunctionDeclaration(stmt) && stmt.name && stmt.body) {
+      const { declared, ns } = of(stmt.name.text);
       const d = declared.functions.get(stmt.name.text);
       if (!d) continue;
       // A generic function of one signature with plain type parameters
@@ -556,7 +734,7 @@ export function annotate(
         if (d.signatures !== 1 || !dts?.type || !plainParams || !bindable || stmt.typeParameters)
           continue;
         const local = new Set(dts.typeParameters!.map(t => t.name.text));
-        const q = (n: ts.Node) => qualified(n, declared.sf!, declared.top, local);
+        const q = (n: ts.Node) => qualified(n, declared.sf!, declared.top, local, ns);
         add(stmt.name.end, `<${dts.typeParameters!.map(q).join(', ')}>`);
         stmt.parameters.forEach((p, i) => {
           const dp = dts.parameters[i];
@@ -568,7 +746,7 @@ export function annotate(
         continue;
       }
       if (d.signatures === 1) {
-        const f = `typeof __dts.${stmt.name.text}`;
+        const f = `typeof ${ns}.${stmt.name.text}`;
         params(stmt, i => `Parameters<${f}>[${i}]`);
         // A type predicate (`element is HTMLElement`) narrows at call sites.
         const predicate = /^(\w+) is /.exec(d.overloads[0].result);
@@ -585,7 +763,14 @@ export function annotate(
         if (!named)
           for (const [member, fn] of returnedFunctions(stmt)) {
             const m = `ReturnType<${f}>[${JSON.stringify(member)}]`;
-            params(fn, i => `Parameters<${m}>[${i}]`);
+            // (Parameters the member does not declare, called only by the
+            // module itself, are typed from their calls: embla's
+            // `scrollTo(index, jump, direction)` of `scrollTo(index, jump?)`.)
+            const arity = declaredMemberArity(declared, stmt.name.text, member);
+            fn.parameters.forEach((p, i) => {
+              if (p.type || !ts.isIdentifier(p.name) || p.dotDotDotToken) return;
+              if (arity === undefined || i < arity) add(p.name.end, `: Parameters<${m}>[${i}]`);
+            });
             result(fn, `ReturnType<${m}>`);
           }
         continue;
@@ -610,15 +795,16 @@ export function annotate(
     }
     if (!ts.isClassDeclaration(stmt) || !stmt.name) continue;
     const cls = stmt.name.text;
+    const { declared, ns } = of(cls);
     const d = declared.classes.get(cls);
-    const C = `__dts.${cls}`;
+    const C = `${ns}.${cls}`;
     // A generic class (bits-ui's `SharedState<T extends AnyFn>`): its type
     // parameters and member types written out from the declaration file.
     if (d?.generic && declared.sf) {
       const sf = declared.sf;
       const dc = d.decl;
       const local = new Set(dc.typeParameters!.map(t => t.name.text));
-      const q = (n: ts.Node) => qualified(n, sf, declared.top, local);
+      const q = (n: ts.Node) => qualified(n, sf, declared.top, local, ns);
       if (!stmt.typeParameters) add(stmt.name.end, `<${dc.typeParameters!.map(q).join(', ')}>`);
       const typedParams = (js: ts.SignatureDeclaration, dts: ts.SignatureDeclaration | undefined) =>
         dts &&
@@ -736,6 +922,9 @@ export function annotate(
   }
   inserts.sort((a, b) => a.at - b.at);
   let text = dts ? `import type * as __dts from ${JSON.stringify(DTS_PREFIX + dts)};\n` : '';
+  bundle?.files.forEach(
+    (f, i) => (text += `import type * as __dts${i} from ${JSON.stringify(DTS_PREFIX + f.dts)};\n`),
+  );
   const segments: PackageModule['segments'] = [];
   let from = 0;
   for (const ins of [...inserts, { at: code.length, text: '' }]) {
@@ -746,7 +935,17 @@ export function annotate(
   // The declaration file's types (interfaces, aliases, re-exported types)
   // stay importable through the module, as when TypeScript reads the package.
   if (dts) text += `\nexport type * from ${JSON.stringify(DTS_PREFIX + dts)};\n`;
-  return { file, virtual, ...(dts ? { dts } : {}), text, segments, inferred };
+  // (A bundle's: those of its package's types entry.)
+  if (bundle) text += `\nexport type * from ${JSON.stringify(DTS_PREFIX + bundle.entry)};\n`;
+  return {
+    file,
+    virtual,
+    ...(dts ? { dts } : {}),
+    ...(bundle ? { bundleDts: bundle.files.map(f => f.dts) } : {}),
+    text,
+    segments,
+    inferred,
+  };
 }
 
 /**
@@ -904,7 +1103,10 @@ export function inferFields(
     if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
     const fn = sym?.valueDeclaration;
     if (!fn || !ts.isFunctionDeclaration(fn) || !fn.name) return undefined;
-    const dts = declarationFile(fn.getSourceFile().fileName.replace(/\.__runic\.ts$/, ''));
+    const dts = declarationFileOf(
+      fn.getSourceFile().fileName.replace(/\.__runic\.ts$/, ''),
+      fn.name.text,
+    );
     const declared = dts ? declarations(dts) : undefined;
     const df = declared?.sf?.statements.filter(
       (x): x is ts.FunctionDeclaration =>
@@ -990,7 +1192,10 @@ export function inferFields(
     // (An untyped package function: as its declaration file declares it.)
     if (decl && ts.isFunctionDeclaration(decl) && decl.name && !decl.typeParameters) {
       const name = decl.name.text;
-      const dts = declarationFile(decl.getSourceFile().fileName.replace(/\.__runic\.ts$/, ''));
+      const dts = declarationFileOf(
+        decl.getSourceFile().fileName.replace(/\.__runic\.ts$/, ''),
+        name,
+      );
       const declared = dts ? declarations(dts).sf : undefined;
       decl =
         declared?.statements.find(
@@ -1023,6 +1228,11 @@ export function inferFields(
     return forwards ? fn : undefined;
   };
   const declaredAny = declaredAnyTypes(modules, program, print);
+  for (const [m, map] of listenerAnyTypes(modules, program)) {
+    const all = declaredAny.get(m) ?? new Map<string, string>();
+    for (const [k, v] of map) all.set(k, v);
+    declaredAny.set(m, all);
+  }
   for (const m of modules.values()) {
     // A pack's port is typed as written.
     if (m.port) continue;
@@ -2388,6 +2598,125 @@ export function inferFields(
     }
   }
   return changed;
+}
+
+/**
+ * Function types a reached bundle's declaration files declare with a
+ * parameter typed `any` (embla-carousel's EventStore: `type
+ * EventHandlerType = (evt: any) => void`) where the functions of that type
+ * are only ever called by the host as event listeners: every parameter the
+ * bundle declares of the type (`add(node, type, handler, options)`) is only
+ * passed on as the listener of `addEventListener`/`removeEventListener` of
+ * the host declarations (or in code TypeScript proves unreachable, a call
+ * on a `never` receiver: the legacy `addListener` branch after the folded
+ * `'addEventListener' in node`), and nothing else in the program holds a
+ * value of the type. The parameter then is the event the listener
+ * receives: `Event` (M6 script DOM, slice 4).
+ *
+ * Returns, per module, `dts:<position>:=@<declaration file>` entries.
+ */
+function listenerAnyTypes(
+  modules: Map<string, PackageModule>,
+  program: ts.Program,
+): Map<PackageModule, Map<string, string>> {
+  const checker = program.getTypeChecker();
+  const out = new Map<PackageModule, Map<string, string>>();
+  const host = (d: ts.Declaration | undefined) =>
+    !!d && path.resolve(d.getSourceFile().fileName) === DOM_DECLARATIONS;
+  for (const m of modules.values()) {
+    if (m.port || !m.bundleDts) continue;
+    const vsf = program.getSourceFile(m.virtual);
+    if (!vsf) continue;
+    for (const dts of m.bundleDts) {
+      const original = ts.createSourceFile(
+        dts,
+        readFileSync(dts, 'utf8'),
+        ts.ScriptTarget.Latest,
+        true,
+      );
+      const psf = program.getSourceFile(dts);
+      if (!psf) continue;
+      for (const stmt of original.statements) {
+        if (!ts.isTypeAliasDeclaration(stmt) || !ts.isFunctionTypeNode(stmt.type)) continue;
+        const anys = stmt.type.parameters.filter(
+          p => p.type?.kind === ts.SyntaxKind.AnyKeyword && !p.dotDotDotToken,
+        );
+        if (anys.length !== 1 || stmt.type.parameters.length !== 1) continue;
+        const alias = psf.statements.find(
+          (s): s is ts.TypeAliasDeclaration =>
+            ts.isTypeAliasDeclaration(s) && s.name.text === stmt.name.text,
+        );
+        const sym = alias && checker.getSymbolAtLocation(alias.name);
+        if (!sym) continue;
+        const ofAlias = (t: ts.Type) =>
+          (t.isUnion() ? t.types : [t]).some(x => x.aliasSymbol === sym);
+        // The bundle's parameters of the type, and every other holder.
+        const params: ts.ParameterDeclaration[] = [];
+        let other = false;
+        const visit = (n: ts.Node) => {
+          if (ts.isParameter(n) && ts.isIdentifier(n.name)) {
+            if (ofAlias(checker.getTypeAtLocation(n.name))) params.push(n);
+          } else if (
+            ts.isIdentifier(n) &&
+            !ts.isParameter(n.parent) &&
+            ofAlias(checker.getTypeAtLocation(n))
+          ) {
+            const s = checker.getSymbolAtLocation(n);
+            const d = s?.valueDeclaration;
+            if (!d || !ts.isParameter(d)) other = true;
+          }
+          ts.forEachChild(n, visit);
+        };
+        for (const f of program.getSourceFiles()) if (!f.isDeclarationFile) visit(f);
+        if (other || !params.length) continue;
+        // Each used only as a host listener.
+        const listenerOnly = (p: ts.ParameterDeclaration) => {
+          const s = checker.getSymbolAtLocation(p.name);
+          let ok = true;
+          let fn: ts.Node = p.parent;
+          const uses = (n: ts.Node) => {
+            if (ts.isIdentifier(n) && n !== p.name && checker.getSymbolAtLocation(n) === s) {
+              const call = n.parent;
+              const callee =
+                ts.isCallExpression(call) && ts.isPropertyAccessExpression(call.expression)
+                  ? call.expression
+                  : undefined;
+              const name = callee?.name.text;
+              const at = callee ? (call as ts.CallExpression).arguments.indexOf(n) : -1;
+              const unreachable =
+                !!callee &&
+                !!(checker.getTypeAtLocation(callee.expression).flags & ts.TypeFlags.Never);
+              const decl =
+                callee && checker.getResolvedSignature(call as ts.CallExpression)?.declaration;
+              const listener =
+                (name === 'addEventListener' || name === 'removeEventListener') &&
+                at === 1 &&
+                host(decl as ts.Declaration | undefined);
+              if (!listener && !unreachable) ok = false;
+            }
+            ts.forEachChild(n, uses);
+          };
+          uses(fn);
+          return ok;
+        };
+        if (!params.every(listenerOnly)) continue;
+        const map = out.get(m) ?? new Map<string, string>();
+        map.set(`dts:${anys[0].type!.getStart(original)}:=@${dts}`, 'Event');
+        out.set(m, map);
+      }
+    }
+  }
+  return out;
+}
+
+/** The `dts:<position>:<path>@<file>` overrides of bundle declaration file `dts`. */
+export function bundleOverrides(inferred: Map<string, string>, dts: string): Map<string, string> {
+  const suffix = `@${dts}`;
+  return new Map(
+    [...inferred]
+      .filter(([key]) => key.startsWith('dts:') && key.endsWith(suffix))
+      .map(([key, text]) => [key.slice(0, -suffix.length), text]),
+  );
 }
 
 /**

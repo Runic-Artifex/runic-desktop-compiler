@@ -154,6 +154,20 @@ interface Animation {
   readonly playState: 'idle' | 'running' | 'paused' | 'finished';
   readonly finished: Promise<Animation>;
 }
+/**
+ * A mutation record (M6 script DOM, slice 4: embla-carousel's
+ * `watchSlides: (emblaApi, mutations: MutationRecord[]) => …`).
+ */
+interface MutationRecord {
+  readonly type: 'attributes' | 'characterData' | 'childList';
+  readonly target: Node;
+  readonly addedNodes: NodeListOf<Node>;
+  readonly removedNodes: NodeListOf<Node>;
+  readonly previousSibling: Node | null;
+  readonly nextSibling: Node | null;
+  readonly attributeName: string | null;
+  readonly oldValue: string | null;
+}
 /** A MutationObserver watching attributes (its callback receives no records here). */
 interface MutationObserver {
   readonly __runicMutationObserver: true;
@@ -565,6 +579,23 @@ interface WheelEvent extends MouseEvent {
   readonly deltaX: number;
   readonly deltaY: number;
 }
+/**
+ * M6 script DOM, slice 4 (embla-carousel's drag tracker: `PointerEventType =
+ * TouchEvent | MouseEvent`): touch events. The runtime takes no touch input
+ * and script cannot construct one (no constructor is declared), so no touch
+ * event ever exists in a program; `touches` is reported where it is read.
+ */
+interface TouchEvent extends UIEvent {
+  readonly touches: TouchList;
+}
+interface TouchList {
+  readonly length: number;
+  readonly [index: number]: Touch;
+}
+interface Touch {
+  readonly clientX: number;
+  readonly clientY: number;
+}
 
 // The window and the document as event targets (listeners lower to
 // `window.listen` / `document.unlisten` built-ins).
@@ -623,6 +654,22 @@ interface HostEventTarget {
     options?: boolean | EventListenerOptions,
   ): void;
   dispatchEvent(event: Event): boolean;
+}
+/**
+ * The document's event types where declaration files name them (M6 script
+ * DOM, slice 4: embla-carousel's `EventNameType = keyof DocumentEventMap |
+ * keyof WindowEventMap`): which of them listeners hear is decided per type
+ * (`runic_js::event::listening`), as for any listener.
+ */
+interface DocumentEventMap extends RunicEventMap {
+  dragstart: Event;
+  touchstart: TouchEvent;
+  touchmove: TouchEvent;
+  touchend: TouchEvent;
+  touchcancel: TouchEvent;
+  focusin: FocusEvent;
+  focusout: FocusEvent;
+  visibilitychange: Event;
 }
 // The window also receives the session history events.
 interface WindowEventMap extends HostEventMap {

@@ -37,7 +37,7 @@ import {
 } from './irtype.ts';
 import { DOM } from './program.ts';
 import { CSS_SUPPORTS, supportsKey } from './css-supports.ts';
-import { declarationFile } from './package-modules.ts';
+import { declarationFile, declarationFileOf } from './package-modules.ts';
 import { asyncBody, isAsync } from './async.ts';
 import { allCertain, analyze, literalParts, syntaxError, type RegexInfo } from './regexp.ts';
 import { intlSpec, LOCALES, verifiedLocale, type IntlKind } from './intl.ts';
@@ -144,7 +144,7 @@ export interface RecordMembers {
 function declaredNotNull(decl: ts.FunctionLikeDeclaration): boolean {
   if (!ts.isFunctionDeclaration(decl) || !decl.name) return false;
   const file = decl.getSourceFile().fileName.replace(/\.__runic\.ts$/, '');
-  const dts = declarationFile(file);
+  const dts = declarationFileOf(file, decl.name.text);
   if (!dts) return false;
   const sf = ts.createSourceFile(dts, readFileSync(dts, 'utf8'), ts.ScriptTarget.Latest, true);
   return sf.statements.some(s => {

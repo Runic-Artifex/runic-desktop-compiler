@@ -35,6 +35,14 @@ export const SOURCE_PACKAGES: readonly SourcePackage[] = [
   { name: 'vaul-svelte', version: '1.0.0-next.7' },
   { name: 'paneforge', version: '1.0.2' },
   { name: 'mode-watcher', version: '1.1.0' },
+  // shadcn-svelte's Carousel (the site's lockfile pins; M6 script DOM,
+  // slice 4): each publishes one untyped bundle typed through the
+  // declaration files it ships (frontend/package-modules.ts
+  // `bundleDeclarations`). All declare "sideEffects": false.
+  { name: 'embla-carousel', version: '8.6.0' },
+  { name: 'embla-carousel-svelte', version: '8.6.0' },
+  { name: 'embla-carousel-reactive-utils', version: '8.6.0' },
+  { name: 'embla-carousel-autoplay', version: '8.6.0' },
 ];
 
 /** Whether `name@version` is compiled from source. */
