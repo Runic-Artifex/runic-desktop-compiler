@@ -18,7 +18,7 @@
 import ts from 'typescript';
 import { createRequire } from 'node:module';
 import { skipParens, type Binding, type Lowerer } from './language.ts';
-import { bindPackImport, bindPackWrapper, type Edge } from './packs.ts';
+import { bindPackImport, bindPackWrapper, helperBinding, type Edge } from './packs.ts';
 import { stateRune } from './modules.ts';
 import type { PackageModule } from './package-modules.ts';
 
@@ -117,6 +117,14 @@ export function packageBindings(
     if (decl.parent !== sf && !(ts.isVariableDeclaration(decl) && decl.parent.parent.parent === sf))
       return undefined;
     if (ts.isFunctionDeclaration(decl) && decl.name && decl.body) {
+      // A helper a pack implements natively (embla's options merge).
+      const pkg = modules.get(m.file)?.package as { name: string; version: string } | undefined;
+      const code = modules.get(m.file)?.code;
+      const helper = pkg && code !== undefined && helperBinding(pkg, decl.name.text, code, lower);
+      if (helper) {
+        lower.bindings.set(symbol, helper);
+        return helper;
+      }
       if (bindPackWrapper(symbol, decl, decl.name.text, lower)) return lower.bindings.get(symbol);
       // A function reading a first child node (bits-ui's getFirstNonCommentChild).
       if (lower.firstNonCommentChildFunction(decl)) {

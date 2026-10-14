@@ -4341,6 +4341,39 @@ export class Lowerer {
   private readonly styleSpreadChecks: { record: number; fn: number; at: ts.Node }[] = [];
   /** Record spreads keeping an earlier value where the spread's is undefined (`byName`). */
   private readonly recordSpreadChecks: { record: number; field: string; at: ts.Node }[] = [];
+  /** Dictionary map types a pack merges as plain objects (`dictionaryMerged`). */
+  private readonly mergedDictionaries: { type: Type; at: ts.Node }[] = [];
+  /** The map types of JavaScript Maps the program constructs (`new Map`, `new WeakMap`). */
+  private readonly jsMapTypes: Type[] = [];
+
+  /**
+   * A pack's merge keeps an earlier value where field `field` of a record
+   * of type `record` is undefined (embla's options merge): checked as
+   * record spreads are (`recordSpreadChecks`).
+   */
+  spreadField(record: number, field: string, at: ts.Node): void {
+    if (!this.recordSpreadChecks.some(c => c.record === record && c.field === field))
+      this.recordSpreadChecks.push({ record, field, at });
+  }
+
+  /**
+   * A pack merges maps of type `type` as dictionary objects (embla's options
+   * merge): a program that also constructs a JavaScript Map of that type is
+   * rejected at `at` (a Map is not a plain object; the merge takes it whole).
+   */
+  /**
+   * Marks `e`, a pack's value of a record field, as undefined only where the
+   * object it builds lacks the key (`absentWhenUndefined`).
+   */
+  absentField(e: Expr): Expr {
+    this.absentWhenUndefined.add(e);
+    return e;
+  }
+
+  dictionaryMerged(type: Type, at: ts.Node): void {
+    this.mergedDictionaries.push({ type, at });
+  }
+
   /** Calls of key-observing built-ins, with the type of the argument (`checkKeyOrder`). */
   private readonly keyObservations: { name: string; type: Type; at: ts.Node }[] = [];
 
@@ -4419,6 +4452,13 @@ export class Lowerer {
    * stands for lacks the key. Call with the finished program.
    */
   checkStyleSpreads(program: unknown): void {
+    for (const m of this.mergedDictionaries)
+      if (this.jsMapTypes.some(t => sameType(t, m.type)))
+        this.fail(
+          m.at,
+          'E_PACK',
+          'This merge treats maps of its type as dictionary objects, but the program also creates a JavaScript Map of that type, which the merge would take whole',
+        );
     if (!this.styleSpreadChecks.length && !this.recordSpreadChecks.length) return;
     // (Checks of records widened since: their targets, `widenRecords`.)
     for (const c of [...this.styleSpreadChecks, ...this.recordSpreadChecks])
@@ -4449,7 +4489,8 @@ export class Lowerer {
       for (const e of built.get(c.record) ?? []) {
         if (e.op !== 'record') continue;
         const v = e.fields[i];
-        if (!(v.op === 'some' || this.absentWhenUndefined.has(v)))
+        // (A null is a value: the spread takes it.)
+        if (!(v.op === 'some' || v.op === 'null' || this.absentWhenUndefined.has(v)))
           this.fail(
             c.at,
             'E_OBJECT',
@@ -12926,6 +12967,22 @@ export class Lowerer {
     // undefined, which takes the default (`withParams`).
     for (const p of g.decl.parameters.slice(e.arguments.length)) {
       const t = this.checker.getTypeAtLocation(p);
+      // An optional parameter of a type parameter the call leaves out
+      // (TypeScript infers it as `unknown`): undefined, holding nothing.
+      const defined = (t.isUnion() ? t.types : [t]).filter(
+        x => !(x.flags & ts.TypeFlags.Undefined),
+      );
+      if (
+        p.questionToken &&
+        !p.initializer &&
+        !p.dotDotDotToken &&
+        defined.length === 1 &&
+        defined[0].flags & ts.TypeFlags.TypeParameter &&
+        !(defined[0] as ts.TypeParameter).getConstraint()
+      ) {
+        args.push({ op: 'undefined', type: { maybe: 'void' } });
+        continue;
+      }
       const mapped =
         defaulted(p) && !(t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown))
           ? this.types.tryMap(t, p)
@@ -14280,15 +14337,25 @@ export class Lowerer {
         if (entries && ts.isArrayLiteralExpression(skipParens(entries)) && 'set' in known)
           this.expected.set(skipParens(entries), { array: known.set });
         const items = (e.arguments ?? []).map(a => this.expr(a, b));
+        if ('map' in known) this.jsMapTypes.push(known);
         return { op: 'builtin', name: `${global}.new`, args: items, type: known };
       }
     }
     const args = (e.arguments ?? []).map(a => this.expr(a, b));
+    const created = (t: Type): Type => {
+      if (typeof t === 'object' && 'map' in t) this.jsMapTypes.push(t);
+      return t;
+    };
     if (global === 'Map' || global === 'Set')
-      return { op: 'builtin', name: `${global}.new`, args, type: this.exprType(e) };
+      return { op: 'builtin', name: `${global}.new`, args, type: created(this.exprType(e)) };
     // A WeakMap or WeakSet is a Map or Set (frontend/types.ts).
     if ((global === 'WeakMap' || global === 'WeakSet') && !args.length)
-      return { op: 'builtin', name: `${global.slice(4)}.new`, args, type: this.exprType(e) };
+      return {
+        op: 'builtin',
+        name: `${global.slice(4)}.new`,
+        args,
+        type: created(this.exprType(e)),
+      };
     if (global && ['Error', 'TypeError', 'RangeError', 'SyntaxError'].includes(global))
       return {
         op: 'record',
@@ -14684,13 +14751,15 @@ export class Lowerer {
       } else return this.fail(p, 'E_OBJECT', 'Unsupported object member');
       values[this.types.fieldIndex(recordType.record, name, p)] = value;
     }
-    const fields = record.fields.map(
-      (f, i) =>
-        values[i] ??
-        (typeof f.type === 'object' && 'maybe' in f.type
-          ? ({ op: 'undefined', type: f.type } as Expr)
-          : this.fail(e, 'E_OBJECT', `Missing field ${f.name}`)),
-    );
+    const fields = record.fields.map((f, i) => {
+      if (values[i]) return values[i];
+      if (!(typeof f.type === 'object' && 'maybe' in f.type))
+        return this.fail(e, 'E_OBJECT', `Missing field ${f.name}`);
+      // (A key the literal does not have.)
+      const absent: Expr = { op: 'undefined', type: f.type };
+      this.absentWhenUndefined.add(absent);
+      return absent;
+    });
     let out: Expr = { op: 'record', record: recordType.record, fields };
     // Bind spread sources (in source order) around the construction.
     for (const sp of spreads.reverse())

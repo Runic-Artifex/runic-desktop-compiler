@@ -28,6 +28,7 @@ import { svelteToolbeltPack } from './packs/svelte-toolbelt-0.10.6.ts';
 import { floatingUiDomPack } from './packs/floating-ui-dom-1.7.4.ts';
 import { internationalizedDatePack } from './packs/internationalized-date-3.12.4.ts';
 import { tabbablePack } from './packs/tabbable-6.5.0.ts';
+import * as emblaCarousel from './packs/embla-carousel-8.6.0.ts';
 
 type Source = { file: string; line: number; column: number };
 
@@ -179,6 +180,84 @@ export interface Pack {
    * (svelte-toolbelt's boxes), or undefined for other types.
    */
   type?(t: ts.Type, at: ts.Node, lower: Lowerer): Type | undefined;
+}
+
+/**
+ * A helper pack entry (M6 script DOM, slice 4): a top-level function of a
+ * package compiled from source, recognised by the package's name and exact
+ * version, its name and the SHA-256 of its normalized source (with the
+ * functions it calls, `uses`). Its calls lower through `call` instead of its
+ * body; a mismatch of version or source rejects each call, located.
+ */
+export interface HelperPack {
+  package: string;
+  version: string;
+  name: string;
+  uses: string[];
+  sha256: string;
+  /** The pack module (hashed into the program's `meta.mappings`). */
+  module: string;
+  call(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr;
+}
+
+/** (A function: the pack modules import the language layer, which imports this module.) */
+const helpers = (): HelperPack[] => [
+  {
+    package: 'embla-carousel',
+    version: emblaCarousel.VERSION,
+    name: emblaCarousel.MERGE.name,
+    uses: emblaCarousel.MERGE.uses,
+    sha256: emblaCarousel.MERGE_SHA256,
+    module: emblaCarousel.MODULE,
+    call: emblaCarousel.mergeCall,
+  },
+];
+
+/**
+ * The binding of top-level function `name` of a module of source package
+ * `pkg` whose JavaScript is `code`, where a helper pack entry names it.
+ */
+export function helperBinding(
+  pkg: { name: string; version: string },
+  name: string,
+  code: string,
+  lower: Lowerer,
+): Binding | undefined {
+  const entries = helpers().filter(h => h.package === pkg.name && h.name === name);
+  if (!entries.length) return undefined;
+  const label = `${name} of ${pkg.name}@${pkg.version} (a pack's native implementation)`;
+  const reject =
+    (why: string) =>
+    (node: ts.CallExpression): Expr =>
+      lower.fail(node, 'E_PACK', `${name} of ${pkg.name}@${pkg.version}: ${why}`);
+  const entry = entries.find(h => h.version === pkg.version);
+  if (!entry)
+    return {
+      kind: 'pack',
+      label,
+      call: reject(
+        `the pack covers version ${entries.map(h => h.version).join(', ')}, not ${pkg.version}`,
+      ),
+    };
+  const source = emblaCarousel.normalizedSource(code, [entry.name, ...entry.uses]);
+  const actual = source === undefined ? undefined : emblaCarousel.sourceHash(source);
+  if (actual !== entry.sha256)
+    return {
+      kind: 'pack',
+      label,
+      call: reject(
+        actual === undefined
+          ? `the module lacks one of ${[entry.name, ...entry.uses].join(', ')}`
+          : `its source differs from the one the pack was validated against (SHA-256 ${actual}, the pack's ${entry.sha256})`,
+      ),
+    };
+  usePack(lower, {
+    name: `${entry.package}#${entry.name}`,
+    version: entry.version,
+    module: entry.module,
+    export: () => 'a helper entry',
+  });
+  return { kind: 'pack', label, call: entry.call };
 }
 
 /** The IR type a pack gives `t` (TypeMapper hook), if any. */

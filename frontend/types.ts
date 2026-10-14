@@ -398,6 +398,35 @@ export class TypeMapper {
       const bound = this.typeParameter?.(t);
       if (bound !== undefined) return bound;
     }
+    // An intersection of type parameters bound to IR types, in a generic
+    // function specialised per call (embla's options merge, `TypeA &
+    // NonNullable<TypeB>`): the record TypeScript's intersection of those
+    // types gives at the call (`boundIntersection`).
+    if (
+      t.isIntersection() &&
+      t.types.some(m => m.flags & F.TypeParameter && this.typeParameter?.(m) !== undefined)
+    ) {
+      const r = this.boundIntersection(t.types, at);
+      if (r !== undefined) return r;
+    }
+    // An intersection of dictionary types (a merge's `{ [k: string]: V } &
+    // { [k: string]: V }`): the dictionary of their index signatures'
+    // intersection, as TypeScript reads it.
+    if (
+      t.isIntersection() &&
+      t.types.every(
+        m =>
+          m.flags & F.Object &&
+          !this.checker.getPropertiesOfType(m).length &&
+          !m.getCallSignatures().length &&
+          this.checker.getIndexInfosOfType(m).length === 1 &&
+          this.checker.getIndexInfosOfType(m)[0].keyType.flags & F.String,
+      )
+    ) {
+      const [info] = this.checker.getIndexInfosOfType(t);
+      if (info && !(info.type.flags & (F.Unknown | F.Any)))
+        return { map: ['string', this.map(info.type, at)] };
+    }
     // `ReturnType<F>` of a type parameter bound to a function type (a
     // generic class's one instantiation; bits-ui's `SharedState.get`):
     // TypeScript leaves it deferred, its result is the function's.
@@ -1555,6 +1584,76 @@ export class TypeMapper {
     }
     for (const f of fields) if (!order.includes(f.name)) order.push(f.name);
     return order;
+  }
+
+  /**
+   * The plain record of an intersection of `members` (some of them type
+   * parameters bound to IR types): each member's fields in order, a field
+   * of several members of their intersection (the same type, or a nullable
+   * one and its value, or plain records intersected field by field). An
+   * empty object type (`NonNullable`'s `{}`) and a type parameter bound to
+   * nothing (an argument left out, which TypeScript infers as `unknown`, or
+   * bound to undefined) add nothing. Undefined where a member is not a plain record or two
+   * fields do not intersect so.
+   */
+  private boundIntersection(members: readonly ts.Type[], at: ts.Node): Type | undefined {
+    const parts: Type[] = [];
+    for (const m of members) {
+      if (m.flags & ts.TypeFlags.TypeParameter && this.typeParameter?.(m) === undefined) {
+        if (m.getConstraint()) return undefined;
+        continue;
+      }
+      if (
+        m.flags & ts.TypeFlags.Object &&
+        !this.checker.getPropertiesOfType(m).length &&
+        !m.getCallSignatures().length &&
+        !this.checker.getIndexInfosOfType(m).length
+      )
+        continue;
+      const mapped = this.tryMap(m, at);
+      if (mapped === undefined) return undefined;
+      // (A parameter bound to nothing, an argument left out: nothing.)
+      const value = typeof mapped === 'object' && 'maybe' in mapped ? mapped.maybe : mapped;
+      if (value === 'void') continue;
+      parts.push(mapped);
+    }
+    const plain = (x: Type): x is { record: number } =>
+      typeof x === 'object' &&
+      'record' in x &&
+      !this.records[x.record].class &&
+      !this.records[x.record].tuple &&
+      !this.accessors.has(x.record);
+    const both = (x: Type, y: Type): Type | undefined => {
+      if (sameType(x, y)) return x;
+      const xi = typeof x === 'object' && 'maybe' in x ? x.maybe : undefined;
+      const yi = typeof y === 'object' && 'maybe' in y ? y.maybe : undefined;
+      if (xi !== undefined && yi !== undefined) {
+        const i = both(xi, yi);
+        return i === undefined ? undefined : { maybe: i };
+      }
+      if (xi !== undefined) return both(xi, y);
+      if (yi !== undefined) return both(x, yi);
+      if (plain(x) && plain(y)) return join([x, y]);
+      return undefined;
+    };
+    const join = (rs: Type[]): Type | undefined => {
+      const fields: RecordField[] = [];
+      for (const r of rs) {
+        if (!plain(r)) return undefined;
+        for (const f of this.records[r.record].fields) {
+          const i = fields.findIndex(g => g.name === f.name);
+          if (i < 0) fields.push({ name: f.name, type: f.type });
+          else {
+            const t = both(fields[i].type, f.type);
+            if (t === undefined) return undefined;
+            fields[i] = { name: f.name, type: t };
+          }
+        }
+      }
+      return { record: this.shapeRecord(fields) };
+    };
+    if (parts.length === 1) return parts[0];
+    return join(parts);
   }
 
   /** A plain record of `fields` (shared by shape with another plain record). */

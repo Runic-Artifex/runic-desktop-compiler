@@ -1,0 +1,240 @@
+{
+ "package": "embla-carousel",
+ "version": "8.6.0",
+ "function": "objectsMergeDeep",
+ "sha256": "9e2cb9e7cc48b273f401c6028e038285ad952977359edc41a15698dd97861bb3",
+ "vectors": [
+  {
+   "A": "{ a: number; b: string }",
+   "a": "{ a: 1, b: 'x' }",
+   "B": "{ b?: string; c?: boolean }",
+   "b": "{ c: true }",
+   "show": [
+    "r.a",
+    "r.b",
+    "r.c"
+   ],
+   "expected": "1|x|true"
+  },
+  {
+   "A": "{ a: number; b: string }",
+   "a": "{ a: 1, b: 'x' }",
+   "B": "{ b?: string; c?: boolean }",
+   "b": "{ b: 'y' }",
+   "show": [
+    "r.a",
+    "r.b",
+    "r.c"
+   ],
+   "expected": "1|y|undefined"
+  },
+  {
+   "A": "{ a: number; b: string }",
+   "a": "{ a: 1, b: 'x' }",
+   "B": "{ b?: string; c?: boolean }",
+   "b": null,
+   "show": [
+    "r.a",
+    "r.b"
+   ],
+   "expected": "1|x"
+  },
+  {
+   "A": "{ a: number; b: string }",
+   "a": "{ a: 1, b: 'x' }",
+   "B": "{ b?: string; c?: boolean }",
+   "b": "{}",
+   "show": [
+    "r.a",
+    "r.b",
+    "r.c"
+   ],
+   "expected": "1|x|undefined"
+  },
+  {
+   "A": "{ n: { x: number; y: number } }",
+   "a": "{ n: { x: 1, y: 2 } }",
+   "B": "{ n?: { y?: number; z?: number } }",
+   "b": "{ n: { y: 5, z: 6 } }",
+   "show": [
+    "r.n.x",
+    "r.n.y",
+    "r.n.z"
+   ],
+   "expected": "1|5|6"
+  },
+  {
+   "A": "{ n: { x: number; y: number } }",
+   "a": "{ n: { x: 1, y: 2 } }",
+   "B": "{ n?: { y?: number; z?: number } }",
+   "b": "{}",
+   "show": [
+    "r.n.x",
+    "r.n.y",
+    "r.n.z"
+   ],
+   "expected": "1|2|undefined"
+  },
+  {
+   "A": "{ n: { x: number; y: number } }",
+   "a": "{ n: { x: 1, y: 2 } }",
+   "B": "{ n?: { y?: number; z?: number } }",
+   "b": "{ n: { z: 3 } }",
+   "show": [
+    "r.n.x",
+    "r.n.y",
+    "r.n.z"
+   ],
+   "expected": "1|2|3"
+  },
+  {
+   "A": "{ d: { e: { f: number; g: string } } }",
+   "a": "{ d: { e: { f: 1, g: 'g' } } }",
+   "B": "{ d?: { e?: { f?: number } } }",
+   "b": "{ d: { e: { f: 9 } } }",
+   "show": [
+    "r.d.e.f",
+    "r.d.e.g"
+   ],
+   "expected": "9|g"
+  },
+  {
+   "A": "{ xs: number[] }",
+   "a": "{ xs: [1, 2] }",
+   "B": "{ xs?: number[] }",
+   "b": "{ xs: [3] }",
+   "show": [
+    "JSON.stringify(r.xs)"
+   ],
+   "expected": "[3]"
+  },
+  {
+   "A": "{ o: { x: number } | null }",
+   "a": "{ o: { x: 1 } }",
+   "B": "{ o?: { x: number } | null }",
+   "b": "{ o: null }",
+   "show": [
+    "String(r.o)",
+    "r.o?.x"
+   ],
+   "expected": "null|undefined"
+  },
+  {
+   "A": "{ o: { x: number } | null }",
+   "a": "{ o: null }",
+   "B": "{ o?: { x: number } | null }",
+   "b": "{ o: { x: 2 } }",
+   "show": [
+    "String(r.o === null)",
+    "r.o?.x"
+   ],
+   "expected": "false|2"
+  },
+  {
+   "A": "{ o: { x: number } | null }",
+   "a": "{ o: { x: 1 } }",
+   "B": "{ o?: { x: number } | null }",
+   "b": "{ o: { x: 2 } }",
+   "show": [
+    "r.o?.x"
+   ],
+   "expected": "2"
+  },
+  {
+   "A": "{ f: () => string }",
+   "a": "{ f: () => 'a' }",
+   "B": "{ f?: () => string }",
+   "b": "{ f: () => 'b' }",
+   "show": [
+    "r.f()"
+   ],
+   "expected": "b"
+  },
+  {
+   "A": "{ bp: { [k: string]: { n?: number; m?: number } } }",
+   "a": "{ bp: { '(min-width: 1px)': { n: 1 }, x: { m: 1 } } }",
+   "B": "{ bp?: { [k: string]: { n?: number; m?: number } } }",
+   "b": "{ bp: { '(min-width: 1px)': { m: 2 }, '1': { n: 3 } } }",
+   "show": [
+    "Object.keys(r.bp).join(',')",
+    "r.bp['(min-width: 1px)'].n",
+    "r.bp['(min-width: 1px)'].m",
+    "r.bp['x'].m",
+    "r.bp['1'].n"
+   ],
+   "expected": "1,(min-width: 1px),x|1|2|1|3"
+  },
+  {
+   "A": "{ bp: { [k: string]: { n?: number; m?: number } } }",
+   "a": "{ bp: { b: { n: 1 } } }",
+   "B": "{ bp?: { [k: string]: { n?: number; m?: number } } }",
+   "b": "{}",
+   "show": [
+    "Object.keys(r.bp).join(',')",
+    "r.bp['b'].n"
+   ],
+   "expected": "b|1"
+  },
+  {
+   "A": "{ a?: number; c: number }",
+   "a": "{ a: undefined, c: 1 }",
+   "B": "{ a?: number }",
+   "b": "{ a: 2 }",
+   "show": [
+    "r.a",
+    "r.c"
+   ],
+   "expected": "2|1"
+  },
+  {
+   "A": "{ a?: number; c: number }",
+   "a": "{ a: undefined, c: 1 }",
+   "B": "{ a?: number }",
+   "b": "{}",
+   "show": [
+    "r.a",
+    "r.c"
+   ],
+   "expected": "undefined|1"
+  },
+  {
+   "A": "{ a?: number; c: number }",
+   "a": "{ c: 1 }",
+   "B": "{ a?: number }",
+   "b": "{ a: 2 }",
+   "show": [
+    "r.a",
+    "r.c"
+   ],
+   "expected": "2|1"
+  },
+  {
+   "A": "{ align: string; loop: boolean; duration: number; breakpoints: { [k: string]: { loop?: boolean } } }",
+   "a": "{ align: 'center', loop: false, duration: 25, breakpoints: {} }",
+   "B": "{ align?: string; loop?: boolean; breakpoints?: { [k: string]: { loop?: boolean } } }",
+   "b": "{ align: 'start', breakpoints: { '(min-width: 768px)': { loop: true } } }",
+   "show": [
+    "r.align",
+    "r.loop",
+    "r.duration",
+    "Object.keys(r.breakpoints).join(',')",
+    "r.breakpoints['(min-width: 768px)'].loop"
+   ],
+   "expected": "start|false|25|(min-width: 768px)|true"
+  },
+  {
+   "A": "{ a: number }",
+   "a": "{ a: 1 }",
+   "B": "{ a?: number }",
+   "b": "{ a: undefined }",
+   "rejected": true
+  },
+  {
+   "A": "{ n: { x: number } }",
+   "a": "{ n: { x: 1 } }",
+   "B": "{ n?: { x?: number } }",
+   "b": "{ n: { x: undefined } }",
+   "rejected": true
+  }
+ ]
+}
