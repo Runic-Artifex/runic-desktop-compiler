@@ -1,0 +1,24 @@
+{
+  "description": "shadcn-svelte's scroll-fade utilities as Tailwind CSS 4 compiles them, in the five scroll-fade examples: registered <length-percentage> custom properties animated by scroll-driven animations (scroll(self y), scroll(self inline); ranges 0 96px and calc(100% - 96px) 100% through var() fallbacks; ease-in-out, fill both) into a mask-image linear-gradient with mask-composite: intersect; the fade sizes (min(12%, 40px), scroll-fade-4, scroll-fade-24), scroll-fade-none, an inactive timeline (content that does not overflow), hidden scrollbars (no-scrollbar). Wheel turns to the middle and the end of each scroller",
+  "fixtures": ["scroll-fade-svelte"],
+  "viewports": [
+    [800, 1400],
+    [420, 1700]
+  ],
+  "pixelRegions": ["demo", "overflow", "horizontal", "size-4", "size-24", "fade", "none"],
+  "actions": [
+    { "kind": "wheel", "id": "demo", "deltaY": 135 },
+    { "kind": "wheel", "id": "horizontal", "deltaX": 200 },
+    { "kind": "wheel", "id": "size-4", "deltaY": 91 },
+    { "kind": "wheel", "id": "size-24", "deltaY": 91 },
+    { "kind": "wheel", "id": "fade", "deltaY": 91 },
+    { "kind": "wheel", "id": "none", "deltaY": 91 },
+    { "kind": "wheel", "id": "overflow", "deltaY": 60 },
+    { "kind": "wheel", "id": "demo", "deltaY": 400 },
+    { "kind": "wheel", "id": "horizontal", "deltaX": 2000 },
+    { "kind": "wheel", "id": "size-4", "deltaY": 400 },
+    { "kind": "wheel", "id": "size-24", "deltaY": 400 },
+    { "kind": "wheel", "id": "fade", "deltaY": 400 },
+    { "kind": "wheel", "id": "none", "deltaY": 400 }
+  ]
+}

@@ -1,0 +1,38 @@
+@font-face { font-family: RunicFixture; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #ffffff; color: #252c28; font-family: RunicFixture; font-size: 13px; line-height: 16px; }
+main { max-width: 520px; margin: 0 auto; padding: 10px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px 12px; }
+.row { grid-column: 1 / -1; display: flex; gap: 8px; }
+button { font-family: RunicFixture; font-size: 13px; line-height: 16px; padding: 3px 8px; }
+p { margin: 0 0 2px; }
+.scroller { height: 72px; overflow-y: auto; scrollbar-width: none; border: 1px solid #b7b7a9; }
+.content { height: 280px; }
+.band { height: 40px; padding: 0 6px; }
+.band:nth-child(odd) { background: #e4e4e7; }
+.hscroller { height: 72px; overflow-x: auto; scrollbar-width: none; white-space: nowrap; border: 1px solid #b7b7a9; }
+.cell { display: inline-block; width: 60px; height: 100%; padding: 4px; }
+.cell:nth-child(odd) { background: #e4e4e7; }
+.short { height: 40px; }
+.wide { width: 480px; height: 100%; border-left: 60px solid #a1a1aa; border-right: 60px solid #16a34a; background: #e4e4e7; }
+.knob { position: sticky; top: 0; width: 24px; height: 24px; border-radius: 12px; background: #16a34a; }
+
+/* Scroll-driven animations (animation-timeline: scroll()), each over its
+   scroller's offset: Chromium 153 resolves the range against the maximum
+   offset and converts time-based timing to proportions of it. */
+@keyframes tint { from { background-color: #ffffff; } to { background-color: #2563eb; } }
+@keyframes fade { from { opacity: 0.2; } to { opacity: 1; } }
+@keyframes slide { from { transform: translateX(0); } to { transform: translateX(120px); } }
+
+#self { animation: tint 1ms linear both; animation-timeline: scroll(self y); }
+#len { animation: fade 1ms linear both; animation-timeline: scroll(self y); animation-range: 0 96px; }
+#calc { animation: tint 1ms ease-in both; animation-timeline: scroll(self y); animation-range: calc(100% - 96px) 100%; }
+/* A delay and two alternating iterations: proportions 0.5 / 2.5 and 1 / 2.5 each. */
+#delay { animation: tint 1s linear 0.5s 2 alternate both; animation-timeline: scroll(self y); }
+/* The nearest ancestor scroller of a sticky child (the default axis, block). */
+#nearest .knob { animation: slide 1ms linear both; animation-timeline: scroll(nearest); }
+#x { animation: tint 1ms linear both; animation-timeline: scroll(self x); }
+/* Right to left: the inline axis measured from the right-hand scroll origin. */
+#rtl { animation: fade 1ms linear both; animation-timeline: scroll(self inline); }
+/* Inactive: the content does not overflow, so the animation has no effect, whatever its fill. */
+#inactive { animation: tint 1ms linear both; animation-timeline: scroll(self y); }
+#grow { animation: fade 1ms linear both; animation-timeline: scroll(self y); }
