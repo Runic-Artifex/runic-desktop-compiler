@@ -426,7 +426,9 @@ const CLOCK_START = 1000;
  * resolves styles at the same points, so both start an animation at the
  * same virtual time and sample it at the same times. `document.getAnimations()`
  * also brings styles up to date, which creates the transitions and
- * animations a style change starts.
+ * animations a style change starts. Only animations on the document
+ * timeline are sought: scroll-driven ones (`animation-timeline: scroll()`)
+ * follow their scroller's offset, natively too.
  */
 function seekAnimations(now) {
   const seen = (window.__runicAnimations ??= new WeakMap());
@@ -435,6 +437,7 @@ function seekAnimations(now) {
     throw new Error(`The document timeline moved (${window.__runicTimeline} to ${timeline}); it must stand still`);
   window.__runicTimeline = timeline;
   for (const a of document.getAnimations()) {
+    if (a.timeline !== document.timeline) continue;
     if (!seen.has(a)) seen.set(a, now);
     a.currentTime = now - seen.get(a);
   }
