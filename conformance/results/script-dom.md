@@ -67,3 +67,18 @@ framework's delegated template listeners may differ. Compiler on main
 | bits-dropdown-menu | reported unsupported at run time (both viewports): bits-ui's menu adds `pointermove` listeners with `addEventListener` to the sub-trigger and the content, whose items' Svelte `onpointermove` handlers Svelte runs from its delegation root, after them; the runtime runs them at the items, before them. The case passed before only because the order did not change its outcome; the delegation model (P2 row) would cover it |
 | `npm test` | 515 passed, 0 failed (6 new in `tests/script-events.test.mjs`) |
 | `node compiler/cargo.mjs test --offline --workspace` | 186 passed, 0 failed (new: `event::submission_tests::listening_by_type_and_target`, `script_events_dispatch_once_at_a_time`) |
+
+## Svelte delegation (2026-10-14, in progress)
+
+`schedule.delegation` (Svelte's delegated kinds run from its delegation
+roots; React programs `E_EVENT` where a listener script adds meets their
+handlers of its kind; Vue reported at run time) and bubbling events
+reaching the whole ancestor chain natively (`3389e92`).
+
+| Check | Result |
+|---|---|
+| bits-dropdown-menu, script-dom-events, `--pixels` | every gate passed at both viewports |
+| IR of every fixture (`analyze` at `7906771` and now; 6 expected rejections on both sides) | 91 identical (the React and Vue fixtures); 129 Svelte fixtures differ only by `schedule.delegation`; 8 differ by `target.listen` (bits-dropdown-menu, -popover, -select, -tooltip, floating, form-submit-element-listeners-svelte/-vue, form-submit-stops-vue) |
+| Svelte cases re-screened with `--pixels` (176 cases with a Svelte fixture, in batches of 25 under 2 h: `.cache/sv25-00` … `-07`) | batch 00 (25 cases, 83 viewport runs): every gate passed; batches 01–07 pending |
+| Full differential | pending |
+| `npm test`, `cargo test --workspace` | 515/515, 186/186 |
