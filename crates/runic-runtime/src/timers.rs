@@ -36,6 +36,8 @@ pub struct Timers<C> {
     pub origin: f64,
     /// While a timer callback runs.
     pub during_tick: bool,
+    /// In an app's frame before its callbacks run (`frame`).
+    pub in_frame: bool,
 }
 
 impl<C: Clone> Timers<C> {
@@ -50,6 +52,7 @@ impl<C: Clone> Timers<C> {
             now: CLOCK_START,
             origin,
             during_tick: false,
+            in_frame: false,
         }
     }
 
@@ -81,8 +84,14 @@ impl<C: Clone> Timers<C> {
     }
 
     /// `requestAnimationFrame`.
+    /// In an app's frame, before its callbacks (its animation step), a
+    /// callback requested is due in that frame (`in_frame`).
     pub fn frame(&mut self, callback: C) -> f64 {
-        let delay = 16.0 - self.now % 16.0;
+        let delay = if self.in_frame {
+            0.0
+        } else {
+            16.0 - self.now % 16.0
+        };
         self.add(TimerKind::Frame, callback, delay)
     }
 
@@ -103,27 +112,37 @@ impl<C: Clone> Timers<C> {
         e.kind != TimerKind::Frame || !Self::frames_at_redraw()
     }
 
-    /// The due time of the next timer (frames that wait for a redraw aside).
+    /// The due time of the next timer, frames included: an app wakes at a
+    /// frame's due time to ask the window for a frame, which runs it.
     pub fn next_due(&self) -> Option<f64> {
-        self.entries
-            .iter()
-            .filter(|e| Self::due_by_time(e))
-            .map(|e| e.call_at)
-            .reduce(f64::min)
+        self.entries.iter().map(|e| e.call_at).reduce(f64::min)
     }
 
-    /// Whether frame callbacks are waiting for the window's next frame.
+    /// Whether frame callbacks are due by clock time `now` and wait for the
+    /// window's frame (apps). They are due on the next multiple of 16 ms
+    /// after their request, so a loop of them runs at most at 62.5 frames
+    /// per second however often the window redraws.
+    pub fn frames_due(&self, now: f64) -> bool {
+        Self::frames_at_redraw()
+            && self
+                .entries
+                .iter()
+                .any(|e| e.kind == TimerKind::Frame && e.call_at <= now)
+    }
+
+    /// Whether frame callbacks wait for the window's frames (apps).
     pub fn has_frames(&self) -> bool {
         Self::frames_at_redraw() && self.entries.iter().any(|e| e.kind == TimerKind::Frame)
     }
 
-    /// The callbacks of the window's frame (apps): every frame callback
-    /// requested before it, in order of request; those they request run at
-    /// the next frame.
-    pub fn take_frames(&mut self) -> Vec<C> {
+    /// The callbacks of the window's frame at `now` (apps): those due by
+    /// then (also those requested in the frame before them), in order of
+    /// request; those they request run at a later frame.
+    pub fn take_frames(&mut self, now: f64) -> Vec<C> {
+        self.in_frame = false;
         let mut frames = Vec::new();
         self.entries.retain(|e| {
-            if e.kind == TimerKind::Frame {
+            if e.kind == TimerKind::Frame && e.call_at <= now {
                 frames.push((e.id, e.callback.clone()));
                 false
             } else {
@@ -194,17 +213,29 @@ mod tests {
         t.add(TimerKind::Timeout, 2, 5.0);
         t.frame(3);
         assert!(t.has_frames());
-        // The next due time is the timeout's: frames do not wake the app.
+        // The frames are due at the next 16 ms boundary (1008), the timeout
+        // at 1005; the app wakes at each to run it or ask for a frame.
         assert_eq!(t.next_due(), Some(CLOCK_START + 5.0));
+        assert!(!t.frames_due(CLOCK_START + 7.0));
+        assert!(t.frames_due(CLOCK_START + 8.0));
         // Time passing runs the timeout only.
         assert_eq!(
             t.take_due(CLOCK_START + 100.0),
             Some((TimerKind::Timeout, 2))
         );
         assert!(t.take_due(CLOCK_START + 100.0).is_none());
-        // The frame runs every callback requested before it, in order.
-        assert_eq!(t.take_frames(), vec![1, 3]);
+        // The frame runs every callback due, in order.
+        assert_eq!(t.take_frames(CLOCK_START + 100.0), vec![1, 3]);
         assert!(!t.has_frames());
         assert_eq!(t.next_due(), None);
+        // One requested in a frame's animation step is due in that frame;
+        // one requested by a frame callback, at the next boundary.
+        t.now = CLOCK_START + 100.0;
+        t.in_frame = true;
+        t.frame(4);
+        assert_eq!(t.take_frames(CLOCK_START + 100.0), vec![4]);
+        t.frame(5);
+        assert_eq!(t.take_frames(CLOCK_START + 100.0), Vec::<u32>::new());
+        assert_eq!(t.next_due(), Some(CLOCK_START + 104.0));
     }
 }

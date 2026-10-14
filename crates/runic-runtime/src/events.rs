@@ -106,21 +106,25 @@ impl<A: App> Document for Native<A> {
     /// request run at the next frame (`fix_focus_after_update` asks for it).
     fn update_rendering(&mut self) {
         crate::timeline::start();
+        let now = crate::CLOCK_START + self.started.elapsed().as_secs_f64() * 1000.0;
+        // Callbacks requested by the animation step's listeners and
+        // reactions are due in this frame.
+        self.app.frame_starts(now);
         if self.animations_active() {
             self.animation_step(false);
         }
-        if self.app.has_frame_callbacks() {
-            let now = crate::CLOCK_START + self.started.elapsed().as_secs_f64() * 1000.0;
-            self.listeners.settle(&mut self.doc);
-            let mut dom = Dom {
-                doc: &mut self.doc,
-                listeners: &mut self.listeners,
-            };
-            self.app.frame_callbacks(&mut dom, now);
+        let due = self.app.frames_due(now);
+        self.listeners.settle(&mut self.doc);
+        let mut dom = Dom {
+            doc: &mut self.doc,
+            listeners: &mut self.listeners,
+        };
+        self.app.frame_callbacks(&mut dom, now);
+        if due {
             self.fix_focus_after_update();
             self.host_tasks();
         }
-        self.request_frame_if_needed();
+        self.request_frame_if_needed(true);
     }
     /// Production timers: run what is due by real time, then wake again for
     /// the next timer.
@@ -172,7 +176,8 @@ impl<A: App> Document for Native<A> {
                 });
             }
         }
-        self.request_frame_if_needed();
+        // (A frame due later wakes this poll at its time, above.)
+        self.request_frame_if_needed(false);
         ran
     }
 
@@ -206,17 +211,25 @@ impl<A: App> Document for Native<A> {
                 w.wake_by_ref();
             }
         }
-        self.request_frame_if_needed();
+        self.request_frame_if_needed(true);
     }
 }
 
 impl<A: App> Native<A> {
-    /// Animation frame callbacks wait for the window's next frame (apps): a
-    /// frame is requested whenever any is pending, so a loop of them keeps
-    /// the window drawing, and without them (or animations) it goes idle.
-    fn request_frame_if_needed(&self) {
-        if self.app.has_frame_callbacks() {
+    /// Animation frame callbacks wait for the window's frame (apps): one is
+    /// requested when any is due (at its 16 ms boundary; `poll` wakes then
+    /// for one due later), so a loop of them keeps the window drawing at the
+    /// frame rate, and without them (or animations) it goes idle.
+    /// `wake`: outside `poll`, wake it so that it schedules its wake-up
+    /// for a frame due later (from `poll` itself that would loop).
+    fn request_frame_if_needed(&self, wake: bool) {
+        let now = crate::CLOCK_START + self.started.elapsed().as_secs_f64() * 1000.0;
+        if self.app.frames_due(now) {
             self.doc.shell_provider.request_redraw();
+        } else if wake && self.app.has_frame_callbacks() {
+            if let Some(w) = &self.waker {
+                w.wake_by_ref();
+            }
         }
     }
 

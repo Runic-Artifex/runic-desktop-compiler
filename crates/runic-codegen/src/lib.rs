@@ -3888,9 +3888,11 @@ pub fn generate(
          }}\n\
          fn traverse(&mut self, delta: i64) {{ self.cx.host_tasks.push_back(HostTask::Traverse(delta)); }}\n\
          fn has_frame_callbacks(&self) -> bool {{ self.cx.timers.has_frames() }}\n\
+         fn frames_due(&self, now: f64) -> bool {{ self.cx.timers.frames_due(now) }}\n\
+         fn frame_starts(&mut self, now: f64) {{ if self.cx.timers.now < now {{ self.cx.timers.now = now; }} self.cx.timers.in_frame = true; }}\n\
          fn frame_callbacks(&mut self, dom: &mut Dom, now: f64) {{\n\
          if self.cx.timers.now < now {{ self.cx.timers.now = now; }}\n\
-         for cb in self.cx.timers.take_frames() {{\n\
+         for cb in self.cx.timers.take_frames(now) {{\n\
          self.cx.timers.during_tick = true;\n\
          let result = self.task(dom, false, |cx| match cb {{ TimerCb::Plain(f) => f(cx), TimerCb::Frame(f) => {{ let t = cx.timers.now; f(cx, t) }} }});\n\
          self.cx.timers.during_tick = false;\n\

@@ -386,8 +386,19 @@ pub trait App: 'static {
     fn has_frame_callbacks(&self) -> bool {
         false
     }
-    /// The window's frame (apps): run the animation frame callbacks requested
-    /// before it, each a task, with the frame's clock time `now` as argument.
+    /// Whether animation frame callbacks are due by clock time `now` (apps).
+    fn frames_due(&self, now: f64) -> bool {
+        let _ = now;
+        false
+    }
+    /// The window's frame starts at clock time `now` (apps): callbacks
+    /// requested before its callbacks run (by its animation events) are due
+    /// in it.
+    fn frame_starts(&mut self, now: f64) {
+        let _ = now;
+    }
+    /// The window's frame (apps): run the animation frame callbacks due,
+    /// each a task, with the frame's clock time `now` as argument.
     fn frame_callbacks(&mut self, dom: &mut Dom, now: f64) {
         let _ = (dom, now);
     }
