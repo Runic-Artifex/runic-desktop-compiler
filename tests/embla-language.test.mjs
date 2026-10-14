@@ -296,3 +296,112 @@ export function show(): string {
       ),
   );
 });
+
+test("a dictionary type another module's augmentation adds a member to is the dictionary, the member's reads rejected, located", async () => {
+  // embla-carousel-autoplay's `declare module 'embla-carousel' { interface
+  // EmblaPluginsType { autoplay: AutoplayType } }` beside the index
+  // signature of the plugins dictionary.
+  const app = read => ({
+    'node_modules/dict-base/package.json': JSON.stringify({
+      name: 'dict-base',
+      version: '1.0.0',
+      type: 'module',
+      exports: { '.': { types: './index.d.ts', default: './index.js' } },
+    }),
+    'node_modules/dict-base/index.js': 'export {};\n',
+    'node_modules/dict-base/index.d.ts':
+      '/// <reference path="./ext.d.ts" />\nexport interface Plugins {\n  [key: string]: { name: string };\n}\n',
+    'node_modules/dict-base/ext.d.ts':
+      "declare module 'dict-base' {\n  interface Plugins {\n    extra?: { name: string; more: number };\n  }\n}\nexport {};\n",
+    'App.svelte': `<script lang="ts">
+  import type { Plugins } from 'dict-base';
+  const d: Plugins = { a: { name: 'a' }, b: { name: 'b' } };
+  const r = ${read};
+</script>
+<p id="out">{r}</p>
+`,
+  });
+  await withApp(app("Object.keys(d).join(',')"), async root => {
+    const { ir } = await lower(await collect(root));
+    assert.equal(text(find(interpret(ir, [])[0].state.dom, 'out')), 'a,b');
+  });
+  await withApp(app('d.extra?.more ?? 0'), root =>
+    assert.rejects(
+      collect(root).then(g => lower(g)),
+      e =>
+        (e.code === 'E_MEMBER' && /augmentation/.test(e.message) && e.source?.line === 4) ||
+        assert.fail(`${e.code}: ${e.message} ${JSON.stringify(e.source)}`),
+    ),
+  );
+});
+
+test("a function declared before a variable it refers to shares its binding (a factory member returning the factory's object)", async () => {
+  // embla's EventStore: `function add(…) { …; return self; }` before
+  // `const self = { add, clear }`.
+  const out = await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  type Store = { add: (k: number) => Store; get: () => number };
+  function store(): Store {
+    let n = 0;
+    function add(k: number): Store {
+      n += k;
+      return self;
+    }
+    function get(): number {
+      return n;
+    }
+    const self = { add, get };
+    return self;
+  }
+  const r = store().add(2).add(3).get();
+</script>
+<p id="out">{r}</p>
+`,
+    },
+    async root => {
+      const { ir } = await lower(await collect(root));
+      return text(find(interpret(ir, [])[0].state.dom, 'out'));
+    },
+  );
+  assert.equal(out, '5');
+});
+
+test("listener options of a boolean or a record, and a host feature test's dead branch", async () => {
+  // embla's EventStore `add(node, type, handler, options = { passive: true })`
+  // with `EventOptionsType = boolean | AddEventListenerOptions | undefined`:
+  // each call's options by the member they hold; `'addEventListener' in
+  // node` is true at build time, so the legacy branch is never lowered.
+  const out = await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  let log = $state('');
+  let outer: HTMLElement;
+  let inner: HTMLElement;
+  function add(node: EventTarget, f: () => void, options: boolean | AddEventListenerOptions = { passive: true }) {
+    if ('addEventListener' in node) node.addEventListener('click', f, options);
+    else {
+      const legacy = node as unknown as { addListener(h: () => void): void };
+      legacy.addListener(f);
+    }
+  }
+  $effect(() => {
+    add(inner, () => (log += 'i'));
+    add(outer, () => (log += 'c'), true);
+    add(outer, () => (log += 'r'), { capture: true });
+    add(outer, () => (log += 'b'), false);
+  });
+</script>
+<div id="outer" bind:this={outer}><button id="inner" bind:this={inner}>x</button></div>
+<p id="out">{log}</p>
+`,
+    },
+    async root => {
+      const { ir } = await lower(await collect(root));
+      const steps = interpret(ir, [{ kind: 'click', id: 'inner' }]);
+      return text(find(steps.at(-1).state.dom, 'out'));
+    },
+  );
+  // (Capture listeners at the ancestor, the target's, then the bubbling one.)
+  assert.equal(out, 'crib');
+});

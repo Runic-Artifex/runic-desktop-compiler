@@ -425,6 +425,15 @@ export class TypeMapper {
   }
 
   /**
+   * Members of dictionary types (an interface with a string index
+   * signature) that a `declare module` augmentation of another package
+   * declares with types of their own: the type maps to the dictionary of
+   * its index signature's values, and reading such a member is rejected
+   * (`Lowerer.property`).
+   */
+  readonly augmentedMembers = new Set<ts.Symbol>();
+
+  /**
    * Per entry of `substitutions`: the TypeScript types mapped there without
    * a substitution, with the IR types they were given (a substitution added
    * later for one of them, of another IR type, is rejected:
@@ -1035,14 +1044,23 @@ export class TypeMapper {
       ) {
         const value = this.map(strings.type, at);
         const props = this.checker.getPropertiesOfType(t);
+        // (Members another package adds by augmenting the interface,
+        // `declare module 'embla-carousel' { interface EmblaPluginsType {
+        // autoplay: AutoplayType } }`, of their own types: the dictionary of
+        // the index signature's values, the members read through it
+        // rejected, `augmentedMembers`.)
+        const augmented = props.filter(p => augmentation(p));
         if (
           props.every(
             p =>
+              augmented.includes(p) ||
               JSON.stringify(this.tryMap(this.checker.getTypeOfSymbolAtLocation(p, at), at)) ===
-              JSON.stringify(value),
+                JSON.stringify(value),
           )
-        )
+        ) {
+          for (const p of augmented) this.augmentedMembers.add(p);
           return { map: ['string', value] };
+        }
       }
     }
     // (With dynamic values, M6 spike: an object literal's type with another
@@ -1845,4 +1863,21 @@ export function containsAny(
           containsAny(checker.getTypeOfSymbol(p), checker, depth + 1, nulls),
         ),
     );
+}
+
+/**
+ * Whether property `p` is declared only by `declare module '…'` blocks of
+ * declaration files (augmentations of another module's interface).
+ */
+function augmentation(p: ts.Symbol): boolean {
+  const decls = p.declarations ?? [];
+  return (
+    decls.length > 0 &&
+    decls.every(d => {
+      if (!d.getSourceFile().isDeclarationFile) return false;
+      for (let n: ts.Node | undefined = d.parent; n; n = n.parent)
+        if (ts.isModuleDeclaration(n) && ts.isStringLiteral(n.name)) return true;
+      return false;
+    })
+  );
 }

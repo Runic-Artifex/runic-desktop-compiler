@@ -782,6 +782,31 @@ export class Lowerer {
    */
   readonly selfCaptured = new Set<ts.Symbol>();
 
+  /**
+   * Whether identifier `n`, naming the variable declared by `decl`, is in a
+   * function declaration of the block declaring the variable that stands
+   * before the variable's statement: the function's closure is created
+   * before the variable exists, so it shares the variable's binding,
+   * declared at the block's start (`block`, `predeclared`).
+   */
+  private forwardCaptured(n: ts.Node, decl: ts.Declaration): boolean {
+    if (
+      !ts.isVariableDeclaration(decl) ||
+      !ts.isIdentifier(decl.name) ||
+      !ts.isVariableDeclarationList(decl.parent) ||
+      !ts.isVariableStatement(decl.parent.parent)
+    )
+      return false;
+    const statement = decl.parent.parent;
+    for (let p: ts.Node | undefined = n.parent; p; p = p.parent)
+      if (ts.isFunctionDeclaration(p) && p.parent === statement.parent && p.pos < statement.pos)
+        return true;
+    return false;
+  }
+
+  /** Variables `block` declared at its start (`forwardCaptured`), with their locals. */
+  private readonly predeclared = new Map<ts.Symbol, number>();
+
   /** Symbols in `body` that are captured by nested functions and assigned anywhere. */
   analyseCaptures(body: ts.Node): Set<ts.Symbol> {
     const declaredIn = new Map<ts.Symbol, ts.Node>();
@@ -835,6 +860,11 @@ export class Lowerer {
           fnOf(n) !== fnOf(decl)
         )
           early.add(s);
+        // (Or in a function declaration of the same block standing before
+        // the variable's statement, whose closure is created before the
+        // variable is: embla's factories, `function add() { … return self }`
+        // before `const self = { add, clear }`. `forwardCaptured`.)
+        if (s && decl && this.forwardCaptured(n, decl)) early.add(s);
       }
       if (ts.isIdentifier(n)) {
         const s = this.checker.getSymbolAtLocation(n);
@@ -2351,10 +2381,34 @@ export class Lowerer {
    * lowering it (`buildTimeValue` of its operands; `!`, `&&`, `||`,
    * equality; `classLiteral` members).
    */
+  /**
+   * Whether `e` is `'name' in x` of a host object's member: true where
+   * every type the value may have is a host interface declaring the member
+   * (frontend/dom.d.ts declares only covered members, each of which
+   * Chromium has). (`select`, which only some elements have, is not one.)
+   */
+  hostMemberTest(e: ts.BinaryExpression): boolean {
+    if (e.operatorToken.kind !== ts.SyntaxKind.InKeyword || !ts.isStringLiteralLike(e.left))
+      return false;
+    const name = e.left.text;
+    if (name === 'select') return false;
+    const t = this.checker.getTypeAtLocation(e.right);
+    const parts = t.isUnion() ? t.types : [t];
+    return parts.every(p => {
+      const member = p.getProperty(name);
+      const decl = member?.valueDeclaration ?? member?.declarations?.[0];
+      return !!decl && path.resolve(decl.getSourceFile().fileName) === DOM;
+    });
+  }
+
   buildTimeTruth(e: ts.Expression, depth = 0): boolean | undefined {
     e = skipParens(e);
     const K = ts.SyntaxKind;
     if (depth > 8) return undefined;
+    // A host feature test of a name (`'addEventListener' in node`): true,
+    // its operand read without effect.
+    if (ts.isBinaryExpression(e) && ts.isIdentifier(skipParens(e.right)) && this.hostMemberTest(e))
+      return true;
     if (ts.isPrefixUnaryExpression(e) && e.operator === K.ExclamationToken) {
       const v = this.buildTimeTruth(e.operand, depth);
       return v === undefined ? undefined : !v;
@@ -3260,6 +3314,21 @@ export class Lowerer {
       if (bound) this.bindings.set(alias, bound);
     }
     for (const d of declared.values()) out.push(...d.lets);
+    // Variables an earlier function declaration of the block refers to
+    // (`forwardCaptured`): declared now, assigned where they stand.
+    for (const st of statements) {
+      if (!ts.isVariableStatement(st) || aliases.has(st)) continue;
+      for (const d of st.declarationList.declarations) {
+        if (!ts.isIdentifier(d.name) || !d.initializer) continue;
+        const sym = this.checker.getSymbolAtLocation(d.name);
+        if (!sym || !this.selfCaptured.has(sym) || !b.boxed.has(sym)) continue;
+        if (!fns.some(f => f.pos < st.pos && refersTo(f, sym, this.checker))) continue;
+        const local = b.local(d.name.text, this.types.of(d.name), true);
+        this.bindings.set(sym, { kind: 'local', owner: b, local });
+        this.predeclared.set(sym, local);
+        out.push({ op: 'let', local, ...this.src(d) });
+      }
+    }
     for (const f of fns) if (early.has(f)) out.push(...declared.get(f)!.create());
     for (const [i, s] of statements.entries()) {
       if (ts.isFunctionDeclaration(s) && declared.has(s)) {
@@ -3863,14 +3932,22 @@ export class Lowerer {
         else if (key === 'once') once = v;
         else passive = somePassive(v);
       }
-    } else if (o) {
+    }
+    const listen = (c: Expr, n: Expr, p: Expr): Expr => ({
+      op: 'builtin',
+      name: add ? 'target.listen' : 'target.unlisten',
+      args: add ? [targetRead, kindRead, fRead, c, n, p] : [targetRead, kindRead, fRead, c],
+      type: 'void',
+    });
+    let call: Expr | undefined;
+    if (o && !ts.isObjectLiteralExpression(o)) {
       const v = this.expr(o, b);
       const t = this.irType(v, b);
       const inner = maybeInner(t) ?? t;
-      if (t === BOOLEAN) capture = hold(v, '$capture');
-      else if (typeof inner === 'object' && 'record' in inner) {
-        const read = hold(v, '$options');
-        const record = this.types.records[inner.record];
+      // A record's (or a nullable record's) options: absent fields undefined.
+      const fromRecord = (read: Expr, rt: Type): Expr => {
+        const r = (maybeInner(rt) ?? rt) as { record: number };
+        const record = this.types.records[r.record];
         for (const field of record.fields)
           if (!['capture', 'once', 'passive'].includes(field.name))
             return this.fail(
@@ -3888,10 +3965,10 @@ export class Lowerer {
           const ft = record.fields[field].type;
           if (ft !== BOOLEAN && JSON.stringify(ft) !== JSON.stringify({ maybe: BOOLEAN }))
             return this.fail(o, 'E_EVENT', `Listener option ${name} is a boolean`);
-          const object: Expr = maybeInner(t) ? { op: 'unwrap', value: read } : read;
+          const object: Expr = maybeInner(rt) ? { op: 'unwrap', value: read } : read;
           const value: Expr = { op: 'get', object, field };
           const optional: Expr = ft === BOOLEAN ? somePassive(value) : value;
-          return maybeInner(t)
+          return maybeInner(rt)
             ? {
                 op: 'cond',
                 test: { op: 'builtin', name: 'maybe.is-nullish', args: [read], type: BOOLEAN },
@@ -3901,27 +3978,59 @@ export class Lowerer {
             : optional;
         };
         const flag = (name: string): Expr => {
-          const v = get(name);
-          return v ? { op: 'nullish', left: v, right: no } : no;
+          const x = get(name);
+          return x ? { op: 'nullish', left: x, right: no } : no;
         };
-        capture = flag('capture');
-        once = flag('once');
-        passive = get('passive') ?? passive;
+        return listen(flag('capture'), flag('once'), get('passive') ?? passive);
+      };
+      const members =
+        typeof inner === 'object' && 'union' in inner ? (inner.union as Type[]) : undefined;
+      if (t === BOOLEAN) capture = hold(v, '$capture');
+      else if (typeof inner === 'object' && 'record' in inner)
+        call = fromRecord(hold(v, '$options'), t);
+      // A boolean or a record of them (embla's `EventOptionsType`, `boolean
+      // | AddEventListenerOptions | undefined`): by the member it holds.
+      else if (
+        members?.length === 2 &&
+        members.includes(BOOLEAN) &&
+        members.some(m => typeof m === 'object' && 'record' in m)
+      ) {
+        const read = hold(v, '$options');
+        const record = members.find(m => typeof m === 'object' && 'record' in m)!;
+        const flagLocal = b.local('$capture', BOOLEAN);
+        const recordLocal = b.local('$options', record);
+        const match = (value: Expr): Expr => ({
+          op: 'match-union',
+          value,
+          cases: [
+            {
+              type: BOOLEAN,
+              local: flagLocal,
+              body: listen({ op: 'local', local: flagLocal }, no, passive),
+            },
+            {
+              type: record,
+              local: recordLocal,
+              body: fromRecord({ op: 'local', local: recordLocal }, record),
+            },
+          ],
+        });
+        call = maybeInner(t)
+          ? {
+              op: 'cond',
+              test: { op: 'builtin', name: 'maybe.is-nullish', args: [read], type: BOOLEAN },
+              then: listen(no, no, passive),
+              else: match({ op: 'unwrap', value: read }),
+            }
+          : match(read);
       } else
         return this.fail(
           o,
           'E_EVENT',
-          'Listener options are a boolean (capture), an object literal or a record of capture, once and passive',
+          'Listener options are a boolean (capture), an object literal, a record of capture, once and passive, or a union of a boolean and such a record',
         );
     }
-    const call: Expr = {
-      op: 'builtin',
-      name: add ? 'target.listen' : 'target.unlisten',
-      args: add
-        ? [targetRead, kindRead, fRead, capture, once, passive]
-        : [targetRead, kindRead, fRead, capture],
-      type: 'void',
-    };
+    call ??= listen(capture, once, passive);
     return setups.reduceRight<Expr>(
       (body, { local, value }) => ({ op: 'with', local, value, body }),
       call,
@@ -4320,6 +4429,23 @@ export class Lowerer {
       this.hostName(d.initializer)
     )
       return [];
+    if (ts.isIdentifier(d.name) && d.initializer) {
+      const sym = this.checker.getSymbolAtLocation(d.name);
+      const local = sym && this.predeclared.get(sym);
+      if (local !== undefined) {
+        const type = b.typeOf(local);
+        this.expected.set(skipParens(d.initializer), type);
+        const value = this.expr(d.initializer, b);
+        return [
+          {
+            op: 'assign',
+            target: { place: 'local', local },
+            value: this.classes.fitAt(value, this.irType(value, b), type, d),
+            ...this.src(d),
+          },
+        ];
+      }
+    }
     if (ts.isIdentifier(d.name)) {
       const sym = this.checker.getSymbolAtLocation(d.name)!;
       if (d.initializer && !d.type && this.isRegexpResult(d.initializer)) {
@@ -8876,15 +9002,7 @@ export class Lowerer {
     // (frontend/dom.d.ts declares only covered members, each of which
     // Chromium has); the value is evaluated.
     if (op === K.InKeyword && ts.isStringLiteralLike(e.left)) {
-      const t = this.checker.getTypeAtLocation(e.right);
-      const parts = t.isUnion() ? t.types : [t];
-      const name = e.left.text;
-      const declared = parts.every(p => {
-        const member = p.getProperty(name);
-        const decl = member?.valueDeclaration ?? member?.declarations?.[0];
-        return !!decl && path.resolve(decl.getSourceFile().fileName) === DOM;
-      });
-      if (declared && name !== 'select') {
+      if (this.hostMemberTest(e)) {
         const v = this.expr(e.right, b);
         return {
           op: 'with',
@@ -10726,7 +10844,23 @@ export class Lowerer {
         type: { maybe: inner },
       };
     }
+    this.augmentedRead(e.name, e);
     return this.fail(e, 'E_MEMBER', `Unsupported property ${name} on ${kind ?? 'this value'}`);
+  }
+
+  /**
+   * Rejects, located, a read of a member another package's `declare
+   * module` augmentation adds to a dictionary type (`TypeMapper.
+   * augmentedMembers`: embla-carousel-autoplay's `plugins().autoplay`).
+   */
+  private augmentedRead(name: ts.Node, at: ts.Node): void {
+    const sym = this.checker.getSymbolAtLocation(name);
+    if (sym && this.types.augmentedMembers.has(sym))
+      this.fail(
+        at,
+        'E_MEMBER',
+        `${sym.name} is a member a \`declare module\` augmentation adds to a dictionary type, whose values the program holds as the dictionary's own type; reading it is not covered (a record and dictionary in one value)`,
+      );
   }
 
   // Optional chaining ---------------------------------------------------------
@@ -11300,6 +11434,7 @@ export class Lowerer {
       };
     if (kind === 'record' && !this.classes.isClass(t)) return this.dynamicField(e, object, t, b);
     if (kind === 'map' && (t as { map: [Type, Type] }).map[0] === STRING) {
+      this.augmentedRead(e.argumentExpression, e);
       // A dictionary object (`keyToIndex[e.key]`): undefined for keys it lacks.
       const value = (t as { map: [Type, Type] }).map[1];
       const m = b.local('$dictionary', t);
@@ -13702,8 +13837,7 @@ export class Lowerer {
           // (The IR type its binding holds, where it is bound already: a
           // local or a parameter of an enclosing function.)
           const binding = this.bindings.get(sym);
-          const ir =
-            binding?.kind === 'local' ? binding.owner.locals[binding.local]?.type : undefined;
+          const ir = binding?.kind === 'local' ? binding.owner.typeOf(binding.local) : undefined;
           if (ir !== undefined) entering(this.checker.getTypeAtLocation(n), ir, n);
         }
       }
@@ -18042,4 +18176,16 @@ function platformUserAgent(): string {
   if (platform() === 'win32') return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Runic';
   if (platform() === 'darwin') return 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Runic';
   return 'Mozilla/5.0 (X11; Linux x86_64) Runic';
+}
+
+/** Whether `n` contains an identifier naming `sym`. */
+function refersTo(n: ts.Node, sym: ts.Symbol, checker: ts.TypeChecker): boolean {
+  let found = false;
+  const visit = (x: ts.Node) => {
+    if (found) return;
+    if (ts.isIdentifier(x) && checker.getSymbolAtLocation(x) === sym) found = true;
+    else ts.forEachChild(x, visit);
+  };
+  visit(n);
+  return found;
 }

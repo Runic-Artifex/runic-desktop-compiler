@@ -2820,7 +2820,48 @@ export function inferFields(
       const values = new Set<string>();
       let nullable = false;
       let open = false;
+      // (Code TypeScript proves unreachable, a member of a value narrowed to
+      // `never`: embla's legacy `addListener` branch after `'addEventListener'
+      // in node`, which lowering folds away.)
+      const unreachable = (v: ts.Node): boolean => {
+        let found = false;
+        const visit = (y: ts.Node) => {
+          if (found) return;
+          if (
+            ts.isPropertyAccessExpression(y) &&
+            checker.getTypeAtLocation(y.expression).flags & ts.TypeFlags.Never
+          )
+            found = true;
+          else ts.forEachChild(y, visit);
+        };
+        visit(v);
+        return found;
+      };
+      // (An array: the items pushed onto it count as arrays of their type.)
+      const pushed = (x: ts.Node) => {
+        if (
+          initial !== 'array' ||
+          !ts.isCallExpression(x) ||
+          !ts.isPropertyAccessExpression(x.expression) ||
+          !['push', 'unshift'].includes(x.expression.name.text) ||
+          !ts.isIdentifier(x.expression.expression) ||
+          checker.getSymbolAtLocation(x.expression.expression) !== sym
+        )
+          return;
+        for (const a of x.arguments) {
+          const t = ts.isSpreadElement(a) ? undefined : checker.getTypeAtLocation(a);
+          const item =
+            t && !(t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown))
+              ? print(checker.getBaseTypeOfLiteralType(t), a)
+              : undefined;
+          if (item === undefined || /\bnever\b/.test(item)) open = true;
+          // (As TypeScript prints an array of it: a union or intersection
+          // parenthesised, a function type already is.)
+          else values.add(/^[\w.$]+(<.*>)?$|^\(.*\)$/.test(item) ? `${item}[]` : `(${item})[]`);
+        }
+      };
       const writes = (x: ts.Node) => {
+        pushed(x);
         if (
           ts.isBinaryExpression(x) &&
           ts.isIdentifier(x.left) &&
@@ -2838,6 +2879,7 @@ export function inferFields(
           };
           reads(v);
           if (own && !m.inferred.has(key)) return;
+          if (unreachable(v)) return;
           if (x.operatorToken.kind !== ts.SyntaxKind.EqualsToken) open = true;
           else if (v.kind === ts.SyntaxKind.NullKeyword) nullable = true;
           else if (ts.isIdentifier(v) && v.text === 'undefined') nullable = true;

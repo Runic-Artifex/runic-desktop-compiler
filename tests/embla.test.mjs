@@ -120,4 +120,9 @@ test("the pack's pinned declaration override types mergeOptions' result; activat
   // `activePlugins = activePlugins.filter(…)` once typed).
   assert.match(text, /let engine: __dts\d+\.EngineType \| undefined;/);
   assert.match(text, /let activePlugins: __dts\d+\.CreatePluginType<[^>]+>\[\] = \[\];/);
+  // EventStore: a `let` assigned in both branches of the folded
+  // `'addEventListener' in node`, the legacy one on a `never` receiver left
+  // out; an empty array of the items pushed onto it.
+  assert.match(text, /let removeListener: \(\(\) => void\) \| undefined;/);
+  assert.match(text, /let listeners: \(\(\) => void\)\[\] = \[\];/);
 });
