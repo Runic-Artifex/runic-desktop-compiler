@@ -263,6 +263,11 @@ export const EVENT_MEMBERS: Record<string, Type> = {
   detail: N,
   pointerType: S,
   pointerId: N,
+  // Animation and transition events (CSS slice 3b).
+  elapsedTime: N,
+  animationName: S,
+  propertyName: S,
+  pseudoElement: S,
   defaultPrevented: B,
   // M6 script DOM, slice 3.
   isTrusted: B,

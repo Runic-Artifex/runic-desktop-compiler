@@ -3102,6 +3102,24 @@ pub fn generate(
     // Animation objects (M6): the runtime tracks the document's animations.
     let tracks_animations = uses_builtin(p, &["element.getAnimations"]);
     crate::builtins::TRACKS_ANIMATIONS.set(tracks_animations);
+    // Animation and transition events (CSS slice 3b): the document records
+    // its animations from the start when the program may listen to them
+    // (an event kind, an `on<event>` key or a type it dispatches).
+    let animation_events = {
+        let json = serde_json::to_string(p).unwrap_or_default();
+        [
+            "animationstart",
+            "animationiteration",
+            "animationend",
+            "animationcancel",
+            "transitionrun",
+            "transitionstart",
+            "transitionend",
+            "transitioncancel",
+        ]
+        .iter()
+        .any(|name| json.contains(name))
+    };
     let heap = runic_ir::reactive::ReactiveHeap::of(p);
     let g = Gen {
         p,
@@ -3431,6 +3449,11 @@ pub fn generate(
         )
     } else {
         ("", "", "")
+    };
+    let anim_events = if animation_events {
+        "const ANIMATION_EVENTS: bool = true;\n"
+    } else {
+        ""
     };
     // Image objects (M6 images, `new Image()`): the outcomes their sources
     // queued, run by the runtime's image tasks.
@@ -3983,8 +4006,20 @@ pub fn generate(
          }})\n\
          }}\n\
          fn traverse(&mut self, delta: i64) {{ self.cx.host_tasks.push_back(HostTask::Traverse(delta)); }}\n\
+         fn has_frame_callbacks(&self) -> bool {{ self.cx.timers.has_frames() }}\n\
+         fn frames_due(&self, now: f64) -> bool {{ self.cx.timers.frames_due(now) }}\n\
+         fn frame_starts(&mut self, now: f64) {{ if self.cx.timers.now < now {{ self.cx.timers.now = now; }} self.cx.timers.in_frame = true; }}\n\
+         fn frame_callbacks(&mut self, dom: &mut Dom, now: f64) {{\n\
+         if self.cx.timers.now < now {{ self.cx.timers.now = now; }}\n\
+         for cb in self.cx.timers.take_frames(now) {{\n\
+         self.cx.timers.during_tick = true;\n\
+         let result = self.task(dom, false, |cx| match cb {{ TimerCb::Plain(f) => f(cx), TimerCb::Frame(f) => {{ let t = cx.timers.now; f(cx, t) }} }});\n\
+         self.cx.timers.during_tick = false;\n\
+         if let Err(e) = result {{ eprintln!(\"runic: uncaught exception in an animation frame callback: {{e}}\"); }}\n\
+         }}\n\
+         }}\n\
          {resize_step}\
-         {io_step}{anim_step}{img_step}\
+         {io_step}{anim_step}{anim_events}{img_step}\
          fn hashchange(&mut self) {{ self.cx.host_tasks.push_back(HostTask::HashChange); }}\n\
          fn defer_tasks(&mut self, on: bool) {{ self.cx.defer = on; }}\n\
          fn deferred_len(&self) -> usize {{ self.cx.jobs.defaults_len() }}\n\

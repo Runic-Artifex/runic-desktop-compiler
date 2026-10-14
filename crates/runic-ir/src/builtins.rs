@@ -950,11 +950,12 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             arity(args, 1, 1)?;
             expect(&args[0], &Event, "event")?;
             match m {
-                "type" | "key" | "code" | "value" | "pointerType" => Ok(s),
+                "type" | "key" | "code" | "value" | "pointerType" | "animationName"
+                | "propertyName" | "pseudoElement" => Ok(s),
                 "ctrlKey" | "shiftKey" | "altKey" | "metaKey" | "repeat" | "isComposing" | "checked"
                 | "defaultPrevented" | "matches" | "isTrusted" | "bubbles" | "cancelable" => Ok(b),
                 "clientX" | "clientY" | "button" | "buttons" | "deltaX" | "deltaY" | "detail"
-                | "pointerId" | "timeStamp" => Ok(n),
+                | "pointerId" | "timeStamp" | "elapsedTime" => Ok(n),
                 "target" => Ok(Element),
                 "relatedTarget" => Ok(Maybe(Box::new(Element))),
                 // Null once the dispatch is over.

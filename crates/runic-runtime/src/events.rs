@@ -87,12 +87,6 @@ impl<A: App> Document for Native<A> {
         // The shell's first access precedes its animation clock's start:
         // the runtime's timeline starts with it.
         crate::timeline::start();
-        // The shell resolves styles and paints after this access (a
-        // redraw): the frame's animation step comes first, so the ends of
-        // animations settle before the frame is rendered, as in Chromium.
-        if crate::animations::active() {
-            self.animation_step();
-        }
         // The shell resizes the viewport or changes its color scheme and
         // then redraws: the next poll runs the rendering step for it.
         if self.environ_changed().is_some() {
@@ -101,6 +95,36 @@ impl<A: App> Document for Native<A> {
             }
         }
         DocGuardMut::Ref(&mut self.doc)
+    }
+    /// The window's frame: the shell redraws (resolves styles and layout,
+    /// paints) right after this. The steps of HTML's "update the rendering"
+    /// that precede rendering run first, in Chromium 153's order: the
+    /// animation step (the `finished` promises of animations that ended,
+    /// then the animation and transition events), then the animation frame
+    /// callbacks requested before them (also those the events' listeners
+    /// and the promises' reactions request), each a task. Callbacks they
+    /// request run at the next frame (`fix_focus_after_update` asks for it).
+    fn update_rendering(&mut self) {
+        crate::timeline::start();
+        let now = crate::CLOCK_START + self.started.elapsed().as_secs_f64() * 1000.0;
+        // Callbacks requested by the animation step's listeners and
+        // reactions are due in this frame.
+        self.app.frame_starts(now);
+        if self.animations_active() {
+            self.animation_step(false);
+        }
+        let due = self.app.frames_due(now);
+        self.listeners.settle(&mut self.doc);
+        let mut dom = Dom {
+            doc: &mut self.doc,
+            listeners: &mut self.listeners,
+        };
+        self.app.frame_callbacks(&mut dom, now);
+        if due {
+            self.fix_focus_after_update();
+            self.host_tasks();
+        }
+        self.request_frame_if_needed(true);
     }
     /// Production timers: run what is due by real time, then wake again for
     /// the next timer.
@@ -152,6 +176,8 @@ impl<A: App> Document for Native<A> {
                 });
             }
         }
+        // (A frame due later wakes this poll at its time, above.)
+        self.request_frame_if_needed(false);
         ran
     }
 
@@ -185,10 +211,28 @@ impl<A: App> Document for Native<A> {
                 w.wake_by_ref();
             }
         }
+        self.request_frame_if_needed(true);
     }
 }
 
 impl<A: App> Native<A> {
+    /// Animation frame callbacks wait for the window's frame (apps): one is
+    /// requested when any is due (at its 16 ms boundary; `poll` wakes then
+    /// for one due later), so a loop of them keeps the window drawing at the
+    /// frame rate, and without them (or animations) it goes idle.
+    /// `wake`: outside `poll`, wake it so that it schedules its wake-up
+    /// for a frame due later (from `poll` itself that would loop).
+    fn request_frame_if_needed(&self, wake: bool) {
+        let now = crate::CLOCK_START + self.started.elapsed().as_secs_f64() * 1000.0;
+        if self.app.frames_due(now) {
+            self.doc.shell_provider.request_redraw();
+        } else if wake && self.app.has_frame_callbacks() {
+            if let Some(w) = &self.waker {
+                w.wake_by_ref();
+            }
+        }
+    }
+
     /// Run the timers due at or before clock time `to`, then apply the focus
     /// fixups that follow any update.
     pub(crate) fn advance(&mut self, to: f64) {
@@ -213,9 +257,17 @@ impl<A: App> Native<A> {
 
     /// A probe's `wait` up to virtual time `to`: the timers due run in
     /// order and, at every frame (each multiple of 16 ms, where the timers
-    /// place animation frames), styles are resolved, so that animations
-    /// and transitions started by the frame's timers begin at the frame
-    /// and are sampled at it, as the browser harness samples Chromium's
+    /// place animation frames), the frame's animation step runs before its
+    /// animation frame callbacks, as in Chromium's "update the rendering"
+    /// (CSS slice 3b): the timers due before the frame (the clock stands at
+    /// the millisecond before it, as Playwright's whole-millisecond clock
+    /// does in the browser harness), then styles resolved at the frame and
+    /// its animation step (the `finished` promises, then the animation and
+    /// transition events), then the timers due at the frame (its animation
+    /// frame callbacks among them, also those the events' listeners
+    /// requested), then styles resolved again with another step, so that
+    /// animations and transitions the callbacks start begin at the frame,
+    /// as the browser harness samples Chromium's
     /// (docs/design/M6-LIBRARIES.md#animations).
     #[cfg(feature = "probe")]
     pub(crate) fn wait(&mut self, to: f64) {
@@ -224,11 +276,13 @@ impl<A: App> Native<A> {
             if frame > to {
                 break;
             }
+            self.run_timers(frame - 1.0);
+            crate::timeline::set_virtual(frame);
+            crate::timeline::resolve(&mut self.doc);
+            self.animation_step(false);
             self.run_timers(frame);
             crate::timeline::resolve(&mut self.doc);
-            // The frame's animation step after the seek, as the browser
-            // harness's `finished` promises settle after its seek.
-            self.animation_step();
+            self.animation_step(false);
         }
         self.advance(to);
     }
@@ -236,14 +290,19 @@ impl<A: App> Native<A> {
     /// A frame's animation step (M6, Chromium's "update animations"): the
     /// animations the app holds that ended settle their `finished`
     /// promises (a task with its microtask checkpoint), and every running
-    /// animation stops being `pending`.
-    pub(crate) fn animation_step(&mut self) {
-        if !crate::animations::active() {
+    /// animation stops being `pending`; then the animation and transition
+    /// events the frame sampled are dispatched (CSS slice 3b,
+    /// `animation_events`). `rendering`: inside a rendering step.
+    pub(crate) fn animation_step(&mut self, rendering: bool) {
+        if !self.animations_active() {
             return;
         }
         crate::timeline::resolve(&mut self.doc);
+        // Chromium samples every animation, then runs the microtask
+        // checkpoint that settles the promises, then dispatches the events.
+        let events = self.doc.take_animation_events(crate::timeline::now());
         crate::animations::commit();
-        if crate::animations::has_ended(true) {
+        if crate::animations::active() && crate::animations::has_ended(true) {
             self.listeners.settle(&mut self.doc);
             let mut dom = Dom {
                 doc: &mut self.doc,
@@ -253,10 +312,11 @@ impl<A: App> Native<A> {
             self.fix_focus_after_update();
             self.host_tasks();
         }
+        self.dispatch_animation_events(events, rendering);
     }
 
     /// Focus fixups that follow any update outside an event dispatch.
-    fn fix_focus_after_update(&mut self) {
+    pub(crate) fn fix_focus_after_update(&mut self) {
         if let Some(b) = self.listeners.blurred.take() {
             self.nav_start = Some(b);
         }
@@ -264,6 +324,21 @@ impl<A: App> Native<A> {
             self.nav_start = start;
         }
         self.doc.shell_provider.request_redraw();
+    }
+
+    /// Dispatch an event of `kind` at the first element of `chain` (the
+    /// target and its ancestors), as `Handler::fire` (CSS slice 3b).
+    pub(crate) fn fire_event(&mut self, chain: &[NodeId], kind: Event, data: EventData) {
+        self.listeners.settle(&mut self.doc);
+        let mut handler = Handler {
+            app: &mut self.app,
+            listeners: &mut self.listeners,
+            space_target: &mut self.space_target,
+            nav_start: &mut self.nav_start,
+            log: &mut self.log,
+            pointer: &mut self.pointer,
+        };
+        handler.fire(&mut self.doc, chain, kind, data);
     }
 
     /// Run the host's work the app queued (clipboard replies, history
@@ -510,8 +585,9 @@ impl<A: App> Native<A> {
             event.finish();
         }
         // Update animations (after media queries in Chromium's rendering
-        // steps): the ends of animations the app holds settle (M6).
-        self.animation_step();
+        // steps): the ends of animations the app holds settle (M6), then
+        // animation and transition events (CSS slice 3b).
+        self.animation_step(true);
         // Focus fixup: a focused element that became disabled or lost its
         // box is blurred, with `blur` and `focusout` as events of their own,
         // in a task after the frame (Chromium's style update starts a 0 ms

@@ -5,6 +5,7 @@
 //! controlled text inputs) and, behind the `probe` feature, scripted input and
 //! DOM snapshots for conformance runs.
 
+mod animation_events;
 mod animations;
 pub mod clipboard;
 pub mod console;
@@ -380,6 +381,27 @@ pub trait App: 'static {
     fn media_changed(&mut self) -> Vec<(runic_js::Event, Vec<u32>)> {
         Vec::new()
     }
+    /// Whether animation frame callbacks wait for the window's next frame
+    /// (apps; probes run them as timers on the virtual clock).
+    fn has_frame_callbacks(&self) -> bool {
+        false
+    }
+    /// Whether animation frame callbacks are due by clock time `now` (apps).
+    fn frames_due(&self, now: f64) -> bool {
+        let _ = now;
+        false
+    }
+    /// The window's frame starts at clock time `now` (apps): callbacks
+    /// requested before its callbacks run (by its animation events) are due
+    /// in it.
+    fn frame_starts(&mut self, now: f64) {
+        let _ = now;
+    }
+    /// The window's frame (apps): run the animation frame callbacks due,
+    /// each a task, with the frame's clock time `now` as argument.
+    fn frame_callbacks(&mut self, dom: &mut Dom, now: f64) {
+        let _ = (dom, now);
+    }
     /// Clock time of the next timer.
     fn next_timer(&self) -> Option<f64> {
         None
@@ -448,6 +470,9 @@ pub trait App: 'static {
     /// The program reads CSS animations and transitions as objects
     /// (`element.getAnimations()`, M6): the runtime tracks them.
     const TRACKS_ANIMATIONS: bool = false;
+    /// The program may listen to CSS animation and transition events (CSS
+    /// slice 3b): the document records its animations from the start.
+    const ANIMATION_EVENTS: bool = false;
     /// A frame's animation step (M6): the ends of animations the app holds
     /// (`Host::animation_ends`) settle their `finished` promises, as a task.
     fn animation_step(&mut self, dom: &mut Dom) {

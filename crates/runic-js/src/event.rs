@@ -67,6 +67,12 @@ pub struct EventData {
     /// `timeStamp`: the clock (milliseconds since the time origin) when the
     /// event was created.
     pub time_stamp: f64,
+    /// An animation or transition event's `elapsedTime` (seconds), and its
+    /// `animationName` or `propertyName` and `pseudoElement` (CSS slice 3b).
+    pub elapsed_time: f64,
+    pub animation_name: JsString,
+    pub property_name: JsString,
+    pub pseudo_element: JsString,
 }
 
 thread_local! {
@@ -98,6 +104,8 @@ pub const EVENT_INTERFACES: &[(&str, &str)] = &[
     ("FocusEvent", "UIEvent"),
     ("InputEvent", "UIEvent"),
     ("CustomEvent", "Event"),
+    ("AnimationEvent", "Event"),
+    ("TransitionEvent", "Event"),
 ];
 
 impl EventData {
@@ -128,6 +136,12 @@ impl EventData {
             "input" | "beforeinput" => "InputEvent",
             "submit" => "SubmitEvent",
             "change" | "scroll" | "scrollend" | "load" | "error" | "select" => "Event",
+            "animationstart" | "animationiteration" | "animationend" | "animationcancel" => {
+                "AnimationEvent"
+            }
+            "transitionrun" | "transitionstart" | "transitionend" | "transitioncancel" => {
+                "TransitionEvent"
+            }
             _ => return None,
         })
     }
@@ -343,6 +357,14 @@ pub const FIRED_TYPES: &[&str] = &[
     "hashchange",
     "load",
     "error",
+    "animationstart",
+    "animationiteration",
+    "animationend",
+    "animationcancel",
+    "transitionrun",
+    "transitionstart",
+    "transitionend",
+    "transitioncancel",
 ];
 
 /// Event types Chromium 153 dispatches itself (its `event_type_names`,

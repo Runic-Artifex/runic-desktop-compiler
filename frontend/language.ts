@@ -196,6 +196,8 @@ const EVENT_MEMBER_INTERFACES: Record<string, string> = {
   key: 'KeyboardEvent',
   code: 'KeyboardEvent',
   repeat: 'KeyboardEvent',
+  animationName: 'AnimationEvent',
+  propertyName: 'TransitionEvent',
 };
 
 /**
@@ -9925,7 +9927,7 @@ export class Lowerer {
         return this.fail(
           e,
           'E_EVENT',
-          'Event objects support type, key, code, ctrlKey/shiftKey/altKey/metaKey, repeat, isComposing, clientX/clientY, button/buttons, deltaX/deltaY, detail (of a CustomEvent at its type), pointerType, pointerId, target, currentTarget, defaultPrevented, isTrusted, timeStamp, bubbles, cancelable, target.value/checked, preventDefault(), stopPropagation() and stopImmediatePropagation()',
+          'Event objects support type, key, code, ctrlKey/shiftKey/altKey/metaKey, repeat, isComposing, clientX/clientY, button/buttons, deltaX/deltaY, detail (of a CustomEvent at its type), pointerType, pointerId, elapsedTime, animationName, propertyName, pseudoElement, target, currentTarget, defaultPrevented, isTrusted, timeStamp, bubbles, cancelable, target.value/checked, preventDefault(), stopPropagation() and stopImmediatePropagation()',
         );
       return { op: 'builtin', name: `event.${name}`, args: [object], type };
     }

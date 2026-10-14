@@ -565,6 +565,17 @@ interface WheelEvent extends MouseEvent {
   readonly deltaX: number;
   readonly deltaY: number;
 }
+// CSS animation and transition events (CSS slice 3b).
+interface AnimationEvent extends Event {
+  readonly animationName: string;
+  readonly elapsedTime: number;
+  readonly pseudoElement: string;
+}
+interface TransitionEvent extends Event {
+  readonly propertyName: string;
+  readonly elapsedTime: number;
+  readonly pseudoElement: string;
+}
 
 // The window and the document as event targets (listeners lower to
 // `window.listen` / `document.unlisten` built-ins).
@@ -590,6 +601,14 @@ interface HostEventMap {
   wheel: WheelEvent;
   scroll: Event;
   resize: Event;
+  animationstart: AnimationEvent;
+  animationiteration: AnimationEvent;
+  animationend: AnimationEvent;
+  animationcancel: AnimationEvent;
+  transitionrun: TransitionEvent;
+  transitionstart: TransitionEvent;
+  transitionend: TransitionEvent;
+  transitioncancel: TransitionEvent;
 }
 // Every event kind (listeners passed through rest props).
 interface RunicEventMap extends HostEventMap {

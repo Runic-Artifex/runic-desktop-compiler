@@ -197,6 +197,30 @@ const EVENT_PROPS: Record<string, HandlerEvent> = {
   onScroll: 'scroll',
 };
 /**
+ * React DOM 19's animation and transition event props (CSS slice 3b). React
+ * dispatches them from its root listener as default-priority updates, with
+ * a SyntheticAnimationEvent (animationName, elapsedTime, pseudoElement) or,
+ * for transitionend only, a SyntheticTransitionEvent; transitionrun,
+ * transitionstart and transitioncancel get a plain SyntheticEvent without
+ * propertyName, elapsedTime or pseudoElement. React has no onAnimationCancel.
+ * React's root dispatch is not modelled for them yet: they are rejected.
+ */
+const ANIMATION_EVENT_PROPS = new Set([
+  'onAnimationStart',
+  'onAnimationIteration',
+  'onAnimationEnd',
+  'onTransitionRun',
+  'onTransitionStart',
+  'onTransitionCancel',
+  'onTransitionEnd',
+]);
+
+/** The located rejection of an animation or transition event prop. */
+function animationEventUnsupported(key: string): string {
+  return `${key}: React dispatches animation and transition events from its root listener as default-priority synthetic events (SyntheticAnimationEvent; transitionrun, transitionstart and transitioncancel as a plain SyntheticEvent without propertyName, elapsedTime or pseudoElement), which is not modelled yet`;
+}
+
+/**
  * Continuous events: React gives their updates a lower priority and renders
  * them in a scheduler task after the input (with a later discrete update).
  * Scroll events come in the rendering step: their updates render after
@@ -1776,6 +1800,8 @@ export async function lowerReact(graph: Graph): Promise<Lowering> {
         'E_EVENT',
         `onChange in the rest props of ${child} is unsupported (React makes it the input or the change event by the element it reaches); declare it as a prop`,
       );
+    if (ANIMATION_EVENT_PROPS.has(key))
+      return fail(attr, 'E_EVENT', animationEventUnsupported(key));
     if (/^on[A-Z]/.test(key))
       return fail(
         attr,
@@ -2440,6 +2466,7 @@ export async function lowerReact(graph: Graph): Promise<Lowering> {
       }
       if (raw === 'onWheel') wheelUnsupported(attr);
       if (/^on[A-Z].*Capture$/.test(raw)) captureUnsupported(attr, raw);
+      if (ANIMATION_EVENT_PROPS.has(raw)) fail(attr, 'E_EVENT', animationEventUnsupported(raw));
       if (/^on[A-Z]/.test(raw))
         fail(
           attr,

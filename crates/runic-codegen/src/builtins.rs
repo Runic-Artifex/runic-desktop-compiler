@@ -1438,6 +1438,10 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
                 "buttons" => format!("{e}.data().buttons"),
                 "deltaX" => format!("{e}.data().delta_x"),
                 "deltaY" => format!("{e}.data().delta_y"),
+                "elapsedTime" => format!("{{ let d = {e}.data(); if !matches!(d.interface(), Some(\"AnimationEvent\" | \"TransitionEvent\")) {{ runic_runtime::unsupported(\"elapsedTime of an event that is not an animation or transition event\"); }} d.elapsed_time.clone() }}"),
+                "animationName" => format!("{{ let d = {e}.data(); if !matches!(d.interface(), Some(\"AnimationEvent\")) {{ runic_runtime::unsupported(\"animationName of an event that is not an animation event\"); }} d.animation_name.clone() }}"),
+                "propertyName" => format!("{{ let d = {e}.data(); if !matches!(d.interface(), Some(\"TransitionEvent\")) {{ runic_runtime::unsupported(\"propertyName of an event that is not a transition event\"); }} d.property_name.clone() }}"),
+                "pseudoElement" => format!("{{ let d = {e}.data(); if !matches!(d.interface(), Some(\"AnimationEvent\" | \"TransitionEvent\")) {{ runic_runtime::unsupported(\"pseudoElement of an event that is not an animation or transition event\"); }} d.pseudo_element.clone() }}"),
                 "detail" => format!("{e}.data().detail"),
                 "pointerId" => format!(
                     "{e}.data().pointer_id().unwrap_or_else(|| {{ runic_runtime::unsupported(\"pointerId of an event that is not a pointer event\"); 0.0 }})"

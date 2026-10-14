@@ -1,0 +1,16 @@
+{
+  "description": "CSS animation and transition events on virtual time (CSS slice 3b): animationstart, animationiteration and animationend with elapsedTime (two iterations, a delay, a negative delay, a ::before animation with pseudoElement); transitionrun, transitionstart and transitionend, and a reversal half way (transitioncancel, then a shortened transition); display: none on an ancestor (animationcancel bubbling to the ancestor's listener) and shown again (a new animationstart); a document listener after the element's; script listeners added at an element (capture and bubble) and at an ancestor (capture) next to the template's; the order in a frame against the animation's finished reaction and the animation frame callbacks (also those the reaction and a listener request, which run in the same frame)",
+  "fixtures": ["animation-events-svelte", "animation-events-vue"],
+  "pixelRegions": ["a", "b", "c", "e", "t", "p"],
+  "actions": [
+    { "kind": "wait", "ms": 48 },
+    { "kind": "wait", "ms": 64 },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "wait", "ms": 50 },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "hide" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "click", "id": "hide" },
+    { "kind": "wait", "ms": 40 }
+  ]
+}

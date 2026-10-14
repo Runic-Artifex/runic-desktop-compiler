@@ -50,10 +50,21 @@ pub enum Event {
     /// after the one that determined the outcome).
     Load,
     Error,
+    /// CSS animation and transition events (CSS slice 3b): a frame's
+    /// animation step dispatches them (bubbling and cancelable, as Chromium
+    /// creates them).
+    Animationstart,
+    Animationiteration,
+    Animationend,
+    Animationcancel,
+    Transitionrun,
+    Transitionstart,
+    Transitionend,
+    Transitioncancel,
 }
 
 impl Event {
-    pub const ALL: [Event; 33] = [
+    pub const ALL: [Event; 41] = [
         Event::Click,
         Event::Submit,
         Event::Input,
@@ -87,6 +98,14 @@ impl Event {
         Event::Hashchange,
         Event::Load,
         Event::Error,
+        Event::Animationstart,
+        Event::Animationiteration,
+        Event::Animationend,
+        Event::Animationcancel,
+        Event::Transitionrun,
+        Event::Transitionstart,
+        Event::Transitionend,
+        Event::Transitioncancel,
     ];
 
     /// The kind named `name` (`event.type`).
@@ -143,6 +162,14 @@ impl Event {
             Event::Hashchange => "hashchange",
             Event::Load => "load",
             Event::Error => "error",
+            Event::Animationstart => "animationstart",
+            Event::Animationiteration => "animationiteration",
+            Event::Animationend => "animationend",
+            Event::Animationcancel => "animationcancel",
+            Event::Transitionrun => "transitionrun",
+            Event::Transitionstart => "transitionstart",
+            Event::Transitionend => "transitionend",
+            Event::Transitioncancel => "transitioncancel",
         }
     }
 
@@ -216,6 +243,15 @@ impl Event {
             Event::Popstate | Event::Hashchange => "back",
             // No input delivers them: the image's request completes.
             Event::Load | Event::Error => "load",
+            // A frame's animation step dispatches them.
+            Event::Animationstart
+            | Event::Animationiteration
+            | Event::Animationend
+            | Event::Animationcancel
+            | Event::Transitionrun
+            | Event::Transitionstart
+            | Event::Transitionend
+            | Event::Transitioncancel => "animation",
         }
     }
 }
