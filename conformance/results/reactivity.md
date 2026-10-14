@@ -385,6 +385,23 @@ and 420x600; `artifacts/reactivity/step7`, `step7-b`, `step7-c`):
   `watch-instances` (`step7-c`) and the differential passes
   `watch-instances-vue`: 32 of 32 runs and 12 of 12 fixtures (6240 steps)
   on the final fixtures.
+
+Rebased onto main 8246eb9 (CSS slice 2b):
+- `npm test` passes 513/513 and `cargo test --workspace` passes 190.
+- Conformance with pixels passes all 14 runs of the seven new cases
+  (`artifacts/reactivity/step7-rebase`).
+- The full differential (interpreter vs native, 20 traces x 25 actions)
+  ran in six chunks over all 234 fixtures outside the expected-rejection
+  skip list (`artifacts/reactivity/full-diff-1` … `-6`): 181 complete, no
+  failure, 96338 steps. The 53 incomplete fixtures are:
+  - fixtures that read layout or load images (the interpreter has neither);
+  - traces ending early at a hidden pointer target;
+  - focus and blur listeners the differential maps no action to;
+  - `kit-docs-svelte`, which needs generated inputs;
+  - eight that end incomplete with no reason given: `blend-svelte`,
+    `blitz-gradients-svelte`, `blitz-inline-baselines-svelte`,
+    `media-preferences-svelte`, `portal-svelte`, `rest-react`,
+    `rest-svelte`, `rest-vue`. Not examined here.
 - `npm test` 513/513 and `cargo test --workspace` (185) pass; the example
   census lowers the same 280 of 404 examples before and after, with no
   first-diagnostic change (`artifacts/census-before`, `census-after`).
