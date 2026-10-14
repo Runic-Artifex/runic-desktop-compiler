@@ -78,11 +78,15 @@ const F = ts.TypeFlags;
 const nullish = (t: ts.Type) => !!(t.flags & (F.Null | F.Undefined | F.Void));
 const id = (t: ts.Type) => (t as unknown as { id: number }).id;
 
-/** The key of a union's non-nullish members. */
+/**
+ * The key of a union's non-nullish members. (A fresh literal type, of a
+ * literal expression, keys as its regular type: `c ? 0 : s` is the union
+ * its declaration has.)
+ */
 export function unionKey(parts: readonly ts.Type[]): string {
   return parts
     .filter(p => !nullish(p))
-    .map(id)
+    .map(p => id((p as unknown as { regularType?: ts.Type }).regularType ?? p))
     .sort((a, b) => a - b)
     .join('|');
 }
@@ -519,7 +523,16 @@ export class Unions {
       // (Objects and arrays are told apart by their shapes only.)
       if (kind(t) === 'object' || kind(t) === 'array') return undefined;
       const same = members.filter(m => kind(m) === kind(t));
-      return same.length === 1 ? same[0] : undefined;
+      if (same.length === 1) return same[0];
+      // (A literal's value, traced as its base type, `'center'` as a
+      // string, where the union has several literal members of its kind
+      // (`'start' | 'center' | ((n) => number)`): the union of those
+      // literals, one member as the value model types it.)
+      if (same.length > 1 && same.every(m => m.flags & (F.StringLiteral | F.NumberLiteral)))
+        return (
+          this.checker as unknown as { getUnionType(types: ts.Type[]): ts.Type }
+        ).getUnionType(same);
+      return undefined;
     };
     // Empty array literals (`emptyArrays`, 2026-10-13). TypeScript types
     // `[]` as `never[]`, which the value model cannot type, so a union such
@@ -699,6 +712,21 @@ export class Unions {
           !!n.parent &&
           (ts.isPropertyAssignment(n.parent) || ts.isPropertyDeclaration(n.parent)) &&
           n.parent.name === n;
+        // A variable without a declared type has its initialiser's type,
+        // which no contextual type gives: the initialiser's value reaches it.
+        if (ts.isVariableDeclaration(n) && !n.type && n.initializer && ts.isIdentifier(n.name)) {
+          const declared = this.checker.getTypeAtLocation(n.name);
+          const parts = (declared.isUnion() ? declared.types : []).filter(p => !nullish(p));
+          if (parts.length && unionKey(parts) === key) {
+            seen.clear();
+            classify(
+              this.checker.getTypeAtLocation(n.initializer),
+              n.initializer,
+              n.initializer,
+              [],
+            );
+          }
+        }
         if (ts.isExpression(n) && !ts.isPartOfTypeNode(n) && !named) {
           const ctx = this.checker.getContextualType(n);
           if (ctx && this.contains(ctx, key, 0)) {

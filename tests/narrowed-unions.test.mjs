@@ -200,3 +200,33 @@ test('records expected of map take their computed keys by value', async () => {
     },
   );
 });
+
+// embla's `align` (`AlignmentOptionType = 'start' | 'center' | 'end' |
+// ((viewSize, snapSize, index) => number)`): a literal's value counts as the
+// union of the literal members of its kind (the census traces it as its base
+// type), so values of a literal and of a function reaching the union are
+// rejected at the union, located, instead of failing IR validation; one
+// given literals only is a string, its `typeof` test decided.
+const align = given => ({
+  'App.svelte': `<script lang="ts">
+  type Align = 'start' | 'center' | ((n: number) => number);
+  const a: { align: Align } = { align: 'center' };
+  ${given}
+  const v = typeof a.align === 'function' ? 0 : a.align;
+</script>
+<p id="v">{v}</p>
+`,
+});
+
+test('a union of literals and a function given a literal and a function is rejected, located', async () => {
+  await withApp(align('const b: { align?: Align } = { align: (n: number) => n * 2 };'), root =>
+    assert.rejects(lowered(root), failWith('E_TYPE_UNION', 'App.svelte', /several members/)),
+  );
+});
+
+test('a union of literals and a function given literals only is a string, and a variable typed by its initialiser takes its values', async () => {
+  await withApp(align(''), async root => {
+    const { ir } = await lowered(root);
+    assert.equal(shown(interpret(ir, [])[0], 'v'), 'center');
+  });
+});

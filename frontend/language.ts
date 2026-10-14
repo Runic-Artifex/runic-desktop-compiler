@@ -1324,7 +1324,210 @@ export class Lowerer {
     // (Static and dynamic values meet: see `dynMeet`.)
     if (b.result !== undefined && b.result !== 'void') value = this.dynMeet(value, b.result, b);
     if (b.result === 'void' && this.irType(value, b) !== 'void') return [{ op: 'expr', value }];
+    if (b.result !== undefined && b.result !== 'void')
+      value = this.presentResult(e, value, b.result, b);
     return [{ op: 'return', value }];
+  }
+
+  /**
+   * A value that may be undefined (`have` nullable) returned where the
+   * result is present. A dictionary read TypeScript types present (without
+   * `noUncheckedIndexedAccess`, `d[k]` is the value type) gives undefined
+   * for a key the dictionary lacks, which the result cannot hold: rejected,
+   * located, unless the key is one of the dictionary's own (`keyOfItself`),
+   * where the read is present.
+   */
+  private presentResult(e: ts.Expression, value: Expr, result: Type, b: FnBuilder): Expr {
+    const have = this.irType(value, b);
+    const inner = maybeInner(have);
+    if (maybeInner(result) !== undefined || inner === undefined || !sameType(inner, result))
+      return value;
+    const x = skipParens(e);
+    const dictionary =
+      ts.isElementAccessExpression(x) &&
+      !!this.checker
+        .getNonNullableType(this.checker.getTypeAtLocation(x.expression))
+        .getStringIndexType();
+    if (
+      dictionary &&
+      (this.keyOfItself(x as ts.ElementAccessExpression) ||
+        this.testedPresent(x as ts.ElementAccessExpression))
+    )
+      return { op: 'unwrap', value };
+    return this.fail(
+      e,
+      'E_TYPE_UNION',
+      dictionary
+        ? `A dictionary read is undefined for a key the dictionary lacks, while TypeScript types it ${this.checker.typeToString(this.checker.getTypeAtLocation(x))}: type the result as possibly undefined (\`| undefined\`)`
+        : `This value may be undefined where TypeScript types the result ${this.checker.typeToString(this.checker.getTypeAtLocation(x))}`,
+    );
+  }
+
+  /**
+   * Whether dictionary read `d[k]` (names `d` and `k`, or a literal key) is
+   * returned at once by `if (d[k] !== undefined) return d[k];` (`!=` with
+   * `undefined` or `null`; also as the first statement of the block): the
+   * entry was present when tested and nothing ran since (bits-ui's
+   * `memoizedResults[memoizeKey]`).
+   */
+  private testedPresent(x: ts.ElementAccessExpression): boolean {
+    const simple = (n: ts.Expression) =>
+      ts.isIdentifier(n) || ts.isStringLiteral(n) || ts.isNumericLiteral(n);
+    if (!ts.isIdentifier(skipParens(x.expression)) || !simple(skipParens(x.argumentExpression)))
+      return false;
+    let n: ts.Node = x;
+    while (ts.isParenthesizedExpression(n.parent)) n = n.parent;
+    let s: ts.Node = n.parent;
+    if (!ts.isReturnStatement(s)) return false;
+    if (ts.isBlock(s.parent)) {
+      if (s.parent.statements[0] !== s) return false;
+      s = s.parent;
+    }
+    const test =
+      ts.isIfStatement(s.parent) && s.parent.thenStatement === s && skipParens(s.parent.expression);
+    if (!test || !ts.isBinaryExpression(test)) return false;
+    const op = test.operatorToken.kind;
+    const K = ts.SyntaxKind;
+    if (op !== K.ExclamationEqualsEqualsToken && op !== K.ExclamationEqualsToken) return false;
+    const nothing = (e: ts.Expression, nullToo: boolean) => {
+      e = skipParens(e);
+      return (
+        (ts.isIdentifier(e) && e.text === 'undefined' && !this.binding(e)) ||
+        (ts.isVoidExpression(e) && ts.isNumericLiteral(e.expression)) ||
+        (nullToo && e.kind === K.NullKeyword)
+      );
+    };
+    const loose = op === K.ExclamationEqualsToken;
+    const same = (e: ts.Expression) => {
+      e = skipParens(e);
+      return (
+        ts.isElementAccessExpression(e) &&
+        e.getText() === x.getText() &&
+        this.symbol(skipParens(e.expression) as ts.Identifier) ===
+          this.symbol(skipParens(x.expression) as ts.Identifier)
+      );
+    };
+    return (
+      (same(test.left) && nothing(test.right, loose)) ||
+      (same(test.right) && nothing(test.left, loose))
+    );
+  }
+
+  /**
+   * Whether dictionary read `d[k]` is the body of a callback `k => d[k]` of
+   * `.map` over the dictionary's own keys, `Object.keys(d)` (or a function
+   * whose body is `return Object.keys(param)`: embla's `objectKeys`) and
+   * `.filter(p)`s of them, with `d` a variable never assigned and filters
+   * that can remove no key (no `delete`, assignment or call other than of a
+   * host object's method): the key is present when it is read. (A
+   * dictionary's values are never undefined in the IR: a nullable value
+   * type makes the read nullable.)
+   */
+  private keyOfItself(x: ts.ElementAccessExpression): boolean {
+    const d = skipParens(x.expression);
+    const k = skipParens(x.argumentExpression);
+    let body: ts.Node = x;
+    while (ts.isParenthesizedExpression(body.parent)) body = body.parent;
+    const fn = body.parent;
+    if (
+      !ts.isIdentifier(d) ||
+      !ts.isIdentifier(k) ||
+      !fn ||
+      !ts.isArrowFunction(fn) ||
+      fn.body !== body
+    )
+      return false;
+    const dsym = this.symbol(d);
+    const ddecl = dsym?.valueDeclaration;
+    if (
+      !dsym ||
+      !ddecl ||
+      !(
+        (ts.isVariableDeclaration(ddecl) && ts.getCombinedNodeFlags(ddecl) & ts.NodeFlags.Const) ||
+        ts.isParameter(ddecl)
+      ) ||
+      this.assigned(dsym, ddecl.getSourceFile())
+    )
+      return false;
+    const [param] = fn.parameters;
+    if (
+      fn.parameters.length !== 1 ||
+      !param ||
+      !ts.isIdentifier(param.name) ||
+      this.symbol(k) !== this.checker.getSymbolAtLocation(param.name)
+    )
+      return false;
+    const call = fn.parent;
+    if (
+      !ts.isCallExpression(call) ||
+      call.arguments[0] !== fn ||
+      !ts.isPropertyAccessExpression(call.expression) ||
+      call.expression.name.text !== 'map'
+    )
+      return false;
+    // (Only filters between the keys and the read.)
+    const removesNoKey = (p: ts.Expression): boolean => {
+      p = skipParens(p);
+      if (!ts.isArrowFunction(p) && !ts.isFunctionExpression(p)) return false;
+      let ok = true;
+      const visit = (n: ts.Node) => {
+        if (!ok) return;
+        if (
+          ts.isDeleteExpression(n) ||
+          (ts.isBinaryExpression(n) && isAssignmentOperator(n.operatorToken.kind)) ||
+          ((ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) &&
+            [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(n.operator)) ||
+          ts.isNewExpression(n) ||
+          (ts.isCallExpression(n) &&
+            !(
+              ts.isPropertyAccessExpression(n.expression) &&
+              this.types.hostOf(this.checker.getTypeAtLocation(n.expression.expression))
+            ))
+        )
+          ok = false;
+        ts.forEachChild(n, visit);
+      };
+      visit(p);
+      return ok;
+    };
+    let keys = skipParens(call.expression.expression);
+    while (
+      ts.isCallExpression(keys) &&
+      ts.isPropertyAccessExpression(keys.expression) &&
+      keys.expression.name.text === 'filter' &&
+      keys.arguments.length === 1 &&
+      removesNoKey(keys.arguments[0])
+    )
+      keys = skipParens(keys.expression.expression);
+    if (!ts.isCallExpression(keys) || keys.arguments.length !== 1) return false;
+    const arg = skipParens(keys.arguments[0]);
+    if (!ts.isIdentifier(arg) || this.symbol(arg) !== dsym) return false;
+    const callee = skipParens(keys.expression);
+    const objectKeys = (c: ts.Expression) =>
+      ts.isPropertyAccessExpression(c) &&
+      ts.isIdentifier(c.expression) &&
+      c.expression.text === 'Object' &&
+      !this.binding(c.expression) &&
+      c.name.text === 'keys';
+    if (objectKeys(callee)) return true;
+    // (A function returning `Object.keys` of its parameter.)
+    const decl = ts.isIdentifier(callee) ? this.symbol(callee)?.valueDeclaration : undefined;
+    if (!decl || !ts.isFunctionDeclaration(decl) || !decl.body || decl.parameters.length !== 1)
+      return false;
+    const [ret] = decl.body.statements;
+    const p0 = decl.parameters[0].name;
+    if (decl.body.statements.length !== 1 || !ret || !ts.isReturnStatement(ret) || !ret.expression)
+      return false;
+    const r = skipParens(ret.expression);
+    return (
+      ts.isCallExpression(r) &&
+      objectKeys(skipParens(r.expression)) &&
+      r.arguments.length === 1 &&
+      ts.isIdentifier(p0) &&
+      ts.isIdentifier(skipParens(r.arguments[0])) &&
+      this.symbol(skipParens(r.arguments[0]) as ts.Identifier) ===
+        this.checker.getSymbolAtLocation(p0)
+    );
   }
 
   /** Assignments and update expressions used for their effect. */
@@ -2421,6 +2624,134 @@ export class Lowerer {
   private readonly guards = new Map<string, number>();
 
   /**
+   * `reduce(f, {})` where its value is expected to be a dictionary (the
+   * declared result of the function returning it: embla's PluginsHandler
+   * `init(…): EmblaPluginsType` returning `plugins.reduce((map, plugin) =>
+   * Object.assign(map, { [plugin.name]: plugin }), {})`): TypeScript types
+   * the accumulator `{}`; it is that dictionary, starting empty, and an
+   * inline callback takes it and returns it. The arguments and the result
+   * type, or undefined where this is not such a call.
+   */
+  private reduceIntoDictionary(
+    e: ts.CallExpression,
+    method: string,
+    at: { array: Type },
+    b: FnBuilder,
+  ): { args: Expr[]; type: Type } | undefined {
+    if ((method !== 'reduce' && method !== 'reduceRight') || e.arguments.length !== 2)
+      return undefined;
+    const want = this.expected.get(e);
+    const init = skipParens(e.arguments[1]);
+    const f = skipParens(e.arguments[0]);
+    if (
+      typeof want !== 'object' ||
+      !('map' in want) ||
+      want.map[0] !== STRING ||
+      !ts.isObjectLiteralExpression(init) ||
+      init.properties.length ||
+      !(ts.isArrowFunction(f) || ts.isFunctionExpression(f)) ||
+      f.type ||
+      isAsync(f) ||
+      f.parameters.some(p => !ts.isIdentifier(p.name) || p.dotDotDotToken || p.initializer)
+    )
+      return undefined;
+    // (The accumulator TypeScript types as the empty object literal's `{}`.)
+    const acc = f.parameters[0];
+    const accType = acc && this.checker.getTypeAtLocation(acc);
+    if (
+      !accType ||
+      this.checker.getPropertiesOfType(accType).length ||
+      this.checker.getIndexInfosOfType(accType).length ||
+      accType.getCallSignatures().length
+    )
+      return undefined;
+    const params: Type[] = [want, at.array, NUMBER, at].slice(0, f.parameters.length);
+    return {
+      args: [
+        this.closure(f, b, `${method}$callback`, params, want),
+        { op: 'builtin', name: 'Map.new', args: [], type: want },
+      ],
+      type: want,
+    };
+  }
+
+  /**
+   * `Object.assign(d, { k: v, [key]: v, … }, …)` of a dictionary `d` and
+   * object literals of entries: the literals evaluated in order (keys,
+   * then values), then each entry set on `d` as JavaScript's [[Set]] does
+   * (a key `__proto__` would set its prototype: reported unsupported, as a
+   * dictionary write), the value `d`. Other uses are rejected, located.
+   */
+  private assignDictionary(e: ts.CallExpression, b: FnBuilder): Expr {
+    const reject = (at: ts.Node): never =>
+      this.fail(
+        at,
+        'E_BUILTIN',
+        'Object.assign is supported onto a dictionary object from object literals of entries',
+      );
+    const [target, ...sources] = e.arguments;
+    if (!target || ts.isSpreadElement(target)) return reject(e);
+    const d = this.expr(target, b);
+    const t = this.irType(d, b);
+    if (typeof t !== 'object' || !('map' in t) || t.map[0] !== STRING) return reject(target);
+    const value = t.map[1];
+    const dict = b.local('$dictionary', t);
+    const entries: { key: number; value: number; k: Expr; v: Expr }[] = [];
+    for (const src of sources) {
+      const o = skipParens(src);
+      if (!ts.isObjectLiteralExpression(o)) return reject(src);
+      for (const p of o.properties) {
+        if (!ts.isPropertyAssignment(p) && !ts.isShorthandPropertyAssignment(p)) return reject(p);
+        const k: Expr = ts.isComputedPropertyName(p.name)
+          ? this.coerce(p.name.expression, b, STRING)
+          : ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)
+            ? p.name.text === '__proto__' && ts.isPropertyAssignment(p)
+              ? reject(p.name)
+              : { op: 'lit', value: p.name.text }
+            : reject(p.name);
+        const v = this.fitValue(
+          ts.isPropertyAssignment(p)
+            ? this.coerce(p.initializer, b, value)
+            : this.coerce(p.name, b, value),
+          value,
+          b,
+        );
+        entries.push({ key: b.local('$key', STRING), value: b.local('$value', value), k, v });
+      }
+    }
+    // The entries set in order, each key checked first; the value is `d`.
+    let sets: Expr = { op: 'local', local: dict };
+    for (const en of [...entries].reverse()) {
+      const key: Expr = { op: 'local', local: en.key };
+      sets = {
+        op: 'with',
+        local: b.local('$guard', 'void'),
+        value: { op: 'call', function: this.prototypeGuard('void', true), args: [key] },
+        body: {
+          op: 'with',
+          local: b.local('$set', t),
+          value: {
+            op: 'builtin',
+            name: 'map.set',
+            args: [{ op: 'local', local: dict }, key, { op: 'local', local: en.value }],
+            type: t,
+          },
+          body: sets,
+        },
+      };
+    }
+    // (The literals evaluated first, in order: each key, then its value.)
+    for (const en of [...entries].reverse())
+      sets = {
+        op: 'with',
+        local: en.key,
+        value: en.k,
+        body: { op: 'with', local: en.value, value: en.v, body: sets },
+      };
+    return { op: 'with', local: dict, value: d, body: sets };
+  }
+
+  /**
    * A function of a key: for the name of an Object.prototype member (which
    * a plain object would find on its prototype, or, written, `__proto__`
    * would replace the prototype) it throws RunicUnsupportedError; otherwise
@@ -3091,6 +3422,16 @@ export class Lowerer {
         value = { op: value.op, type: b.result! };
       else if (value && inner && sameType(this.irType(value, b), inner))
         value = { op: 'some', value };
+      // A dictionary read TypeScript types present (`presentResult`):
+      // rejected, located, where the key may be missing.
+      else if (
+        value &&
+        b.result &&
+        s.expression &&
+        ts.isElementAccessExpression(skipParens(s.expression)) &&
+        maybeInner(this.irType(value, b)) !== undefined
+      )
+        value = this.presentResult(s.expression, value, b.result, b);
       // A nullable value where the declared result is present (untyped
       // package JavaScript whose declarations say so: bits-ui's SharedState
       // `get(): ReturnType<T>` returning `this.#state`): a TypeError if the
@@ -11759,6 +12100,7 @@ export class Lowerer {
         e.arguments.some(ts.isSpreadElement)
       )
         return this.mathSpread(method, e, b);
+      if (global === 'Object' && method === 'assign') return this.assignDictionary(e, b);
       if (global && STATIC_NAMESPACES.has(global))
         return this.builtinCall(`${global}.${method}`, args(), b, this.tsCallType(e), e);
       if (global === 'Promise') {
@@ -12082,6 +12424,12 @@ export class Lowerer {
             this.tsCallType(e),
             e,
           );
+      }
+      if (kind === 'array' && (method === 'reduce' || method === 'reduceRight')) {
+        const at = this.irType(receiver, b) as { array: Type };
+        const into = this.reduceIntoDictionary(e, method, at, b);
+        if (into)
+          return this.builtinCall(`array.${method}`, [receiver, ...into.args], b, into.type, e);
       }
       if (kind === 'array' && ARRAY_CALLBACKS.has(method)) {
         // A callback whose parameters TypeScript does not type (untyped
@@ -13202,22 +13550,25 @@ export class Lowerer {
    * values, an array's elements, a record's fields. One TypeScript type
    * standing for two IR types there is rejected.
    */
-  private constrainedRead(e: ts.PropertyAccessExpression, t: Type): void {
+  private constrainedRead(e: ts.PropertyAccessExpression, t?: Type): void {
     const scope = this.types.substitutions.at(-1);
     if (!scope) return;
     const receiver = this.checker.getTypeAtLocation(e.expression);
-    if (
-      !(receiver.flags & ts.TypeFlags.TypeParameter) ||
-      this.types.typeParameter?.(receiver) === undefined
-    )
-      return;
-    const F = ts.TypeFlags;
-    const seen = new Set<ts.Type>();
-    const stand = (ts0: ts.Type, ir: Type) => {
-      if (seen.has(ts0)) return;
-      seen.add(ts0);
-      // (Primitives and literals map alike everywhere.)
-      if (!(ts0.flags & (F.Object | F.Union | F.Intersection))) return;
+    if (!(receiver.flags & ts.TypeFlags.TypeParameter)) return;
+    const bound = this.types.typeParameter?.(receiver);
+    if (bound === undefined) return;
+    // (Before the body is lowered: the field's type in the bound record,
+    // where the read lowers as a field read.)
+    if (t === undefined) {
+      if (typeof bound !== 'object' || !('record' in bound)) return;
+      const r = bound.record;
+      if (this.types.records[r].class || this.types.accessors.has(r) || this.recordMembers.get(r))
+        return;
+      t = this.types.records[r].fields.find(f => f.name === e.name.text)?.type;
+      if (t === undefined) return;
+    }
+    const mapped = this.types.mappedUnder.at(-1);
+    this.eachStanding(this.checker.getTypeAtLocation(e), t, e, (ts0, ir) => {
       const had = this.types.substituted(ts0);
       if (had !== undefined && !sameType(had, ir))
         this.fail(
@@ -13225,7 +13576,40 @@ export class Lowerer {
           'E_TYPE_UNION',
           `In this instantiation of a generic function, TypeScript's type ${this.checker.typeToString(ts0)} (from a type parameter's constraint) stands for two types (${JSON.stringify(had)} and ${JSON.stringify(ir)})`,
         );
+      // (A type the instantiation already gives other values, of another
+      // IR type: a parameter's, a captured variable's, one its lowering
+      // used without the substitution. Values of both would meet.)
+      const before = mapped?.get(ts0);
+      if (had === undefined && before !== undefined && !sameType(before, ir))
+        this.fail(
+          e,
+          'E_TYPE_UNION',
+          `In this instantiation of a generic function, TypeScript's type ${this.checker.typeToString(ts0)} (from a type parameter's constraint) is also the type of values of type ${JSON.stringify(before)}, while this read's are ${JSON.stringify(ir)}; annotate the values with the type parameter`,
+        );
       scope.set(ts0, ir);
+    });
+  }
+
+  /**
+   * Calls `f` with TypeScript type `t0` and IR type `ir` and with the types
+   * inside them that stand for each other (`constrainedRead`): a nullable's
+   * present part, a dictionary's values, an array's elements, a plain
+   * record's fields. Primitives and literals are left out (they map alike
+   * everywhere).
+   */
+  private eachStanding(
+    t0: ts.Type,
+    ir: Type,
+    at: ts.Node,
+    f: (t: ts.Type, ir: Type) => void,
+  ): void {
+    const F = ts.TypeFlags;
+    const seen = new Set<ts.Type>();
+    const stand = (ts0: ts.Type, ir: Type): void => {
+      if (seen.has(ts0)) return;
+      seen.add(ts0);
+      if (!(ts0.flags & (F.Object | F.Union | F.Intersection))) return;
+      f(ts0, ir);
       // (TypeScript's nullable type of a value the instantiation's type
       // holds always: its present part.)
       const inner = maybeInner(ir);
@@ -13240,13 +13624,13 @@ export class Lowerer {
         const [el] = this.checker.getTypeArguments(ts0 as ts.TypeReference);
         if (el) stand(el, ir.array);
       } else if ('record' in ir && !this.types.records[ir.record].class) {
-        for (const f of this.types.records[ir.record].fields) {
-          const p = this.checker.getPropertyOfType(ts0, f.name);
-          if (p) stand(this.checker.getTypeOfSymbolAtLocation(p, e), f.type);
+        for (const fd of this.types.records[ir.record].fields) {
+          const p = this.checker.getPropertyOfType(ts0, fd.name);
+          if (p) stand(this.checker.getTypeOfSymbolAtLocation(p, at), fd.type);
         }
       }
     };
-    stand(this.checker.getTypeAtLocation(e), t);
+    stand(t0, ir);
   }
 
   private bindTypeParameters(decl: ts.FunctionLikeDeclaration, types: Type[]): () => void {
@@ -13285,7 +13669,49 @@ export class Lowerer {
     const uncached = this.types.uncached;
     this.types.uncached = t => !!uncached?.(t) || usesTypeParameter(t, bound, this.checker);
     this.types.substitutions.push(new Map());
+    this.types.mappedUnder.push(new Map());
+    // The types of values entering the instantiation otherwise than
+    // through its type parameters (other parameters, captured variables),
+    // then every member read of a bound type parameter's value, before the
+    // body is lowered (declarations are typed before the reads that show
+    // their types: `const d = o.m || {}`).
+    const mapped = this.types.mappedUnder.at(-1)!;
+    const entering = (t0: ts.Type, ir: Type, at: ts.Node) =>
+      this.eachStanding(t0, ir, at, (t, x) => {
+        if (!mapped.has(t)) mapped.set(t, x);
+      });
+    decl.parameters.forEach((p, k) => {
+      if (types[k] !== undefined && !p.dotDotDotToken)
+        entering(this.checker.getTypeAtLocation(p), types[k], p);
+    });
+    const body = (decl as { body?: ts.Node }).body;
+    const outer = new Set<ts.Symbol>();
+    const visit = (n: ts.Node) => {
+      if (ts.isPropertyAccessExpression(n)) this.constrainedRead(n);
+      if (ts.isIdentifier(n) && !(ts.isPropertyAccessExpression(n.parent) && n.parent.name === n)) {
+        const sym = this.symbol(n);
+        const d = sym?.valueDeclaration;
+        if (
+          sym &&
+          d &&
+          !outer.has(sym) &&
+          (ts.isVariableDeclaration(d) || ts.isParameter(d) || ts.isBindingElement(d)) &&
+          (d.getSourceFile() !== decl.getSourceFile() || d.pos < decl.pos || d.end > decl.end)
+        ) {
+          outer.add(sym);
+          // (The IR type its binding holds, where it is bound already: a
+          // local or a parameter of an enclosing function.)
+          const binding = this.bindings.get(sym);
+          const ir =
+            binding?.kind === 'local' ? binding.owner.locals[binding.local]?.type : undefined;
+          if (ir !== undefined) entering(this.checker.getTypeAtLocation(n), ir, n);
+        }
+      }
+      ts.forEachChild(n, visit);
+    };
+    if (body) visit(body);
     return () => {
+      this.types.mappedUnder.pop();
       this.types.substitutions.pop();
       this.types.uncached = uncached;
       params.forEach((p, i) => {

@@ -159,3 +159,140 @@ test("an instantiation's result typed through its type parameter's constraint is
     ),
   );
 });
+
+test("a nested generic's declarations take its instantiation's values, and a constraint type shared with another value is rejected, located", async () => {
+  // `const d = o.m || {}` is declared (typed) before the read `o.m` shows
+  // what TypeScript's constraint type of it stands for: the reads are
+  // known before the body is lowered. `d[x]` of a key of `d` itself is
+  // present.
+  const ok = {
+    'App.svelte': `<script lang="ts">
+  type Loose = { [x: string]: unknown };
+  function outer(k: string) {
+    function pick<T extends { m?: { [k: string]: Loose } }>(o: T): number {
+      const d = o.m || {};
+      return Object.keys(d)
+        .filter(x => x !== k)
+        .map(x => d[x]).length;
+    }
+    const m: { [k: string]: { c: number } } = { a: { c: 1 }, b: { c: 2 }, c: { c: 3 } };
+    const n: { [k: string]: { c: number } } = { b: { c: 5 }, d: { c: 6 } };
+    return pick({ m }) + pick({ m: n });
+  }
+  const r = outer('b');
+</script>
+<p id="out">{r}</p>
+`,
+  };
+  await withApp(ok, async root => {
+    const { ir } = await lower(await collect(root));
+    assert.equal(text(find(interpret(ir, [])[0].state.dom, 'out')), '3');
+  });
+  // A parameter of the constraint's dictionary type that holds other values.
+  const shared = {
+    'App.svelte': `<script lang="ts">
+  type Loose = { [x: string]: unknown };
+  type Dict = { [k: string]: Loose };
+  function pick<T extends { m?: Dict }>(o: T, p: Dict): number {
+    const d = o.m || {};
+    return Object.keys(d).length + Object.keys(p).length;
+  }
+  const m: { [k: string]: { c: number } } = { a: { c: 1 } };
+  const r = pick({ m }, { z: { y: 1 } });
+</script>
+<p id="out">{r}</p>
+`,
+  };
+  await withApp(shared, root =>
+    assert.rejects(
+      collect(root).then(g => lower(g)),
+      e =>
+        (e.code === 'E_TYPE_UNION' &&
+          /also the type of values/.test(e.message) &&
+          e.source?.line === 5) ||
+        assert.fail(`${e.code}: ${e.message} ${JSON.stringify(e.source)}`),
+    ),
+  );
+});
+
+test("a dictionary read returned where TypeScript types it present is rejected, located, unless its key is the dictionary's own", async () => {
+  const app = keys => ({
+    'App.svelte': `<script lang="ts">
+  const d: { [k: string]: { c: number } } = { a: { c: 1 }, b: { c: 2 } };
+  const vs = ${keys}.map(k => d[k]);
+  const r = vs.map(v => v.c).join(',');
+</script>
+<p id="out">{r}</p>
+`,
+  });
+  await withApp(app("['a', 'z']"), root =>
+    assert.rejects(
+      collect(root).then(g => lower(g)),
+      e =>
+        (e.code === 'E_TYPE_UNION' && /dictionary read/.test(e.message) && e.source?.line === 3) ||
+        assert.fail(`${e.code}: ${e.message} ${JSON.stringify(e.source)}`),
+    ),
+  );
+  await withApp(app("Object.keys(d).filter(k => k !== 'a')"), async root => {
+    const { ir } = await lower(await collect(root));
+    assert.equal(text(find(interpret(ir, [])[0].state.dom, 'out')), '2');
+  });
+});
+
+test('reduce into the empty dictionary a function returns, and Object.assign of entries onto a dictionary', async () => {
+  // embla's PluginsHandler `init(…): EmblaPluginsType` returns
+  // `plugins.reduce((map, plugin) => Object.assign(map, { [plugin.name]:
+  // plugin }), {})`: the accumulator is that dictionary, the assignment a
+  // keyed set returning it (own-key order: integer-like keys first).
+  const LOGIC = `type P = { name: string; n: number };
+export function index(ps: P[]): { [k: string]: P } {
+  return ps.reduce((map, p) => Object.assign(map, { [p.name]: p, ['x' + p.n]: p }), {});
+}
+export function show(): string {
+  const d = index([{ name: 'b', n: 1 }, { name: '2', n: 2 }, { name: 'a', n: 3 }, { name: 'b', n: 4 }]);
+  return Object.keys(d).join(',') + ' ' + Object.values(d).map(p => p.n).join(',');
+}
+`;
+  await mkdir('.cache/tests', { recursive: true });
+  const dir = await mkdtemp(path.resolve('.cache/tests/embla-language-node-'));
+  let want;
+  try {
+    await writeFile(path.join(dir, 'logic.ts'), LOGIC);
+    want = (await import(pathToFileURL(path.join(dir, 'logic.ts')).href)).show();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+  assert.equal(want, '2,b,x1,x2,a,x3,x4 2,4,1,2,3,3,4');
+  const out = await withApp(
+    {
+      'logic.ts': LOGIC,
+      'App.svelte': `<script lang="ts">
+  import { show } from './logic.ts';
+</script>
+<p id="out">{show()}</p>
+`,
+    },
+    async root => {
+      const { ir } = await lower(await collect(root));
+      return text(find(interpret(ir, [])[0].state.dom, 'out'));
+    },
+  );
+  assert.equal(out, want);
+  // Object.assign onto anything else: rejected, located.
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  const o = Object.assign({ a: 1 }, { b: 2 });
+</script>
+<p id="out">{o.b}</p>
+`,
+    },
+    root =>
+      assert.rejects(
+        collect(root).then(g => lower(g)),
+        e =>
+          (e.code === 'E_BUILTIN' && /Object.assign/.test(e.message) && e.source?.line === 2) ||
+          assert.fail(`${e.code}: ${e.message} ${JSON.stringify(e.source)}`),
+      ),
+  );
+});

@@ -424,10 +424,26 @@ export class TypeMapper {
     return undefined;
   }
 
+  /**
+   * Per entry of `substitutions`: the TypeScript types mapped there without
+   * a substitution, with the IR types they were given (a substitution added
+   * later for one of them, of another IR type, is rejected:
+   * `Lowerer.constrainedRead`).
+   */
+  readonly mappedUnder: Map<ts.Type, Type>[] = [];
+
   map(t: ts.Type, at: ts.Node): Type {
-    const F = ts.TypeFlags;
-    const substituted = this.substitutions.length ? this.substituted(t) : undefined;
+    if (!this.substitutions.length) return this.mapType(t, at);
+    const substituted = this.substituted(t);
     if (substituted !== undefined) return substituted;
+    const r = this.mapType(t, at);
+    const mapped = this.mappedUnder.at(-1);
+    if (mapped && !mapped.has(t)) mapped.set(t, r);
+    return r;
+  }
+
+  private mapType(t: ts.Type, at: ts.Node): Type {
+    const F = ts.TypeFlags;
     if (this.boxFunction && this.anyFn(t)) {
       t = this.boxFunction;
       this.boxFunction = undefined;
