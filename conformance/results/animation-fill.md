@@ -32,4 +32,4 @@ React's and Vue's style objects write a shorthand through CSSOM; Chromium serial
 
 ## Still reported or rejected
 
-Animation and transition events (`E_EVENT`), scroll-driven animations, `transition-behavior: allow-discrete`, animations of pseudo-elements in `getAnimations()`, other Animation members (`E_MEMBER`). Not reported: `animation.finished` read again after a cancellation (Chromium returns a new promise).
+Animation and transition events (`E_EVENT`), scroll-driven animations, `transition-behavior: allow-discrete`, animations of pseudo-elements in `getAnimations()`, other Animation members (`E_MEMBER`). Reported at run time: `animation.finished` read again after a cancellation (Chromium returns a new promise; the runtime keeps the settled one).

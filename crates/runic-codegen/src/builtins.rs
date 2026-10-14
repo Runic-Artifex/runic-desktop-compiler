@@ -805,7 +805,12 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             "{{ let ids = cx.dom.get_animations({}.0); js::array(ids.into_iter().map(|id| anim_object(cx, id)).collect()) }}",
             t[0]
         ),
-        ("animation", "finished") => format!("anim_of(&{}).finished.borrow().clone()", t[0]),
+        // Chromium gives a cancelled animation a new finished promise; the
+        // runtime keeps the settled one, so reading it then is reported.
+        ("animation", "finished") => format!(
+            "{{ let a = anim_of(&{}); if a.ended.get() == \"idle\" {{ runic_runtime::unsupported(\"animation.finished read after the animation was cancelled (Chromium returns a new promise)\"); }} a.finished.borrow().clone() }}",
+            t[0]
+        ),
         ("animation", "playState") => format!(
             "{{ let a = anim_of(&{}); JsString::from(cx.dom.animation_play_state(a.id).unwrap_or(a.ended.get())) }}",
             t[0]
