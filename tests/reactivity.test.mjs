@@ -362,6 +362,31 @@ test('Vue watchers in a proven order agree with Chromium', async () => {
   );
 });
 
+test('pop, shift, unshift and splice write only the elements they change (R4)', async () => {
+  // Case array-methods in Chromium: through Svelte's and Vue's proxies the
+  // spec's steps get, set and delete element by element; an element left as
+  // it is, or set to its value, is not written.
+  const actions = ['dump', 'pop', 'dump', 'shift', 'dump', 'unshift', 'dump', 'splice-cut', 'dump'];
+  const more = ['splice-same', 'dump', 'splice-add', 'dump'];
+  const svelte = interpret(
+    (await lowered('fixtures/array-methods-svelte')).ir,
+    [...actions, ...more].map(click),
+    {},
+  );
+  assert.equal(shown(svelte[3], 'log'), 'len 4');
+  assert.equal(shown(svelte[9], 'log'), 'c 4 | len 3');
+  assert.equal(shown(svelte[11], 'log'), '');
+  assert.equal(shown(svelte[13], 'log'), 'len 4');
+  const vue = interpret(
+    (await lowered('fixtures/array-methods-vue')).ir,
+    [...actions, ...more].map(click),
+    {},
+  );
+  assert.equal(shown(vue[3], 'log'), '');
+  assert.equal(shown(vue[9], 'log'), '');
+  assert.equal(shown(vue[13], 'log'), '');
+});
+
 test('writes of an equal value change nothing; reverse, sort and fill write the elements they change (R4)', async () => {
   // Case array-writes (Svelte 5.57.1 in Chromium): the effect reading the
   // middle element does not run for reverse, sort or fill, which leave it as

@@ -492,3 +492,24 @@ Imperatively mounted content (`mount`/`unmount`) follows the same policy at
 - Example census (404 examples, `conformance/triage.mjs`): 280 lowered
   before (a copy of 15889dd) and after, with the same first diagnostics
   (`artifacts/census-base`, `census-after` of the worktree).
+
+## pop, shift, unshift and splice element by element (2026-10-14)
+
+Through Svelte's and Vue's proxies these methods get, set and delete
+elements one by one (their spec steps through the traps), so an element
+they neither move nor change, or set to its value, is not written; natively
+(and in the interpreter, the same heap model) they read and wrote the whole
+array. Case `array-methods` in Chromium (Svelte 5.57.1 with effects on the
+first three elements and the length; Vue 3.5.43 with one watchEffect on the
+second element, as several logging watchers over array signals are an R10
+rejection): `pop` reruns only `len 4` (Vue: nothing); `splice(2, 1)` reruns
+`c 4 | len 3`; `splice(1, 1, items[1])` nothing; `splice(3, 0, 8)` at the end
+`len 4`. Before: every effect after every call (16 mismatches). `copyWithin`
+is not a supported built-in (`E_BUILTIN`; the old gap row named it).
+
+- Interpreter vs Chromium: `array-methods` agrees (2 fixtures, 16 steps),
+  as do `array-writes`, `equal-writes`, `derived-arrays`, `push-effect`,
+  `effect-self`, `deep-tracking`, `collections-vue`, `ownership`,
+  `proxy-lazy`, `proxy-target` and `keyed-replace`.
+- `runic-js` tests pass (array vectors from Node included; a no-op `splice`
+  still advances no mutation epoch).

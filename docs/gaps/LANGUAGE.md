@@ -37,7 +37,7 @@ Clusters (see [GAPS](../GAPS.md#clusters)): **V1** unions, **V2** untyped values
 | Converting Map, Set, functions, class instances, mixed tuples to strings; non-primitives other than Date to numbers | E_IR / E_CLASS | `toString` not dispatched | Dispatch | validate.rs:618-679 |
 | Throwing non-Error values; non-Error catch bindings | E_IR | Errors are records | A dynamic tier | validate.rs:1594-1617 |
 | `JSON.stringify` with a replacer, of Map/Set/Date/class instances; `JSON.parse` without a declared type | E_BUILTIN | Typed JSON | Replacers; dynamic parse | builtins.rs:345-362,1571-1595 |
-| `Object.keys/values` of class instances or mixed records; `structuredClone` of Dates and class instances; `Array.from` over Maps, iterables, array-like objects other than `{ length: n }` with a mapping arrow; `flat(depth)`; number methods beyond toFixed/toString/toPrecision/toExponential | E_BUILTIN | Not in the catalogue | Catalogue entries with vectors | builtins.rs:367-386,1423-1468,1596-1614,1975 |
+| `Object.keys/values` of class instances or mixed records; `structuredClone` of Dates and class instances; `Array.from` over Maps, iterables, array-like objects other than `{ length: n }` with a mapping arrow; `flat(depth)`; `copyWithin` (through a proxy it would get and set element by element, as `splice` does since 2026-10-14); number methods beyond toFixed/toString/toPrecision/toExponential | E_BUILTIN | Not in the catalogue | Catalogue entries with vectors | builtins.rs:367-386,1423-1468,1596-1614,1975 |
 
 ### Dynamic values (opt-in spike)
 
