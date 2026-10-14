@@ -18,6 +18,7 @@ mod string;
 mod union;
 mod value;
 
+pub mod adapted;
 pub mod array_ops;
 pub mod date;
 pub mod dynamic;
