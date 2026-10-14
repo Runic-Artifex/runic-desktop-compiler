@@ -1,0 +1,40 @@
+{
+  "description": "element.getAnimations() of filled CSS animations after their end (CSS slice 3a), on virtual time: Chromium lists a finished animation while its forwards or both fill keeps it in effect, with playState finished and the same object; its finished promise resolves at the frame that sees the end (as without fill), and one taken after its end has it resolved already; a fill changed to none unlists it (and back lists it again); display: none and an animation-name change cancel it (idle, its resolved promise unchanged), and the new animation is listed",
+  "fixtures": ["animation-fill-api-svelte"],
+  "pixelRegions": ["row-fwd", "row-both", "row-alt", "row-var", "row-unfilled", "row-plain", "row-hide", "row-rename"],
+  "actions": [
+    { "kind": "click", "id": "track" },
+    { "kind": "click", "id": "read" },
+    { "kind": "wait", "ms": 176 },
+    { "kind": "click", "id": "read" },
+    { "kind": "wait", "ms": 16 },
+    { "kind": "click", "id": "read" },
+    { "kind": "wait", "ms": 160 },
+    { "kind": "click", "id": "read" },
+    { "kind": "click", "id": "late" },
+    { "kind": "click", "id": "unfill" },
+    { "kind": "click", "id": "read" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "read" },
+    { "kind": "wait", "ms": 40 },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "swap" },
+    { "kind": "click", "id": "read" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "click", "id": "read" },
+    { "kind": "click", "id": "mark" },
+    { "kind": "click", "id": "read" },
+    { "kind": "click", "id": "unfill" },
+    { "kind": "click", "id": "read" }
+  ],
+  "expectedText": [
+    { "step": 4, "id": "log", "text": "" },
+    { "step": 5, "id": "log", "text": "fwd alt unfilled plain hide rename " },
+    { "step": 6, "id": "out", "text": "finished running finished finished - finished finished | finished,running,finished,finished,finished,finished,finished | same" },
+    { "step": 9, "id": "log", "text": "fwd alt unfilled plain hide rename both asked late " },
+    { "step": 11, "id": "out", "text": "finished finished finished - - finished finished | finished,finished,finished,finished,finished,finished,finished | same" },
+    { "step": 13, "id": "out", "text": "finished finished finished - - - finished | finished,finished,finished,finished,finished,idle,finished | same" },
+    { "step": 17, "id": "out", "text": "finished finished finished - - running running | finished,finished,finished,finished,finished,idle,idle | same" },
+    { "step": 23, "id": "out", "text": "finished finished finished finished - finished finished | finished,finished,finished,finished,finished,idle,idle | same" }
+  ]
+}

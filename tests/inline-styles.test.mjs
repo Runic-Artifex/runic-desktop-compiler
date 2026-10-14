@@ -57,7 +57,10 @@ const reported = (ir, actions = []) => {
 
 test('literal inline declarations a stylesheet would be rejected for are rejected at build time', async () => {
   for (const [app, pattern] of [
-    ['<div id="a" style="animation: spin 1s forwards">A</div>', /animation: spin 1s forwards/],
+    [
+      '<div id="a" style="transition: display 1s allow-discrete">A</div>',
+      /transition: display 1s allow-discrete/,
+    ],
     ['<div id="a" style="color: red; filter: url(#f)">A</div>', /filter: url\(#f\)/],
     ['<div id="a" style:animation-timeline="scroll()">A</div>', /animation-timeline: scroll\(\)/],
     ['<p id="a" style="text-transform: full-width">A</p>', /text-transform: full-width/],
@@ -97,15 +100,15 @@ test('inline declarations a stylesheet would report are reported when set', asyn
   );
   // Known only at run time: when the value is set, whatever its kind.
   await svelte(
-    `<script lang="ts">let fill = $state('none');</script>
-<div id="a" style:animation-fill-mode={fill}>A</div>
-<button id="b" onclick={() => (fill = 'forwards')}>B</button>`,
+    `<script lang="ts">let behavior = $state('normal');</script>
+<div id="a" style:transition-behavior={behavior}>A</div>
+<button id="b" onclick={() => (behavior = 'allow-discrete')}>B</button>`,
     async root => {
       const { ir } = await lowered(root);
       assert.equal(reported(ir), undefined);
       assert.match(
         reported(ir, [{ kind: 'click', id: 'b' }]),
-        /animation-fill-mode: forwards \(animation-fill-mode forwards and both are not supported\)/,
+        /transition-behavior: allow-discrete \(transition-behavior: allow-discrete is not supported\)/,
       );
     },
   );
@@ -133,6 +136,14 @@ createRoot(document.getElementById('root')).render(<App />);
 });
 
 test('inline declarations verified equivalent are neither rejected nor reported', async () => {
+  // Filled animations stay in effect as in Chromium (case animation-fill).
+  await svelte(
+    `<script lang="ts">let fill = $state('none');</script>
+<div id="a" style="animation: spin 1s both" style:animation-fill-mode={fill}>A</div>
+<button id="b" onclick={() => (fill = 'forwards')}>B</button>`,
+    async root =>
+      assert.equal(reported((await lowered(root)).ir, [{ kind: 'click', id: 'b' }]), undefined),
+  );
   await svelte(
     '<div id="a" style="position: -webkit-sticky; position: sticky; top: 0; -moz-column-gap: 1px; column-gap: 2px; -webkit-tap-highlight-color: transparent; text-shadow: none; p-a-d-d-i-n-g: 2px">A</div><button id="b" onclick={() => {}}>B</button>',
     async root =>

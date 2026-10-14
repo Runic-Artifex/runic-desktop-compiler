@@ -1,0 +1,37 @@
+@font-face { font-family: RunicFixture; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #eae6dc; color: #252c28; font-family: RunicFixture; font-size: 16px; }
+body { padding: 16px; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+button { font-family: RunicFixture; font-size: 14px; height: 36px; padding: 0 14px; border: 1px solid #52665b; border-radius: 6px; background: #e2e8df; color: #252c28; }
+
+/* One row per filled animation. Linear timing, so that frames sampled at the end compare the timeline itself. */
+.rows { display: grid; gap: 6px; }
+.row { position: relative; height: 40px; background: #faf8f1; border: 1px solid #b7b7a9; border-radius: 6px; }
+.box { position: absolute; left: 8px; top: 5px; width: 120px; height: 28px; border: 3px solid rgb(37, 44, 40); border-radius: 2px; background: rgb(226, 232, 223); }
+/* A class toggled on the container restyles every box (an unrelated property). */
+.marked .box { border-radius: 10px; }
+
+@keyframes fade { from { background-color: rgb(200, 60, 40); } to { background-color: rgb(40, 90, 160); } }
+@keyframes slide { from { transform: translateX(0px); background-color: rgb(240, 200, 60); } to { transform: translateX(200px); background-color: rgb(40, 140, 80); } }
+@keyframes green { from { background-color: rgb(240, 200, 60); } to { background-color: rgb(40, 140, 80); } }
+
+/* Forwards: the last keyframe stays after the end, also through a hover. */
+#fwd { animation: fade 180ms linear forwards; }
+#fwd:hover { border-color: rgb(200, 120, 20); }
+/* Both with a delay: the first keyframe before the start, the last after the end. */
+#both { transform: translateX(100px); animation: slide 180ms linear 150ms both; }
+/* An even alternate iteration count ends on the first keyframe. */
+#alt { animation: fade 90ms linear 2 alternate forwards; }
+/* The fill mode through a custom property. */
+#var { --fill: forwards; animation: fade 180ms linear; animation-fill-mode: var(--fill); }
+/* The fill mode in an inline style the app changes to none after the end. */
+#unfilled { animation: fade 180ms linear; }
+/* Both in an inline style: the Svelte fixture's style attribute holds the whole shorthand, React's and Vue's style objects the fill mode alone (Chromium serializes a shorthand written through CSSOM with every longhand, Stylo without the initial ones: docs/gaps/PLATFORM.md). */
+#inline { animation: green 180ms linear 50ms; }
+/* display: none cancels the animation; shown again, it starts over. */
+#hide { animation: fade 180ms linear forwards; }
+#hide.hidden { display: none; }
+/* Another animation name: a new animation, filled with its own last keyframe. */
+#rename { animation: fade 180ms linear forwards; }
+#rename.renamed { animation-name: green; }

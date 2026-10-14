@@ -153,18 +153,14 @@ test('CSS transitions and keyframe animations are accepted where the runtime rep
       'b { animation: enter .2s ease-out .1s backwards; transition-property: transform; transition-duration: .3s }',
     undefined,
   );
-  // Stylo discards a finished animation on the next restyle: no forwards fill,
-  // also not through a custom property the stylesheet sets anywhere.
-  await check('p { color: red }\np { animation: spin 1s forwards }', 'E_CSS_PROPERTY', 2);
-  await check('p { animation-fill-mode: both }', 'E_CSS_PROPERTY', 1);
+  // Forwards and both fills stay in effect as in Chromium (the Stylo fork
+  // keeps a finished animation until it is cancelled; case animation-fill),
+  // also through a custom property.
+  await check('p { color: red }\np { animation: spin 1s forwards }', undefined);
+  await check('p { animation-fill-mode: both }', undefined);
   await check(
     '@property --fill { syntax: "*"; inherits: false; initial-value: none; }\n' +
       'p { animation: spin 1s var(--fill, none) }\n.keep { --fill: forwards }',
-    'E_CSS_PROPERTY',
-    2,
-  );
-  await check(
-    '@property --fill { syntax: "*"; inherits: false; initial-value: none; }\np { animation: spin 1s var(--fill, none) }',
     undefined,
   );
   await check('p { transition: display 1s allow-discrete }', 'E_CSS_PROPERTY', 1);

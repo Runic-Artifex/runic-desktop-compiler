@@ -1395,11 +1395,6 @@ const SCROLL_DRIVEN =
 function unsupportedTimeBased(decl, values) {
   if (SCROLL_DRIVEN.test(decl.prop))
     return 'scroll-driven animations (animation and scroll timelines) are not supported';
-  if (decl.prop === 'animation' || decl.prop === 'animation-fill-mode') {
-    const words = possibleKeywords(decl.value, values);
-    if (words.has('forwards') || words.has('both'))
-      return "animation-fill-mode forwards and both are not supported: Blitz's style engine (Stylo) discards a finished animation when its element is next restyled, so the filled values would not stay as in Chromium";
-  }
   if (
     (decl.prop === 'transition' || decl.prop === 'transition-behavior') &&
     possibleKeywords(decl.value, values).has('allow-discrete')

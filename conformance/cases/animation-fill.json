@@ -1,0 +1,23 @@
+{
+  "description": "CSS animation-fill-mode forwards and both on virtual time (CSS slice 3a): forwards after the end, kept through a hover and a class toggle that restyle the element; both with a delay (first keyframe before the start, last after the end); an even alternate iteration count with forwards; a fill mode through var(); an inline fill mode the app changes to none after the end and back; a static inline both (Svelte: the whole shorthand in the style attribute; React and Vue: the fill mode in a style object, as Chromium serializes a shorthand written through CSSOM differently, docs/gaps/PLATFORM.md); display: none and shown again (a new animation); an animation-name change (a new animation, filled with its own last keyframe)",
+  "fixtures": ["animation-fill-svelte", "animation-fill-react", "animation-fill-vue"],
+  "pixelRegions": ["row-fwd", "row-both", "row-alt", "row-var", "row-unfilled", "row-inline", "row-hide", "row-rename"],
+  "actions": [
+    { "kind": "wait", "ms": 96 },
+    { "kind": "wait", "ms": 128 },
+    { "kind": "wait", "ms": 176 },
+    { "kind": "hover", "id": "fwd" },
+    { "kind": "click", "id": "mark" },
+    { "kind": "wait", "ms": 50 },
+    { "kind": "click", "id": "unfill" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "wait", "ms": 40 },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "swap" },
+    { "kind": "wait", "ms": 96 },
+    { "kind": "wait", "ms": 160 },
+    { "kind": "click", "id": "mark" },
+    { "kind": "click", "id": "unfill" },
+    { "kind": "wait", "ms": 16 }
+  ]
+}

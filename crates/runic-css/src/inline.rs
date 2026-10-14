@@ -517,15 +517,6 @@ pub fn problems(css: &str, element: Element<'_>) -> Vec<Problem> {
             ));
             continue;
         }
-        if (name == "animation" || name == "animation-fill-mode")
-            && words.iter().any(|w| w == "forwards" || w == "both")
-        {
-            out.push(reject(
-                &written,
-                "animation-fill-mode forwards and both are not supported",
-            ));
-            continue;
-        }
         if (name == "transition" || name == "transition-behavior")
             && words.iter().any(|w| w == "allow-discrete")
         {
@@ -744,7 +735,15 @@ mod tests {
             .into_iter()
             .map(|(k, _)| k)
             .collect::<Vec<_>>(),
-            [Kind::Reject; 5]
+            [Kind::Reject; 4]
+        );
+        // Filled animations stay in effect as in Chromium (case `animation-fill`).
+        assert_eq!(
+            kinds(
+                "animation: spin 1s forwards; animation-fill-mode: both",
+                div
+            ),
+            []
         );
         // Drops verified equivalent, or overridden later in the block.
         assert_eq!(

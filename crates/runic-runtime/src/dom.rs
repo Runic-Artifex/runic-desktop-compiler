@@ -2068,6 +2068,13 @@ impl Host {
             .collect()
     }
 
+    /// Whether the runtime still tracks animation `id` after its end
+    /// settled: a finished CSS animation that stays until it is cancelled
+    /// (and that `getAnimations()` lists while its fill keeps it in effect).
+    pub fn animation_retained(&self, id: u64) -> bool {
+        crate::animations::retained(id)
+    }
+
     /// An element metric (`offsetWidth`, `scrollTop`, …).
     pub fn metric(&self, node: u64, name: &str) -> f64 {
         self.dom().map_or(0.0, |dom| {
