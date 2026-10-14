@@ -9,6 +9,7 @@ mod animations;
 pub mod clipboard;
 pub mod console;
 mod controls;
+pub mod desktop;
 mod dom;
 mod effects;
 mod events;
@@ -135,14 +136,19 @@ thread_local! {
 }
 
 /// `matchMedia(query).matches` (generated code). Chromium 153 on Linux takes
-/// `prefers-reduced-motion` and `prefers-contrast` from the desktop (GTK's
-/// animation setting and theme name), which a native app cannot read: a
-/// query testing one is reported once natively; probes answer it as their
-/// actions emulate the preference.
+/// `prefers-reduced-motion` and `prefers-contrast` from the desktop
+/// ([`desktop`]): natively a query testing one the runtime cannot read there
+/// is reported once; probes answer it as their actions emulate the
+/// preference.
 pub fn media_matches(query: &str, env: &css::MediaEnv) -> Option<bool> {
     if !probe_mode() {
         let lower = query.to_ascii_lowercase();
-        if (lower.contains("prefers-reduced-motion") || lower.contains("prefers-contrast"))
+        let prefs = desktop::current();
+        let unread = ["prefers-reduced-motion", "prefers-contrast"]
+            .into_iter()
+            .filter(|f| lower.contains(f))
+            .find_map(|f| prefs.feature(f).and_then(Result::err));
+        if let Some(reason) = unread
             && DESKTOP_QUERIES_REPORTED.with(|r| {
                 let mut r = r.borrow_mut();
                 let first = !r.contains(&lower);
@@ -153,11 +159,22 @@ pub fn media_matches(query: &str, env: &css::MediaEnv) -> Option<bool> {
             })
         {
             unsupported(&format!(
-                "matchMedia({query:?}) tests a desktop preference the runtime cannot read"
+                "matchMedia({query:?}) tests a desktop preference the runtime cannot read: {reason}"
             ));
         }
     }
     css::media_matches(query, env)
+}
+
+/// The media environment natively with the desktop preferences as last read
+/// (no preference where unknown).
+pub(crate) fn with_desktop_preferences(env: css::MediaEnv) -> css::MediaEnv {
+    let prefs = desktop::current();
+    css::MediaEnv {
+        reduced_motion: prefs.reduced_motion.unwrap_or(false),
+        contrast_more: prefs.contrast_more.unwrap_or(false),
+        ..env
+    }
 }
 
 /// The user preferences of `env` as Blitz's media queries see them
@@ -270,7 +287,9 @@ pub trait App: 'static {
     /// element that `unless` (where not empty: the rules overriding the
     /// declaration) does not match; with `when` `"scroll-target"`, once such
     /// an element is scrolled into view; with `"scroll-container:…"`, once a
-    /// target inside one is scrolled where the padding would move it.
+    /// target inside one is scrolled where the padding would move it; with
+    /// `"desktop:<features>"`, natively where the desktop preference a rule
+    /// tests cannot be read (`desktop`).
     const STYLE_GUARDS: &'static [(&'static str, &'static str, &'static str, &'static str)] = &[];
     const IR_HASH: &'static str;
     /// Attributes of `<body>` (from the app's HTML template, M6).

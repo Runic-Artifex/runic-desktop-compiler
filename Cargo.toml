@@ -44,6 +44,11 @@ keyboard-types = "=0.7.0"
 url = "=2.5.8"
 getrandom = "=0.4.3"
 arboard = { version = "=3.6.1", default-features = false, features = ["wayland-data-control"] }
+# Desktop preferences (CSS slice 2b, user decision 2026-10-13): XSETTINGS on
+# X11 (the x11rb version winit already uses) and the XDG settings portal on
+# Wayland, read as Chromium 153 on Linux reads them through GTK.
+x11rb = { version = "=0.13.2", default-features = false }
+zbus = { version = "=5.19.0", default-features = false, features = ["blocking-api", "async-io"] }
 runic-js = { path = "crates/runic-js" }
 runic-ir = { path = "crates/runic-ir" }
 runic-runtime = { path = "crates/runic-runtime" }

@@ -108,6 +108,7 @@ impl<A: App> Document for Native<A> {
         let now = crate::CLOCK_START + self.started.elapsed().as_secs_f64() * 1000.0;
         if let Some(cx) = &task_context {
             self.waker = Some(cx.waker().clone());
+            crate::desktop::register_waker(cx.waker());
         }
         let mut ran = self.app.next_timer().is_some_and(|t| t <= now);
         if ran {
@@ -122,6 +123,9 @@ impl<A: App> Document for Native<A> {
         {
             let resized = environ.is_some_and(|(_, resized)| resized);
             if let Some((env, _)) = environ {
+                // (Blitz restyles only if the preferences changed.)
+                self.doc
+                    .set_media_preferences(crate::media_preferences(&env));
                 crate::set_media_env(env);
             }
             self.rendering_step(resized);
@@ -425,12 +429,17 @@ impl<A: App> Native<A> {
         let v = self.doc.viewport();
         let scale = v.scale() as f64;
         let current = crate::media_env();
-        let env = crate::css::MediaEnv {
+        let mut env = crate::css::MediaEnv {
             width: v.window_size.0 as f64 / scale,
             height: v.window_size.1 as f64 / scale,
             dark: v.color_scheme == blitz_traits::shell::ColorScheme::Dark,
             ..current
         };
+        // Natively the desktop preferences as last read (probes set them
+        // through their actions).
+        if !crate::probe_mode() {
+            env = crate::with_desktop_preferences(env);
+        }
         let resized = env.width != current.width || env.height != current.height;
         (env != current).then_some((env, resized))
     }

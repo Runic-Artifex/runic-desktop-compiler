@@ -363,24 +363,31 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
   await check('@charset "UTF-8";\np { color: red }', undefined);
   await check('@charset "iso-8859-15";\np { color: red }', 'E_CSS', 1);
   // `prefers-reduced-motion` and `prefers-contrast` are evaluated (no
-  // preference unless a probe emulates one); a native app, which cannot read
-  // the desktop's, reports their rules where they apply. `forced-colors` is
-  // `none` on Linux.
+  // preference unless a probe emulates one); a native app reads the
+  // desktop's as Chromium does and reports their rules where they apply and
+  // it cannot read a feature the query tests. `forced-colors` is `none` on
+  // Linux.
   assert.deepEqual(
     (
       await guards(
         '@media (prefers-reduced-motion: no-preference) { :root { scroll-behavior: smooth } }\n' +
           '@media (prefers-contrast: more) { .a, .b::after { color: red } .c { @media (prefers-reduced-motion) { color: blue } } }\n' +
           '@media (prefers-reduced-motion: reduce) { @keyframes k { to { opacity: 0 } } }\n' +
+          '@media (prefers-contrast: more) and (PREFERS-REDUCED-MOTION) { .d { color: red } }\n' +
           '@media (forced-colors: active) { .f { color: red } }',
       )
-    ).map(g => [g.selector, g.when, /depends on the desktop's (\S+) setting/.exec(g.message)?.[1]]),
+    ).map(g => [g.selector, g.when, /depends on the desktop's (.+?) setting/.exec(g.message)?.[1]]),
     [
-      [':root', 'native', 'prefers-reduced-motion'],
-      ['.a, .b', 'native', 'prefers-contrast'],
-      ['.c', 'native', 'prefers-contrast'],
-      ['.c', 'native', 'prefers-reduced-motion'],
-      [':root', 'native', 'prefers-reduced-motion'],
+      [':root', 'desktop:prefers-reduced-motion', 'prefers-reduced-motion'],
+      ['.a, .b', 'desktop:prefers-contrast', 'prefers-contrast'],
+      ['.c', 'desktop:prefers-contrast', 'prefers-contrast'],
+      ['.c', 'desktop:prefers-reduced-motion', 'prefers-reduced-motion'],
+      [':root', 'desktop:prefers-reduced-motion', 'prefers-reduced-motion'],
+      [
+        '.d',
+        'desktop:prefers-contrast,prefers-reduced-motion',
+        'prefers-contrast and prefers-reduced-motion',
+      ],
     ],
   );
   // Blitz breaks lines as Chromium 153 does for `balance`, `pretty` and

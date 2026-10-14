@@ -122,8 +122,8 @@ pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
         m.append_children(root, &[html]);
     }
     // Media queries evaluated while the app starts see this viewport and the
-    // user preferences (a probe's emulated ones; natively no preference, and
-    // the rules that test one are reported).
+    // user preferences (a probe's emulated ones; natively the desktop's, and
+    // the rules testing one the runtime cannot read are reported).
     crate::set_media_viewport(width as f64, height as f64);
     doc.set_media_preferences(crate::media_preferences(&crate::media_env()));
     // The document loads at the session history's current entry.
@@ -246,7 +246,9 @@ pub(crate) fn run<A: App>() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let width = arg_value(&args, "--width").unwrap_or(800);
     let height = arg_value(&args, "--height").unwrap_or(600);
-    let native = document::<A>(width, height);
+    // The desktop preferences, as Chromium reads them when it starts: read
+    // while the window system connects, before the app mounts.
+    crate::desktop::start();
     let event_loop = if args.iter().any(|a| a == "--x11") {
         use winit::platform::x11::EventLoopBuilderExtX11;
         winit::event_loop::EventLoop::builder()
@@ -256,6 +258,9 @@ pub(crate) fn run<A: App>() {
     } else {
         blitz_shell::create_default_event_loop()
     };
+    crate::desktop::wait();
+    crate::set_media_env(crate::with_desktop_preferences(crate::media_env()));
+    let native = document::<A>(width, height);
     let (proxy, receiver) = BlitzShellProxy::new(event_loop.create_proxy());
     let mut application = BlitzApplication::new(proxy, receiver);
     application.add_window(WindowConfig::with_attributes(

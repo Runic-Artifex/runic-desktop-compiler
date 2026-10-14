@@ -28,3 +28,5 @@ The Stylo device carries the two preferences (no preference unless the embedder 
 - Blitz's unit test `user_preference_media_queries` covers the features with values, without them, and after a change.
 - `npm test` (472 tests) and `node compiler/cargo.mjs test --offline --workspace` pass; Blitz `blitz-dom` with the Stylo branch passes 172 tests, failing only the known `hover_styles_apply_and_clear` and `scroll_by_clamps_and_bubbles`.
 - The same slice makes the compiler accept `@charset "UTF-8"`, stop reporting vendor declarations Chromium drops or that a later declaration of their rule overrides, and report `text-shadow` (Blitz paints none). Bootstrap 5.3.8's stylesheet is no longer rejected at its first line; its 108 vendor-fallback reports are gone, and its 31 `prefers-reduced-motion` rules are native-only reports.
+
+Since CSS slice 2b a native app reads both preferences from the desktop as Chromium does and reports only those it cannot read: [desktop-preferences](desktop-preferences.md).
