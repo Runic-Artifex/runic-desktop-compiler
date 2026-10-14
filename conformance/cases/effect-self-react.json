@@ -1,0 +1,21 @@
+{
+  "description": "React effects whose dependencies include the state they set (docs/design/REACTIVITY-ALIASING.md, cross-framework matrix): a passive effect runs again after the next commit, a layout effect re-renders synchronously and runs again before the passive effects, an updater that stops changing state commits nothing, a chain started at mount; every commit and effect run logged in order (React 19.3.0 in Chromium; the native model agreed before, a regression case)",
+  "fixtures": ["effect-self-react"],
+  "actions": [
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "passive" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "layout" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "both" },
+    { "kind": "click", "id": "dump" }
+  ],
+  "expectedText": [
+    { "step": 1, "id": "log", "text": "commit 0000 | m 0 | n 0 | commit 0011 | commit 0022 | commit 0023" },
+    { "step": 1, "id": "values", "text": "0 0 2 3" },
+    { "step": 3, "id": "log", "text": "commit 0023 | commit 1023 | n 1 | commit 2023 | n 2 | commit 3023 | n 3" },
+    { "step": 5, "id": "log", "text": "commit 3023 | commit 3123 | m 1 | commit 3223 | m 2 | commit 3323 | m 3" },
+    { "step": 7, "id": "log", "text": "commit 3323 | commit 1123 | m 1 | n 1 | commit 2223 | m 2 | n 2 | commit 3323 | m 3 | n 3" },
+    { "step": 7, "id": "values", "text": "3 3 2 3" }
+  ]
+}

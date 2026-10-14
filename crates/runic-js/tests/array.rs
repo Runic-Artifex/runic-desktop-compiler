@@ -135,7 +135,7 @@ type Cmp<T> = Box<dyn FnMut(&T, &T) -> JsResult<f64>>;
 type First<T> = Box<dyn FnMut(T, &T, f64) -> JsResult<T>>;
 
 /// An element type of the vectors, with its named callbacks (array.mjs).
-trait Elem: Clone + ArrayElement + StrictEq + ToMapKey + 'static {
+trait Elem: Clone + ArrayElement + StrictEq + ToMapKey + runic_js::Own + 'static {
     const TYPE: &'static str;
     fn dec(v: &Value, cx: &Ctx) -> Self;
     fn enc(&self, cx: &Ctx) -> Value;
@@ -1163,6 +1163,35 @@ fn read_only_operations_do_not_advance_the_epoch() {
         ignore(ops::set_new(vec![1.0]));
     });
     assert_eq!(ops::join(&a, Maybe::Undefined).to_rust(), "3,1,2");
+}
+
+/// Through a proxy (Svelte's `$state`), `reverse`, `sort` and `fill` set
+/// elements one by one: those already `===` the value are not written
+/// (docs/design/REACTIVITY-ALIASING.md, R4).
+#[test]
+fn proxy_methods_write_only_the_elements_they_change() {
+    let p = nums(&[1.0, 2.0, 1.0]).proxy();
+    let stamp = runic_js::heap_stamp();
+    ignore(ops::reverse(&p));
+    assert_eq!(runic_js::heap_stamp(), stamp, "a palindrome reversed");
+    // (reverse leaves the middle element unread; a slot never accessed gets
+    // a source at its first write, as in Svelte, so read it first.)
+    ignore(ops::at(&p, 1.0));
+    ignore(ops::fill(&p, 2.0, Maybe::Some(1.0), Maybe::Some(2.0)));
+    assert_eq!(
+        runic_js::heap_stamp(),
+        stamp,
+        "the middle filled with its value"
+    );
+    ignore(ops::sort(&p, None));
+    assert_eq!(ops::join(&p, Maybe::Undefined).to_rust(), "1,1,2");
+    assert!(runic_js::heap_stamp() > stamp, "a reordering sort writes");
+    // The raw array a proxy was made of stays as it was (R3), and a raw
+    // array's elements are always written.
+    let raw = nums(&[1.0, 2.0, 1.0]);
+    let stamp = runic_js::heap_stamp();
+    ignore(ops::reverse(&raw));
+    assert!(runic_js::heap_stamp() > stamp, "a raw array is written");
 }
 
 #[test]

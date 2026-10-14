@@ -1,0 +1,27 @@
+{
+  "description": "Array methods through a Svelte $state proxy set elements one by one (docs/design/REACTIVITY-ALIASING.md, R4): reverse, sort and fill leave the elements they do not change as they are, so an effect reading such an element does not run again; fill stores a new proxy of a plain object at each index, so a write through one leaves the others. Before, natively the three methods wrote every element (the effect reading the middle one ran after each) and fill stored one proxy at every index (`6 6`)",
+  "fixtures": ["array-writes-svelte"],
+  "actions": [
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "reverse" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "sort" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "fill-same" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "fill-first" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "fill-objs" },
+    { "kind": "click", "id": "bump" },
+    { "kind": "click", "id": "dump" }
+  ],
+  "expectedText": [
+    { "step": 1, "id": "log", "text": "mid 2 | first 1" },
+    { "step": 3, "id": "log", "text": "first 3" },
+    { "step": 5, "id": "log", "text": "first 1" },
+    { "step": 7, "id": "log", "text": "" },
+    { "step": 9, "id": "log", "text": "first 7" },
+    { "step": 11, "id": "objs", "text": "6 5" },
+    { "step": 12, "id": "log", "text": "" }
+  ]
+}

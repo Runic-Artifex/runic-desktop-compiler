@@ -206,6 +206,11 @@ impl<T, J> PartialEq for JsPromise<T, J> {
         Rc::ptr_eq(&self.0, &other.0)
     }
 }
+impl<T, J> crate::StrictEq for JsPromise<T, J> {
+    fn strict_eq(&self, other: &Self) -> bool {
+        self == other
+    }
+}
 
 impl<T, J> std::fmt::Debug for JsPromise<T, J> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

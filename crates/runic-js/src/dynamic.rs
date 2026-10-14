@@ -1027,6 +1027,12 @@ impl crate::StrictEq for Dyn {
     fn strict_eq(&self, other: &Self) -> bool {
         strict_eq(self, other)
     }
+    fn same_value(&self, other: &Self) -> bool {
+        match (self.kind(), other.kind()) {
+            (Kind::Num(x), Kind::Num(y)) => crate::same_value(x, y),
+            _ => strict_eq(self, other),
+        }
+    }
 }
 impl crate::Truthy for Dyn {
     fn truthy(&self) -> bool {

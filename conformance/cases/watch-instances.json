@@ -1,0 +1,15 @@
+{
+  "description": "Watchers of different Vue instances that a prop update triggers run while the parent's render patches each instance, in document order, as natively: also a branch shown before existing siblings, created after them; all logging into one array (watchers a write triggers directly run in creation order instead: the expected rejection watch-instances-deep-vue; items of one list: watch-list-vue, as native code updates a list's blocks from the last one)",
+  "fixtures": ["watch-instances-vue"],
+  "actions": [
+    { "kind": "click", "id": "bump" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "show" },
+    { "kind": "click", "id": "bump" },
+    { "kind": "click", "id": "dump" }
+  ],
+  "expectedText": [
+    { "step": 2, "id": "log", "text": "row 1 1 | row 2 1" },
+    { "step": 5, "id": "log", "text": "row 0 2 | row 1 2 | row 2 2" }
+  ]
+}

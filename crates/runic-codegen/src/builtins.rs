@@ -1896,12 +1896,8 @@ fn array(cx: &FnCtx, m: &str, t: &[String], types: &[Type]) -> String {
             }
         }
         "with" => cx.q(&format!("{ar}::with(&{a}, {}, {})", t[1], t[2])),
-        "fill" => format!(
-            "{ar}::fill(&{a}, js::own_into(&{a}, {}), {}, {})",
-            t[1],
-            opt(2),
-            opt(3)
-        ),
+        // (`fill` stores the value into each element as a set does.)
+        "fill" => format!("{ar}::fill(&{a}, {}, {}, {})", t[1], opt(2), opt(3)),
         "flat" => format!("{ar}::flat(&{a})"),
         other => unreachable!("validated array method {other}"),
     }

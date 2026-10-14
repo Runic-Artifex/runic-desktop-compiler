@@ -2510,6 +2510,30 @@ fn strict_expr(t: &Type, a: &str, b: &str) -> String {
     }
 }
 
+/// SameValue (`Object.is`) between `a` and `b` of type `t`: `===` except
+/// for NaN and signed zeros.
+fn same_value_expr(t: &Type, a: &str, b: &str) -> String {
+    match t {
+        Type::Number => format!("js::same_value({a}, {b})"),
+        Type::Boolean | Type::Fn(_) | Type::Promise(_) | Type::Void => strict_expr(t, a, b),
+        Type::Maybe(inner) if matches!(**inner, Type::Fn(_) | Type::Promise(_)) => {
+            strict_expr(t, a, b)
+        }
+        _ => format!("js::StrictEq::same_value(&{a}, &{b})"),
+    }
+}
+
+/// Whether writing `v` over `old` (of type `t`) changes nothing, by the rule
+/// the slot's object takes: the body of a `JsRef::unchanged` closure, whose
+/// `sv` selects SameValue over `===`.
+fn unchanged_expr(t: &Type, old: &str, v: &str) -> String {
+    format!(
+        "if sv {{ {} }} else {{ {} }}",
+        same_value_expr(t, old, v),
+        strict_expr(t, old, v)
+    )
+}
+
 /// Derived class fields (docs/IR.md, "Reactive class fields"): `dfresh`
 /// recomputes field `i` of an instance of record `r` when it was never
 /// computed or what it read changed, keeping the value and its version when

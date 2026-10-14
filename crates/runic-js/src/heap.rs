@@ -497,20 +497,33 @@ impl<T> JsRef<T> {
         c.write(1, Some(&[slot]), stamp);
         self.0.storage.value.borrow_mut()
     }
-    /// Whether writing slot `slot` would change nothing: a proxy whose slot
-    /// was taken and already holds a value `same` finds `===` to the new
-    /// one. Svelte's sources ignore such writes (an effect writing what it
-    /// read is not invalidated by them, R4); a slot never accessed gets a
-    /// source at the write, so writing it is a change; a raw value is always
-    /// written.
-    pub fn unchanged(&self, slot: u32, same: impl FnOnce(&T) -> bool) -> bool {
-        let pending = self
-            .0
-            .lazy
-            .borrow()
-            .as_ref()
-            .is_some_and(|l| l.pending.get(slot as usize).copied().unwrap_or(false));
-        self.0.owned && !pending && same(&self.0.storage.value.borrow())
+    /// How a write of slot `slot` with the value it holds counts
+    /// (docs/design/REACTIVITY-ALIASING.md, R4): `Some(false)`, a proxy's
+    /// slot already taken, which a `===` value leaves unchanged, as Svelte's
+    /// sources ignore such writes (an effect writing what it read is not
+    /// invalidated by them); `Some(true)`, an object reachable from deep
+    /// reactive state, which a SameValue one leaves unchanged, as Vue's set
+    /// trap (`hasChanged`) does; `None`, the write always counts (a raw
+    /// value, or a proxy's slot never accessed, which gets a source at the
+    /// write).
+    pub fn equal_write(&self, slot: u32) -> Option<bool> {
+        if self.0.owned {
+            let pending = self
+                .0
+                .lazy
+                .borrow()
+                .as_ref()
+                .is_some_and(|l| l.pending.get(slot as usize).copied().unwrap_or(false));
+            return (!pending).then_some(false);
+        }
+        self.0.storage.counts.reactive.get().then_some(true)
+    }
+    /// Whether writing slot `slot` would change nothing (see
+    /// [`JsRef::equal_write`]): `same(value, same_value)` compares the
+    /// value with the new one by `===`, or by SameValue where `same_value`.
+    pub fn unchanged(&self, slot: u32, same: impl FnOnce(&T, bool) -> bool) -> bool {
+        self.equal_write(slot)
+            .is_some_and(|sv| same(&self.0.storage.value.borrow(), sv))
     }
     /// Shared access that is not a read of the program (caches, probes).
     pub fn peek(&self) -> Ref<'_, T> {

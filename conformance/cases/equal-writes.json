@@ -1,0 +1,25 @@
+{
+  "description": "Writes of the value a slot already holds notify nothing (docs/design/REACTIVITY-ALIASING.md, R4): Vue's set trap and RefImpl compare with SameValue, so a watchEffect reading a deep ref's field, an element and a ref does not run again after such writes, nor after reversing a palindrome (the swapped elements are equal) or a push (a new index and the length); a reversal that changes the element it reads runs it once. Before, natively the watchEffect ran again after every write",
+  "fixtures": ["equal-writes-vue"],
+  "actions": [
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "same" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "palindrome" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "flip" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "push" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "flip" },
+    { "kind": "click", "id": "dump" }
+  ],
+  "expectedText": [
+    { "step": 1, "id": "log", "text": "run 0 1 0" },
+    { "step": 3, "id": "log", "text": "" },
+    { "step": 5, "id": "log", "text": "run 0 1 0" },
+    { "step": 7, "id": "log", "text": "" },
+    { "step": 9, "id": "log", "text": "" },
+    { "step": 11, "id": "log", "text": "run 0 9 0" }
+  ]
+}

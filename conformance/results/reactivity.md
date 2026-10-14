@@ -31,6 +31,15 @@ Adversarial fixtures, first run in Chromium and the reference interpreter
 | `deep-tracking` (Svelte), after step 4 | an effect reading `items[0].done` runs again when the item is toggled | the proxy of `items[0]`, made by the effect's first read, was no dependency of it (R3 with R4) | fixed |
 | `alias-writes-vue` | writes through a constant, a parameter and a result holding a ref's contents update its readers | `E_REACTIVITY` (`alias is mutated in place`) | fixed (R8 for Vue) |
 | `staleness` (React) | immutable updates, effects keeping their render's props, a mount timeout reading the mount's state, bail-out on equal state, value updates vs updaters | interpreter agrees | regression case |
+| `effect-self-react` | an effect whose dependencies include the state it sets runs again after the next commit (passive in a later task, layout before the passive effects), an updater that settles commits nothing, a chain from mount | interpreter agrees | regression case (step 7) |
+| `unmount-updates` (React) | cleanups at unmount update the parent (passive: rendered after the passive flush; layout: rendered with them, after), not their own unmounted state; a cleanup reads a ref live | interpreter agrees | regression case (step 7) |
+| `teardown-vue` | cleanups read live values, through a ref's proxy and a computed value; unmount hooks read the last render's props | interpreter agrees (once the computed is rendered, below) | regression case (step 7) |
+| `watch-order-vue` | a handler writing `b`, then `a` runs `watch(b)` before `watch(a)`: `a2`, `b2 \| effect 2 \| a2` | declaration order: `b2`, `a2 \| b2 \| effect 2` | rejected (R10) |
+| `watch-cleanup-computed-vue` | a computed first evaluated in a watchEffect's cleanup moves the watchEffect behind the next watcher: `cleanup 0 d2 \| watch 1 \| watch 2 \| cleanup 1 d4 \| …` | `… \| cleanup 1 d4 \| watch 2 \| …` | rejected (R10) |
+| `watch-instances-deep-vue` | watchers a write triggers run by instance creation: `row 1 3 \| row 2 3 \| row 3 3 \| row 0 3` | document order: `row 0 3 \| row 3 3 \| row 1 3 \| row 2 3` | rejected (R10) |
+| `watch-declared`, `watch-instances` (Vue) | the shapes R10 accepts run in declaration and document order | interpreter agrees | regression cases |
+| `watch-list-vue` | prop-triggered watchers of list items run in document order: `row 3 2 \| row 1 2 \| row 2 2` | interpreter agrees; native code reverses them (`row 2 2 \| row 1 2 \| row 3 2`: it updates a list's blocks from the last one) | rejected (R10), backend gap row |
+| `equal-writes-vue` | a write of the value a deep ref's slot holds notifies nothing | the watchEffect reading it runs again (`run 0 1 0`) | open (step 7 resume list) |
 
 ## Step 1: reads through aliases (R1/R2)
 
@@ -259,3 +268,140 @@ pass, and conformance with pixels passes all 24 runs of `deep-tracking`,
 `proxy-target`, `proxy-lazy`, `teardown-proxy`, `alias-writes`,
 `alias-writes-vue`, `effect-self`, `push-effect`, `ownership-cycles`,
 `script-dom-announcer` and `script-dom-nodes` (`artifacts/reactivity/rebase2`).
+
+## Step 7: React and Vue audit
+
+Each row of the [cross-framework matrix](../../docs/design/REACTIVITY-ALIASING.md#cross-framework-semantics-matrix)
+the remaining plan named, run in Chromium and the interpreter first
+(`conformance/interp-vs-browser.mjs <case> --show`, which now prints the
+browser's text per step).
+
+React (all agree; regression cases):
+- `effect-self-react`: an effect whose dependencies include the state it
+  sets runs again after the next commit, each run logged after its commit.
+  A passive chain logs `commit 1023 | n 1 | commit 2023 | n 2 | …`. A layout
+  chain runs synchronously and, with both chains in one handler, before the
+  passive effects: `commit 1123 | m 1 | n 1 | commit 2223 | …`. An updater
+  without dependencies that stops changing the state commits nothing, and a
+  chain from mount settles before the first action.
+- `unmount-updates`: at unmount, a passive cleanup's update of the parent
+  renders after the passive flush, and its own (unmounted) update does
+  nothing. A layout cleanup's update renders with them, after them:
+  `commit hidden 1 [a0b0] [] | a cleanup 2 | … | commit hidden 1 [a0b0aa1bb1] [ab]`.
+  A cleanup reads the ref's current value (`a cleanup 2` after two clicks),
+  and a cleanup run because a dependency changed updates the parent too.
+- `useRef` (and module state) read or written while rendering, including
+  through a callback a child calls while rendering, were already located
+  rejections (`E_REF`, `E_REACTIVITY`); `tests/reactivity.test.mjs` now pins
+  them.
+
+Vue:
+- `teardown-vue` agrees: a watchEffect's `onWatcherCleanup` and a watch
+  callback's `onCleanup` read live values, through the ref's proxy and a
+  computed value (`cleanup 0/1 0/1 d2`); at unmount `onBeforeUnmount`,
+  `onUnmounted` and a watcher cleanup read the last render's props and live
+  values through them (`before unmount 13 3`).
+- Its first draft, where the computed value was read only in the cleanup,
+  differed in order (Chromium `watch cleanup 1/3 3 | cleanup 1/3 1/3 d6`,
+  natively the reverse). Vue queues a component's watchers in the order a
+  flush triggers them, and a computed value first evaluated inside a
+  watchEffect's run takes over the links it shares with it
+  (`dep.activeLink`), so the watchEffect subscribes again at the tail. Two
+  fixtures confirm each effect: `watch-order-vue` (write order:
+  `b2 | effect 2 | a2`, natively `a2 | b2 | effect 2`, and the final status
+  differs) and `watch-cleanup-computed-vue` (`cleanup 0 d2 | watch 1 | watch 2 | cleanup 1 d4`).
+- Across instances, `watch-instances-deep-vue` differs: watchers a write
+  triggers run by instance creation (`row 1 3 | row 2 3 | row 3 3 | row 0 3`),
+  natively in document order. Watchers a prop update triggers run while the
+  parent patches each instance, in document order, as natively (case
+  `watch-instances`), except items of one list, which native code runs in
+  reverse (see the native verification below).
+- Decision (user, 2026-10-14, ROADMAP): a located rejection now (R10,
+  `frontend/adapters/vue-watch-order.ts`), the exact model as a later
+  schedule policy. Accepted shapes, each checked in Chromium: case
+  `watch-declared` (a later watcher's signals a subset of what an earlier
+  one reads in every run, through a ref and a prop's record field, in both
+  write orders; two watchers no handler triggers together), `teardown-vue`
+  (a settled computed value in a cleanup) and `watch-instances`. Expected
+  rejections: `watch-order-vue`, `watch-cleanup-computed-vue`,
+  `watch-instances-deep-vue`, and `deep-tracking-vue`. That last one moved
+  from accepted: three watchEffects over deep refs log into one array, and
+  their signals are array elements and lengths, which the analysis does not
+  tell apart. It left case `deep-tracking`, whose Svelte fixture stays.
+- No other fixture changes: lowering every Vue fixture before and after
+  the check differs only in `deep-tracking-vue` and the new fixtures.
+- Found while checking `reverse`: a write of the value a deep ref's slot
+  holds notifies nothing in Vue, natively a watchEffect reading it ran
+  again (`equal-writes-vue`); fixed below.
+
+## Equal writes and per-element array methods (R4)
+
+A write of a value equal to the one a slot holds now changes nothing for
+objects deep reactive state reaches (Vue: SameValue, as `hasChanged`), as
+it already did for proxies (Svelte: `===`); `JsRef::equal_write` tells the
+rule. `reverse`, `sort` and `fill` read and set element by element, as the
+proxies' traps see them, writing only the elements that change, and `fill`
+stores the value into each element as a set does.
+
+- `equal-writes` (Vue 3.5 in Chromium): a field, an element and a ref set
+  to their values, a palindrome reversed and a push leave the watchEffect
+  alone; reversing `[1, 2, 1, 9]` runs it once (`run 0 9 0`). Before, the
+  interpreter (and native code, the same heap model) ran it after the
+  equal writes and the palindrome's reversal (`run 0 1 0`, 3 mismatches).
+- `array-writes` (Svelte 5.57.1 in Chromium): the effect reading the
+  middle element stays after `reverse`, `sort` and a `fill` of its value,
+  and `fill({ n: 5 })` stores a proxy per index (`6 5` after one write).
+  Before: `mid 2` after each method and `6 6` (11 mismatches).
+- Gap row added: `pop`, `shift`, `unshift`, `splice` and `copyWithin` still
+  read and write the whole array natively.
+
+## Step 7 native verification
+
+On the branch at f75a4b6 and the follow-up (CPU renderer, pixels, 800x600
+and 420x600; `artifacts/reactivity/step7`, `step7-b`, `step7-c`):
+
+- Conformance passes 30 of 32 runs: `effect-self-react`, `unmount-updates`,
+  `teardown-vue`, `watch-declared`, `equal-writes`, `array-writes`,
+  `effect-self`, `push-effect`, `derived-arrays`, `keyed-replace`,
+  `collections-vue`, `alias-writes-vue`, `effects` (Svelte, Vue, React). The
+  first batch stopped at the background time limit after 18 runs, and the
+  rest ran as a second batch.
+- The two failures were the first `watch-instances` fixture at both
+  viewports, a list of `Row`s whose watchers prop updates trigger. Native
+  code logged `row 2 1 | row 1 1` where Chromium and the interpreter log
+  `row 1 1 | row 2 1`. The differential (interpreter vs native, 20 traces x
+  25 actions) failed on the same fixture and passed the other 11
+  (`array-writes-svelte`, `equal-writes-vue`, `effect-self-react`,
+  `unmount-updates-react`, `teardown-vue`, `watch-declared-vue`,
+  `effect-self-svelte`, `push-effect-svelte`, `derived-arrays-svelte`,
+  `collections-vue`, `alias-writes-vue`).
+- Cause: native code updates a keyed list's blocks from the last one, so
+  its items' pre effects run in reverse document order. R10 no longer
+  exempts two items of one list, and the list shape is the expected
+  rejection `watch-list-vue`. Case `watch-instances` keeps a branch shown
+  before two siblings (Chromium `row 0 2 | row 1 2 | row 2 2`). Gap rows:
+  the backend's list order, also for Svelte's `$effect.pre`.
+- With the restructured case, conformance passes both runs of
+  `watch-instances` (`step7-c`) and the differential passes
+  `watch-instances-vue`: 32 of 32 runs and 12 of 12 fixtures (6240 steps)
+  on the final fixtures.
+
+Rebased onto main 8246eb9 (CSS slice 2b):
+- `npm test` passes 513/513 and `cargo test --workspace` passes 190.
+- Conformance with pixels passes all 14 runs of the seven new cases
+  (`artifacts/reactivity/step7-rebase`).
+- The full differential (interpreter vs native, 20 traces x 25 actions)
+  ran in six chunks over all 234 fixtures outside the expected-rejection
+  skip list (`artifacts/reactivity/full-diff-1` … `-6`): 181 complete, no
+  failure, 96338 steps. The 53 incomplete fixtures are:
+  - fixtures that read layout or load images (the interpreter has neither);
+  - traces ending early at a hidden pointer target;
+  - focus and blur listeners the differential maps no action to;
+  - `kit-docs-svelte`, which needs generated inputs;
+  - eight that end incomplete with no reason given: `blend-svelte`,
+    `blitz-gradients-svelte`, `blitz-inline-baselines-svelte`,
+    `media-preferences-svelte`, `portal-svelte`, `rest-react`,
+    `rest-svelte`, `rest-vue`. Not examined here.
+- `npm test` 513/513 and `cargo test --workspace` (185) pass; the example
+  census lowers the same 280 of 404 examples before and after, with no
+  first-diagnostic change (`artifacts/census-before`, `census-after`).

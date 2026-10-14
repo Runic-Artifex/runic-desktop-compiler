@@ -1,0 +1,24 @@
+{
+  "description": "React state updates from effect cleanups (docs/design/REACTIVITY-ALIASING.md, cross-framework matrix): at unmount a passive cleanup updates the parent and its own unmounted state (nothing renders), a layout cleanup updates the parent while React commits (rendered with the passive cleanups' updates, after them), a cleanup reads a ref's current value; a cleanup run because a dependency changed updates the parent too (React 19.3.0 in Chromium; the native model agreed before, a regression case)",
+  "fixtures": ["unmount-updates-react"],
+  "actions": [
+    { "kind": "click", "id": "child-a" },
+    { "kind": "click", "id": "child-a" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "step" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "child-b" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "dump" }
+  ],
+  "expectedText": [
+    { "step": 4, "id": "gone", "text": "[a0b0] []" },
+    { "step": 5, "id": "log", "text": "commit shown 0 [] [] | commit shown 1 [] [] | a step cleanup 0 | b step cleanup 0 | commit shown 1 [a0b0] []" },
+    { "step": 7, "id": "log", "text": "commit shown 1 [a0b0] [] | a layout cleanup | b layout cleanup | commit hidden 1 [a0b0] [] | a cleanup 2 | a step cleanup 1 | b cleanup 0 | b step cleanup 1 | commit hidden 1 [a0b0aa1bb1] [ab]" },
+    { "step": 8, "id": "child-a", "text": "a 0" },
+    { "step": 11, "id": "log", "text": "commit hidden 1 [a0b0aa1bb1] [ab] | commit shown 1 [a0b0aa1bb1] [ab] | a layout cleanup | b layout cleanup | commit hidden 1 [a0b0aa1bb1] [ab] | a cleanup 0 | a step cleanup 1 | b cleanup 1 | b step cleanup 1 | commit hidden 1 [a0b0aa1bb1aa1bb1] [abab]" }
+  ]
+}
