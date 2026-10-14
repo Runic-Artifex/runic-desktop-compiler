@@ -560,6 +560,13 @@ export interface Schedule {
    * (`scroll`); a discrete update before that renders them at once.
    */
   continuous?: EventKind[];
+  /**
+   * How the framework orders its template listeners with listeners script
+   * adds (docs/IR.md "Delegation"): the kinds whose bubbling template
+   * listeners it runs from a delegation root (Svelte's); absent where not
+   * declared (the runtime then reports an order it cannot know).
+   */
+  delegation?: EventKind[];
 }
 
 /**

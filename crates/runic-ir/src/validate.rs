@@ -2312,6 +2312,16 @@ pub fn validate(p: &Program) -> Result<()> {
     {
         return err("E_IR", "Invalid source hash", None);
     }
+    // (Frameworks delegate only events that bubble.)
+    if let Some(kinds) = &p.schedule.delegation {
+        if let Some(k) = kinds.iter().find(|k| !k.bubbles()) {
+            return err(
+                "E_IR",
+                format!("Delegated event {} does not bubble", k.name()),
+                None,
+            );
+        }
+    }
     let mut seen = HashSet::new();
     for c in &p.capabilities {
         if !CAPABILITIES.contains(&c.as_str()) || !seen.insert(c) {

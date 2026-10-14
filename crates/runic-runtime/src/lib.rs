@@ -273,6 +273,13 @@ pub struct Delivery {
     pub listener: u32,
     pub event: runic_js::Event,
     pub current: u64,
+    /// A template listener the framework runs from a delegation root
+    /// (IR `schedule.delegation`): the root and whether it is the first of
+    /// the root's group (`Event::enter_delegated`).
+    pub delegated: Option<(u64, bool)>,
+    /// Part of the previous delivery's callback (a delegation root's
+    /// group, a framework listener starting the delegated propagation).
+    pub joined: bool,
 }
 
 /// A generated application.
@@ -305,6 +312,9 @@ pub trait App: 'static {
     fn mount(&mut self, dom: &mut Dom, parent: NodeId);
     /// A checkbox's `change` listener runs in the `click` dispatch.
     const CHANGE_WITH_CLICK: bool = false;
+    /// The kinds whose template listeners the framework runs from a
+    /// delegation root (IR `schedule.delegation`; None: not declared).
+    const DELEGATION: Option<&'static [Event]> = None;
     /// Dispatch one event: run its listeners in order (each unless the event's
     /// propagation was stopped) with the framework's microtask checkpoints,
     /// then the jobs they queued (which update the DOM). On a text-domain

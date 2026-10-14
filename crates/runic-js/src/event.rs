@@ -732,6 +732,8 @@ pub fn listening(kind: TargetKind, name: &str) -> Listening {
 struct Inner {
     data: EventData,
     current: Cell<u64>,
+    /// The element a delegated template listener runs for (`enter_delegated`).
+    delegated_current: Cell<Option<u64>>,
     dispatching: Cell<bool>,
     prevented: Cell<bool>,
     stopped: Cell<bool>,
@@ -756,6 +758,7 @@ impl Event {
         }
         Event(Rc::new(Inner {
             current: Cell::new(data.target.0),
+            delegated_current: Cell::new(None),
             dispatching: Cell::new(true),
             target: Cell::new(Some(data.target.0)),
             data,
@@ -774,6 +777,7 @@ impl Event {
         data.time_stamp = clock();
         Event(Rc::new(Inner {
             current: Cell::new(0),
+            delegated_current: Cell::new(None),
             dispatching: Cell::new(false),
             target: Cell::new(None),
             data,
@@ -831,10 +835,33 @@ impl Event {
     /// `currentTarget`: the element whose listener is running (none
     /// after the dispatch).
     pub fn current_target(&self) -> Option<Element> {
-        self.0
-            .dispatching
-            .get()
-            .then(|| Element(self.0.current.get()))
+        self.0.dispatching.get().then(|| {
+            Element(
+                self.0
+                    .delegated_current
+                    .get()
+                    .unwrap_or(self.0.current.get()),
+            )
+        })
+    }
+    /// Before a template listener a framework runs from its delegation root
+    /// `root` for element `current` (Svelte's `handle_event_propagation`,
+    /// IR `schedule.delegation`): the first of a root's group runs where the
+    /// root's listener can (`first`), each further one while propagation
+    /// was not stopped (Svelte checks `cancelBubble` after each); while it
+    /// runs `currentTarget` is `current`, the native current target stays
+    /// the root.
+    pub fn enter_delegated(&self, root: Element, current: Element, first: bool) -> bool {
+        if first {
+            if !self.can_enter(root) {
+                return false;
+            }
+            self.0.current.set(root.0);
+        } else if self.0.stopped.get() {
+            return false;
+        }
+        self.0.delegated_current.set(Some(current.0));
+        true
     }
     /// `composedPath()[0]`: the first entry of the event's path, which is
     /// the target where there are no shadow roots (the runtime has none);
@@ -859,6 +886,7 @@ impl Event {
             return false;
         }
         self.0.current.set(current.0);
+        self.0.delegated_current.set(None);
         true
     }
     /// The dispatch ended.

@@ -25,6 +25,7 @@ import type {
   StyleGuard,
   Lowering,
   ImageUrl,
+  EventKind,
 } from '../ir.ts';
 import { EVENT_KINDS, IMAGE_EVENT_KINDS } from '../ir.ts';
 import { customType } from '../event-types.ts';
@@ -102,6 +103,33 @@ const LEGACY_WARNINGS = [
 ];
 /** `svelte` exports modules may import. */
 const MODULE_SVELTE = ['tick', 'untrack', 'settled', 'setContext', 'getContext', 'hasContext'];
+
+/**
+ * The IR event kinds among Svelte 5's DELEGATED_EVENTS (svelte/src/utils.js):
+ * its template listeners of these kinds (attributes and spreads on regular
+ * elements) run from the delegation roots (`handle_event_propagation`).
+ */
+const SVELTE_DELEGATED: EventKind[] = [
+  'click',
+  'change',
+  'dblclick',
+  'contextmenu',
+  'focusin',
+  'focusout',
+  'input',
+  'keydown',
+  'keyup',
+  'mousedown',
+  'mousemove',
+  'mouseout',
+  'mouseover',
+  'mouseup',
+  'pointerdown',
+  'pointermove',
+  'pointerout',
+  'pointerover',
+  'pointerup',
+];
 
 /** Inline SVG elements (runic-ir's SVG_TAGS). */
 const SVG_TAGS = ['svg', 'g', 'path', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'rect'];
@@ -6080,7 +6108,10 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
     root: units.get(rootFile!)!.index,
     // Delegated listeners and microtask flushes (the defaults); teardowns
     // read state as it was before the batch that destroys or re-runs them.
-    schedule: { cleanupReadsPrevious: true },
+    // Svelte 5 runs its template listeners of the kinds in its
+    // DELEGATED_EVENTS (svelte/src/utils.js) from its delegation roots, the
+    // mount targets (M6 script DOM: ordered with listeners script adds).
+    schedule: { cleanupReadsPrevious: true, delegation: SVELTE_DELEGATED },
     ...(fragments.list.length ? { fragments: fragments.list } : {}),
   };
   lower.widenRecords(ir);

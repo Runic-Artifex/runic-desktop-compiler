@@ -220,6 +220,22 @@ impl Event {
     }
 }
 
+/// The key standing for a delegation root among a node's listeners.
+pub(crate) const DELEGATION_ROOT: u32 = u32::MAX;
+
+/// Whether `node` is a control whose `disabled` property is true (its own
+/// attribute: Svelte skips the delegated listener of such an element).
+fn control_disabled(doc: &BaseDocument, node: NodeId) -> bool {
+    doc.get_node(node).is_some_and(|n| {
+        n.element_data().is_some_and(|e| {
+            matches!(
+                e.name.local.as_ref(),
+                "button" | "input" | "select" | "textarea" | "fieldset" | "optgroup" | "option"
+            )
+        }) && n.attr("disabled".into()).is_some()
+    })
+}
+
 /// Listener registrations: element → (event, listener key of the app).
 #[derive(Default)]
 pub(crate) struct Listeners {
@@ -248,6 +264,9 @@ pub(crate) struct Listeners {
     /// `addEventListener` (M6 script DOM, slice 3), which frameworks do not
     /// order with their own (`order_conflict`).
     script_keys: std::collections::HashSet<u32>,
+    /// The kinds whose template listeners the framework runs from a
+    /// delegation root (IR `schedule.delegation`; none: not declared).
+    pub(crate) delegation: Option<Vec<Event>>,
     raw: std::collections::HashSet<u32>,
     /// An element that lost focus because a list move detached it.
     pub(crate) blurred: Option<NodeId>,
@@ -354,8 +373,111 @@ impl Listeners {
             .get(&node)
             .into_iter()
             .flatten()
-            .filter(move |(e, _)| *e == event)
+            .filter(move |(e, h)| *e == event && *h != DELEGATION_ROOT)
             .map(|(_, h)| *h)
+    }
+
+    /// A delegation root (IR `schedule.delegation`): where the framework
+    /// mounts (the container, the body for imperative mounts) it listens
+    /// for its delegated kinds once, at the end of the mount; the root's
+    /// position among the node's listeners is that registration.
+    pub fn delegation_root(&mut self, node: NodeId) {
+        let Some(kinds) = self.delegation.clone() else {
+            return;
+        };
+        let list = self.map.entry(node).or_default();
+        for kind in kinds {
+            if !list.contains(&(kind, DELEGATION_ROOT)) {
+                list.push((kind, DELEGATION_ROOT));
+            }
+        }
+    }
+
+    /// The bubbling phase's deliveries at `path[i]` (`path`: the target and
+    /// its ancestors), in the framework's order where it declares its
+    /// delegation: its template listeners of a delegated kind run when the
+    /// event reaches a delegation root, or a listener of its own (`on()`,
+    /// `element.listen`), from `from` (the path index where the previous
+    /// one stopped) up to that node, each for its element (not a disabled
+    /// control other than the target; while propagation is not stopped),
+    /// as one callback with that listener; every other listener runs at its
+    /// element. Returns the deliveries and the new `from`.
+    pub(crate) fn bubble_stage(
+        &self,
+        doc: &BaseDocument,
+        path: &[NodeId],
+        i: usize,
+        from: usize,
+        event: Event,
+        e: &runic_js::Event,
+    ) -> (Vec<crate::Delivery>, usize) {
+        let node = path[i];
+        let delegated = self
+            .delegation
+            .as_ref()
+            .is_some_and(|kinds| kinds.contains(&event));
+        let delivery =
+            |listener: u32, current: NodeId, delegated: Option<(u64, bool)>, joined: bool| {
+                crate::Delivery {
+                    listener,
+                    event: e.clone(),
+                    current: current.as_u64(),
+                    delegated,
+                    joined,
+                }
+            };
+        let keys: Vec<u32> = self
+            .map
+            .get(&node)
+            .into_iter()
+            .flatten()
+            .filter(|(k, _)| *k == event)
+            .map(|(_, h)| *h)
+            .collect();
+        if !delegated {
+            return (
+                keys.into_iter()
+                    .filter(|&k| k != DELEGATION_ROOT)
+                    .map(|k| delivery(k, node, None, false))
+                    .collect(),
+                from,
+            );
+        }
+        let mut out = vec![];
+        let mut from = from;
+        for key in keys {
+            let template = key != DELEGATION_ROOT && !self.script_keys.contains(&key);
+            let framework = key == DELEGATION_ROOT
+                || (self.script_keys.contains(&key) && !self.raw.contains(&key));
+            if template {
+                // (Run from a root.)
+                continue;
+            }
+            if framework && from < i {
+                let mut first = true;
+                for &at in &path[from..i] {
+                    let disabled = at != path[0] && control_disabled(doc, at);
+                    for k in self.all(at, event) {
+                        if self.script_keys.contains(&k) || disabled {
+                            continue;
+                        }
+                        out.push(delivery(k, at, Some((node.as_u64(), first)), !first));
+                        first = false;
+                    }
+                }
+                from = i;
+                if key != DELEGATION_ROOT {
+                    // (The framework's listener runs after the propagation it starts, in its callback.)
+                    let joined = !first;
+                    out.push(delivery(key, node, None, joined));
+                }
+                continue;
+            }
+            if key != DELEGATION_ROOT {
+                out.push(delivery(key, node, None, false));
+            }
+        }
+        (out, from)
     }
 
     /// The capture listeners of `node` for `event`, in registration order.
@@ -386,6 +508,10 @@ impl Listeners {
     /// container, with a template listener at its element or below it,
     /// their order may differ from Chromium's (M6 script DOM, slice 3).
     pub(crate) fn order_conflict(&self, path: &[NodeId], event: Event) -> Option<String> {
+        // (A framework that declares its delegation is run in its order.)
+        if self.delegation.is_some() {
+            return None;
+        }
         // (Frameworks delegate only events that bubble: a non-bubbling
         // event's listeners at its target run in registration order, as
         // the runtime runs them.)
@@ -434,6 +560,8 @@ impl Listeners {
                         listener,
                         event: e.clone(),
                         current: n.as_u64(),
+                        delegated: None,
+                        joined: false,
                     })
             })
             .collect()
@@ -574,6 +702,39 @@ impl Host {
         }
     }
 
+    /// A mount's target becomes a delegation root (`Listeners::delegation_root`).
+    pub fn delegation_root(&self, node: u64) {
+        if let Some(dom) = self.dom() {
+            dom.listeners.delegation_root(NodeId::from_u64(node));
+        }
+    }
+
+    /// The bubbling phase's listeners at `path[i]` for a nested or script
+    /// dispatch, read when the dispatch reaches the node
+    /// (`Listeners::bubble_stage`): (key, current target, delegation root
+    /// and first), and the new `from`.
+    pub fn bubble_stage(
+        &self,
+        path: &[u64],
+        i: usize,
+        from: usize,
+        event: Event,
+        e: &runic_js::Event,
+    ) -> (Vec<(u32, u64, Option<(u64, bool)>)>, usize) {
+        self.dom().map_or((vec![], from), |dom| {
+            let path: Vec<NodeId> = path.iter().map(|&n| NodeId::from_u64(n)).collect();
+            let (out, from) = dom
+                .listeners
+                .bubble_stage(dom.doc, &path, i, from, event, e);
+            (
+                out.into_iter()
+                    .map(|d| (d.listener, d.current, d.delegated))
+                    .collect(),
+                from,
+            )
+        })
+    }
+
     /// The kind of event target `node` is (M6 script DOM, slice 3).
     pub fn target_kind(&self, node: u64) -> runic_js::TargetKind {
         use runic_js::TargetKind;
@@ -645,6 +806,9 @@ impl Host {
     /// reported: the frameworks decide whether and when theirs run).
     pub fn template_on_path(&self, path: &[u64], event: Event) -> bool {
         self.dom().is_some_and(|dom| {
+            if dom.listeners.delegation.is_some() {
+                return false;
+            }
             path.iter().any(|&n| {
                 let n = NodeId::from_u64(n);
                 dom.listeners.template_listens(n, event, false)
@@ -2386,6 +2550,8 @@ pub(crate) fn click_event(
                 listener,
                 event: event.clone(),
                 current: n.as_u64(),
+                delegated: None,
+                joined: false,
             })
     }));
     vec![(event, kind, deliveries)]
@@ -2422,6 +2588,8 @@ fn focus_event(
                 listener,
                 event: event.clone(),
                 current: n.as_u64(),
+                delegated: None,
+                joined: false,
             })
     }));
     (event, kind, deliveries)

@@ -825,6 +825,9 @@ pub struct Machine<'p> {
     /// Template listeners of custom event types by element (last render):
     /// the type and the listener value.
     template_custom: HashMap<u64, Vec<(JsString, Val)>>,
+    /// Delegation roots (IR `schedule.delegation`): the node and its
+    /// registration among the script listeners'.
+    delegation_roots: Vec<(u64, u64)>,
     /// The visual viewport's listeners (M6 overlays).
     viewport_listeners: Vec<(EventKind, Val)>,
     /// MediaQueryList change listeners: each list (in creation order) with
@@ -1383,6 +1386,7 @@ impl<'p> Machine<'p> {
             listener_registration: 0,
             target_listeners: vec![],
             template_custom: HashMap::new(),
+            delegation_roots: vec![],
             viewport_listeners: vec![],
             media_lists: vec![],
             root: runic_css::Root::with_attrs(
@@ -1452,6 +1456,8 @@ impl<'p> Machine<'p> {
         }
         m.create(program.root, &[], None).map_err(throw_diag)?;
         m.mount()?;
+        // The container is a delegation root once the app is mounted.
+        m.delegation_root(CONTAINER.0);
         // The document has loaded; then the host's replies run.
         m.host.session.loaded();
         let mut run = Run::default();
@@ -7435,6 +7441,7 @@ impl<'p> Machine<'p> {
         let id = self.create_in(m.component, &args, None, context, &slots)?;
         let handle = Rc::new(std::cell::Cell::new(Some(id)));
         self.mounted.push((Rc::clone(&handle), id));
+        self.delegation_root(js::Element::BODY.0);
         // Rendered (and its effects run) in the running flush's next pass,
         // or in the flush this queues.
         self.queue_flush();
@@ -9128,11 +9135,34 @@ impl<'p> Machine<'p> {
             for &current in upward.iter().rev() {
                 self.dispatch_element_nested_stage(current, true, kind, &event);
             }
-            for &current in upward
+            // (The bubbling phase in the framework's order where it declares
+            // its delegation: `bubble_stage`.)
+            let bubble: Vec<u64> = upward
                 .iter()
                 .take(if kind.bubbles() { upward.len() } else { 1 })
-            {
-                self.dispatch_element_nested_stage(current, false, kind, &event);
+                .copied()
+                .collect();
+            let mut from = 0;
+            for i in 0..bubble.len() {
+                if kind == EventKind::Submit && event.propagation_stopped() {
+                    break;
+                }
+                let (stage, next) = self.bubble_stage(&bubble, i, from, kind);
+                from = next;
+                for (r, current, delegated, _) in stage {
+                    let enters = match delegated {
+                        Some((root, first)) => {
+                            event.enter_delegated(js::Element(root), js::Element(current), first)
+                        }
+                        None => event.enter(js::Element(current)),
+                    };
+                    if !enters {
+                        continue;
+                    }
+                    if let Err(t) = self.call_element_listener(&r, &event) {
+                        self.uncaught.push(t);
+                    }
+                }
             }
         }
         if kind.bubbles() {
@@ -9321,39 +9351,39 @@ impl<'p> Machine<'p> {
             .collect();
         self.check_listener_order(&upward, kind)
             .map_err(throw_diag)?;
-        let mut entries: Vec<(usize, js::Event, u64)> = vec![];
+        // (Each entry: the listener, the event, the current target, the
+        // delegation root it runs from and whether it is the first of its
+        // group, and whether it joins the previous entry's callback.)
+        type Entry = (ListenerRef, js::Event, u64, Option<(u64, bool)>, bool);
+        let mut entries: Vec<Entry> = vec![];
         // The elements' capture listeners first, from the root to the target
         // (M6 overlays), those script added after the template's.
         for &id in upward.iter().rev() {
             for &(k, l) in self.capture_elements.get(&id).into_iter().flatten() {
                 if k == kind {
-                    entries.push((l, event.clone(), id));
+                    entries.push((self.listeners[l].clone(), event.clone(), id, None, false));
                 }
             }
             for r in self.script_refs(id, kind.name(), true) {
-                self.listeners.push(r);
-                entries.push((self.listeners.len() - 1, event.clone(), id));
+                entries.push((r, event.clone(), id, None, false));
             }
         }
-        for n in path {
-            if let VNode::Element { id, listeners, .. } = n {
-                for &(k, l) in listeners {
-                    if k == kind {
-                        entries.push((l, event.clone(), *id));
-                    }
-                }
-                for f in self.script_listeners(*id, kind) {
-                    entries.push((f, event.clone(), *id));
-                }
-            }
+        // The bubbling phase, in the framework's order where it declares its
+        // delegation (`bubble_stage`).
+        let bubble: Vec<u64> = if kind.bubbles() {
+            upward.clone()
+        } else {
+            vec![target]
+        };
+        let mut from = 0;
+        for i in 0..bubble.len() {
+            let (stage, next) = self.bubble_stage(&bubble, i, from, kind);
+            from = next;
+            entries.extend(stage.into_iter().map(|(r, current, delegated, joined)| {
+                (r, event.clone(), current, delegated, joined)
+            }));
         }
-        if kind.bubbles() {
-            for &id in &tops {
-                for f in self.script_listeners(id, kind) {
-                    entries.push((f, event.clone(), id));
-                }
-            }
-        }
+        let _ = path;
         let mut second = None;
         if let Some((k2, mut d2)) = with {
             fill(&mut d2, k2);
@@ -9361,16 +9391,13 @@ impl<'p> Machine<'p> {
             if let VNode::Element { listeners, .. } = target_node {
                 for &(k, l) in listeners {
                     if k == k2 {
-                        entries.push((l, e2.clone(), target));
+                        entries.push((self.listeners[l].clone(), e2.clone(), target, None, false));
                     }
                 }
             }
             second = Some(e2);
         }
-        let refs: Vec<(ListenerRef, js::Event, u64)> = entries
-            .into_iter()
-            .map(|(l, e, current)| (self.listeners[l].clone(), e, current))
-            .collect();
+        let refs = entries;
         s.ran |= !refs.is_empty();
         // The capture listeners of the window, then the document, first,
         // each a callback of its own.
@@ -9378,11 +9405,21 @@ impl<'p> Machine<'p> {
         // One task per event, or per listener where each listener ends with a
         // microtask checkpoint; an exception does not stop later listeners.
         // A listener script added with `addEventListener` is a callback of
-        // its own (M6 script DOM, slice 3): a checkpoint follows it.
+        // its own (M6 script DOM, slice 3): a checkpoint follows it. Where
+        // the framework declares its delegation, every native listener is a
+        // callback of its own, a delegation root's template listeners one.
         let per_listener = self.program.schedule.checkpoint == Checkpoint::Listener;
-        let mut tasks: Vec<Vec<(ListenerRef, js::Event, u64)>> = vec![];
+        let delegation = self.program.schedule.delegation.is_some();
+        let mut tasks: Vec<Vec<Entry>> = vec![];
         let mut joined = false;
         for r in refs {
+            if delegation {
+                match tasks.last_mut() {
+                    Some(t) if r.4 => t.push(r),
+                    _ => tasks.push(vec![r]),
+                }
+                continue;
+            }
             let own = per_listener || r.0.script.is_some();
             if own || !joined {
                 tasks.push(vec![r]);
@@ -9411,8 +9448,14 @@ impl<'p> Machine<'p> {
                 .any(|k| k.name() == kind);
             let result = self.task(source.as_ref(), discrete, |m| {
                 let mut error = None;
-                for (r, event, current) in listeners {
-                    if !event.enter(js::Element(current)) {
+                for (r, event, current, delegated, _) in listeners {
+                    let enters = match delegated {
+                        Some((root, first)) => {
+                            event.enter_delegated(js::Element(root), js::Element(current), first)
+                        }
+                        None => event.enter(js::Element(current)),
+                    };
+                    if !enters {
                         continue;
                     }
                     let result = match (&r.script, &r.closure) {
@@ -9563,22 +9606,6 @@ impl<'p> Machine<'p> {
         event.finish();
     }
 
-    /// After the element path: the document's listeners, then the window's,
-    /// each a callback of its own (a microtask checkpoint follows it). A
-    /// target's listeners are those registered when the event reaches it;
-    /// one removed meanwhile is not called.
-    /// Listener table entries (until the next render) for the listeners
-    /// script added to element `id` for `kind`, in registration order.
-    fn script_listeners(&mut self, id: u64, kind: EventKind) -> Vec<usize> {
-        self.script_refs(id, kind.name(), false)
-            .into_iter()
-            .map(|r| {
-                self.listeners.push(r);
-                self.listeners.len() - 1
-            })
-            .collect()
-    }
-
     /// The listeners script added to node `id` for events of type `kind` in
     /// one phase, in registration order: those added with
     /// `addEventListener` (slice 3) and, outside the capture phase, the
@@ -9625,6 +9652,122 @@ impl<'p> Machine<'p> {
         }
         out.sort_by_key(|(r, _)| *r);
         out
+    }
+
+    /// A mount's target becomes a delegation root (IR
+    /// `schedule.delegation`): the framework listens for its delegated kinds
+    /// there once, at the end of the mount.
+    fn delegation_root(&mut self, node: u64) {
+        if self.program.schedule.delegation.is_some()
+            && !self.delegation_roots.iter().any(|r| r.0 == node)
+        {
+            let registration = self.next_listener_registration();
+            self.delegation_roots.push((node, registration));
+        }
+    }
+
+    /// The template listeners of element `id` for `kind` (bubbling phase).
+    fn template_refs(&self, id: u64, kind: EventKind) -> Vec<ListenerRef> {
+        match chain_nodes(&self.last_tree, id).and_then(|n| n.last().copied()) {
+            Some(VNode::Element { listeners, .. }) => listeners
+                .iter()
+                .filter(|(k, _)| *k == kind)
+                .map(|&(_, l)| self.listeners[l].clone())
+                .collect(),
+            _ => vec![],
+        }
+    }
+
+    /// Whether `id` is a control whose `disabled` property is true.
+    fn control_disabled(&self, id: u64) -> bool {
+        matches!(
+            chain_nodes(&self.last_tree, id).and_then(|n| n.last().copied()),
+            Some(VNode::Element { tag, attrs, .. })
+                if matches!(tag.as_str(), "button" | "input" | "select" | "textarea" | "fieldset" | "optgroup" | "option")
+                    && attrs.contains_key("disabled")
+        )
+    }
+
+    /// The bubbling phase's listeners at `path[i]` (the runtime's
+    /// `Listeners::bubble_stage`): where the framework declares its
+    /// delegation, its template listeners of a delegated kind run when the
+    /// event reaches a delegation root or a listener of its own (`on()`),
+    /// from `from` up to that node, as one callback with it; every other
+    /// listener at its element. Each entry: the listener, the current
+    /// target, the delegation root and whether it is the first of its
+    /// group, and whether it joins the previous entry's callback.
+    #[allow(clippy::type_complexity)]
+    fn bubble_stage(
+        &self,
+        path: &[u64],
+        i: usize,
+        from: usize,
+        kind: EventKind,
+    ) -> (Vec<(ListenerRef, u64, Option<(u64, bool)>, bool)>, usize) {
+        let node = path[i];
+        let delegated = self
+            .program
+            .schedule
+            .delegation
+            .as_ref()
+            .is_some_and(|k| k.contains(&kind));
+        // (Template listeners first: registered when the element was
+        // created; then the root and script's by registration.)
+        enum Entry {
+            Template(ListenerRef),
+            Root,
+            Script(ListenerRef),
+        }
+        let mut list: Vec<(u64, Entry)> = self
+            .template_refs(node, kind)
+            .into_iter()
+            .map(|r| (0, Entry::Template(r)))
+            .collect();
+        if let Some(&(_, reg)) = self.delegation_roots.iter().find(|r| r.0 == node) {
+            if delegated {
+                list.push((reg, Entry::Root));
+            }
+        }
+        list.extend(
+            self.script_registrations(node, kind.name(), false)
+                .into_iter()
+                .map(|(reg, r)| (reg, Entry::Script(r))),
+        );
+        list.sort_by_key(|(reg, _)| *reg);
+        let mut out = vec![];
+        let mut from = from;
+        for (_, entry) in list {
+            match entry {
+                Entry::Template(r) if !delegated => out.push((r, node, None, false)),
+                Entry::Template(_) => {}
+                Entry::Root | Entry::Script(_)
+                    if delegated
+                        && from < i
+                        && matches!(
+                            &entry,
+                            Entry::Root | Entry::Script(ListenerRef { script: None, .. })
+                        ) =>
+                {
+                    let mut first = true;
+                    for &at in &path[from..i] {
+                        if at != path[0] && self.control_disabled(at) {
+                            continue;
+                        }
+                        for r in self.template_refs(at, kind) {
+                            out.push((r, at, Some((node, first)), !first));
+                            first = false;
+                        }
+                    }
+                    from = i;
+                    if let Entry::Script(r) = entry {
+                        out.push((r, node, None, !first));
+                    }
+                }
+                Entry::Root => {}
+                Entry::Script(r) => out.push((r, node, None, false)),
+            }
+        }
+        (out, from)
     }
 
     /// The kind of event target node `t` is (M6 script DOM, slice 3).
@@ -9817,6 +9960,10 @@ impl<'p> Machine<'p> {
     /// template listener at its element or below it, their order may differ
     /// from Chromium's, and the run is reported unsupported.
     fn check_listener_order(&self, path: &[u64], kind: EventKind) -> Res<()> {
+        // (A framework that declares its delegation is run in its order.)
+        if self.program.schedule.delegation.is_some() {
+            return Ok(());
+        }
         // (Frameworks delegate only events that bubble: a non-bubbling
         // event's listeners at its target run in registration order.)
         let phases: &[bool] = if kind.bubbles() {
@@ -9883,7 +10030,7 @@ impl<'p> Machine<'p> {
         };
         let native =
             EventKind::parse(&name).filter(|_| js::event::FIRED_TYPES.contains(&name.as_str()));
-        if let Some(kind) = native {
+        if let Some(kind) = native.filter(|_| self.program.schedule.delegation.is_none()) {
             for &n in &path {
                 if self.template_listens(n, kind, false) || self.template_listens(n, kind, true) {
                     return Err(Throw::new(
@@ -9901,22 +10048,57 @@ impl<'p> Machine<'p> {
         if ev.data().bubbles {
             stages.extend(path.iter().skip(1).map(|&n| (n, false)));
         }
+        // (A native type's listeners at elements, with the template's where
+        // the framework declares its delegation, in its order.)
+        let bubble: Vec<u64> = stages.iter().filter(|s| !s.1).map(|s| s.0).collect();
+        let mut from = 0;
         for (node, capture) in stages {
             if ev.propagation_stopped() && !ev.can_enter(js::Element(node)) {
                 break;
             }
-            for r in self.dispatch_refs(node, &name, native, capture) {
-                if !ev.enter(js::Element(node)) {
-                    break;
+            let host = js::Element(node) == js::Element::WINDOW
+                || js::Element(node) == js::Element::DOCUMENT;
+            #[allow(clippy::type_complexity)]
+            let calls: Vec<(ListenerRef, u64, Option<(u64, bool)>)> = match (native, capture) {
+                (Some(kind), false) if !host => {
+                    let i = bubble.iter().position(|&n| n == node).unwrap_or(0);
+                    let (stage, next) = self.bubble_stage(&bubble, i, from, kind);
+                    from = next;
+                    stage.into_iter().map(|(r, c, d, _)| (r, c, d)).collect()
                 }
-                let result = match &r.script {
-                    Some(l) => self.call_target(l, ev),
-                    None => match &r.closure {
-                        Some(f) => self.call_nested_listener(f, ev),
-                        None => Ok(()),
-                    },
+                (Some(kind), true) if !host => {
+                    let mut calls: Vec<(ListenerRef, u64, Option<(u64, bool)>)> = self
+                        .capture_elements
+                        .get(&node)
+                        .into_iter()
+                        .flatten()
+                        .filter(|(k, _)| *k == kind)
+                        .map(|&(_, l)| (self.listeners[l].clone(), node, None))
+                        .collect();
+                    calls.extend(
+                        self.dispatch_refs(node, &name, native, true)
+                            .into_iter()
+                            .map(|r| (r, node, None)),
+                    );
+                    calls
+                }
+                _ => self
+                    .dispatch_refs(node, &name, native, capture)
+                    .into_iter()
+                    .map(|r| (r, node, None))
+                    .collect(),
+            };
+            for (r, current, delegated) in calls {
+                let enters = match delegated {
+                    Some((root, first)) => {
+                        ev.enter_delegated(js::Element(root), js::Element(current), first)
+                    }
+                    None => ev.enter(js::Element(current)),
                 };
-                if let Err(t) = result {
+                if !enters {
+                    continue;
+                }
+                if let Err(t) = self.call_element_listener(&r, ev) {
                     self.uncaught.push(t);
                 }
             }

@@ -240,22 +240,35 @@ test('listener options and types outside the covered set are rejected where they
   );
 });
 
-test('a listener script adds above a template listener stops the run', async () => {
+test("Svelte's delegated template listeners run from its root, after listeners script adds below it", async () => {
   await withApp(
     {
       'App.svelte': `<script lang="ts">
   import { onMount } from 'svelte';
   let outer = $state<HTMLElement | null>(null);
   let out = $state('');
-  onMount(() => outer?.addEventListener('click', () => { out = out + 'raw;'; }));
+  let stop = false;
+  onMount(() => outer?.addEventListener('click', (e: MouseEvent) => { out = out + 'raw;'; if (stop) e.stopPropagation(); }));
 </script>
-<div bind:this={outer}><button id="b" onclick={() => { out = out + 'template;'; }}>b</button></div>
+<div onclick={(e: MouseEvent) => { out = out + 'root ' + (e.currentTarget === outer) + ';'; }}>
+  <div bind:this={outer}><button id="b" onclick={(e: MouseEvent) => { out = out + 'button ' + (e.currentTarget === e.target) + ';'; }}>b</button></div>
+</div>
+<button id="s" onclick={() => { stop = true; }}>s</button>
 <p id="out">{out}</p>`,
     },
     async root => {
       const { ir } = await lowered(root);
-      const steps = interpret(ir, [{ kind: 'click', id: 'b' }]);
-      assert.match(JSON.stringify(steps[1].outcome), /RunicUnsupportedError.*template listener/);
+      assert.ok(ir.schedule.delegation.includes('click'));
+      const steps = interpret(ir, [
+        { kind: 'click', id: 'b' },
+        { kind: 'click', id: 's' },
+        { kind: 'click', id: 'b' },
+      ]);
+      // (Chromium's order: the listener script added on the way up, then
+      // Svelte's root runs the button's and its ancestor's handlers; one
+      // that stops propagation below the root keeps all of them from running.)
+      assert.equal(out(steps[1]), 'raw;button true;root false;');
+      assert.equal(out(steps[3]), 'raw;button true;root false;raw;');
     },
   );
 });

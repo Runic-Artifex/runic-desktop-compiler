@@ -479,6 +479,8 @@ impl<A: App> Native<A> {
                     listener,
                     event: event.clone(),
                     current: Element::VISUAL_VIEWPORT.0,
+                    delegated: None,
+                    joined: false,
                 };
                 handler.dispatch(&mut self.doc, &[delivery]);
             }
@@ -500,6 +502,8 @@ impl<A: App> Native<A> {
                     listener,
                     event: event.clone(),
                     current: 0,
+                    delegated: None,
+                    joined: false,
                 };
                 handler.dispatch(&mut self.doc, &[delivery]);
             }
@@ -1097,14 +1101,16 @@ impl<A: App> Handler<'_, A> {
             crate::unsupported(&why);
         }
         let mut deliveries: Vec<Delivery> = self.listeners.capture_deliveries(&chain, kind, &event);
-        deliveries.extend(path.iter().flat_map(|&n| {
-            let event = &event;
-            self.listeners.all(n, kind).map(move |listener| Delivery {
-                listener,
-                event: event.clone(),
-                current: n.as_u64(),
-            })
-        }));
+        // (The bubbling phase in the framework's order where it declares its
+        // delegation: `Listeners::bubble_stage`.)
+        let mut from = 0;
+        for i in 0..path.len() {
+            let (stage, next) = self
+                .listeners
+                .bubble_stage(doc, path, i, from, kind, &event);
+            deliveries.extend(stage);
+            from = next;
+        }
         // The capture listeners of the window, then the document, first.
         self.capture(doc, kind, &event, true);
         self.dispatch(doc, &deliveries);
@@ -1179,6 +1185,8 @@ impl<A: App> Handler<'_, A> {
                     listener,
                     event: event.clone(),
                     current: current.0,
+                    delegated: None,
+                    joined: false,
                 };
                 self.dispatch(doc, &[delivery]);
             }
@@ -1212,6 +1220,8 @@ impl<A: App> Handler<'_, A> {
                     listener,
                     event: event.clone(),
                     current: current.0,
+                    delegated: None,
+                    joined: false,
                 };
                 self.dispatch(doc, &[delivery]);
             }
@@ -1649,6 +1659,8 @@ impl<A: App> Handler<'_, A> {
                         listener,
                         event: event.clone(),
                         current: n.as_u64(),
+                        delegated: None,
+                        joined: false,
                     });
                 }
             }
@@ -1657,6 +1669,8 @@ impl<A: App> Handler<'_, A> {
                     listener,
                     event: change.clone(),
                     current: id.as_u64(),
+                    delegated: None,
+                    joined: false,
                 });
             }
             self.dispatch(doc, &deliveries);

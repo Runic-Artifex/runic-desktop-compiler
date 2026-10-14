@@ -216,6 +216,15 @@ pub struct Schedule {
     /// discrete update before that task renders them at once.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub continuous: Vec<EventKind>,
+    /// How the framework orders its template listeners with listeners script
+    /// adds (M6 script DOM; docs/IR.md "Delegation"). Absent: not declared,
+    /// so where a listener script added could run in another order than the
+    /// framework's, the run is reported. Present: the event kinds whose
+    /// bubbling template listeners the framework runs from a delegation
+    /// root (Svelte's), every other template listener being a native
+    /// listener of its element.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delegation: Option<Vec<EventKind>>,
 }
 
 /// How cleanups of re-running effects are ordered within a phase.
