@@ -1087,10 +1087,13 @@ impl<A: App> Handler<'_, A> {
                 .unwrap_or_default();
         }
         let event = runic_js::Event::new(data);
+        // (A bubbling event reaches every ancestor of its target, also where
+        // the caller passed the target alone: a typed character's `input`.)
+        let full = element_chain(doc, target);
         let path = if kind.bubbles() {
-            &elements[..]
+            &full[..]
         } else {
-            &elements[..1]
+            &full[..1]
         };
         // The elements' capture listeners first, from the root to the
         // target (M6 overlays: along the target's ancestors also for events
