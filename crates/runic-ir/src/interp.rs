@@ -440,6 +440,9 @@ type Res<T> = std::result::Result<T, Throw>;
 /// and copy the values of unboxed ones (which are never reassigned).
 struct Frame {
     locals: RefCell<Vec<Rc<RefCell<Val>>>>,
+    /// The program function running in the frame, where it is one (its
+    /// locals' types type the frame's expressions: `type_of`).
+    func: Option<usize>,
 }
 
 impl Frame {
@@ -450,6 +453,7 @@ impl Frame {
                     .map(|_| Rc::new(RefCell::new(Val::Undefined)))
                     .collect(),
             ),
+            func: None,
         }
     }
     fn get(&self, i: usize) -> Val {
@@ -1966,7 +1970,33 @@ impl<'p> Machine<'p> {
                     .iter()
                     .map(|a| self.eval(a, f))
                     .collect::<Res<Vec<_>>>()?;
-                let types: Vec<Type> = args.iter().map(|a| self.type_of(a, f)).collect();
+                // (`array.concat` takes an argument of the receiver's type as
+                // the array whose items it adds: its arguments' static types,
+                // in a program function's frame.)
+                let types: Vec<Type> = match f.func {
+                    Some(k) if name == "array.concat" => {
+                        let func = &self.program.functions[k];
+                        let locals: Vec<crate::Local> = func
+                            .captures
+                            .iter()
+                            .chain(&func.params)
+                            .chain(&func.locals)
+                            .cloned()
+                            .collect();
+                        args.iter()
+                            .map(|a| {
+                                crate::validate::infer_in(
+                                    &self.program,
+                                    func.component,
+                                    &locals,
+                                    None,
+                                    a,
+                                )
+                            })
+                            .collect()
+                    }
+                    _ => args.iter().map(|a| self.type_of(a, f)).collect(),
+                };
                 // (A script DOM operation on the framework's nodes, which the
                 // interpreter does not hold, stops the run as an unsupported
                 // shape does: the trace is incomplete, never a mismatch.)
@@ -2013,7 +2043,8 @@ impl<'p> Machine<'p> {
     /// Call function `index` with captured cells and arguments.
     fn call(&mut self, index: usize, captures: Vec<Rc<RefCell<Val>>>, args: Vec<Val>) -> Res<Val> {
         let func = &self.program.functions[index];
-        let frame = Frame::new(func.local_count());
+        let mut frame = Frame::new(func.local_count());
+        frame.func = Some(index);
         for (i, c) in captures.into_iter().enumerate() {
             frame.locals.borrow_mut()[i] = c;
         }

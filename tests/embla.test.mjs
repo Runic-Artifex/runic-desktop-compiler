@@ -126,3 +126,42 @@ test("the pack's pinned declaration override types mergeOptions' result; activat
   assert.match(text, /let removeListener: \(\(\) => void\) \| undefined;/);
   assert.match(text, /let listeners: \(\(\) => void\)\[\] = \[\];/);
 });
+
+test("EventHandler's listeners, the generic and nested helpers, reduce seeds and the engine's callbacks are typed", () => {
+  const modules = new Map([[bundle, annotate(bundle, readFileSync(bundle, 'utf8'))]]);
+  const build = () => {
+    const files = new Map();
+    for (const m of modules.values()) {
+      files.set(m.virtual, m.text);
+      for (const d of m.bundleDts ?? [])
+        files.set(d, exportAllDeclarations(d, bundleOverrides(m.inferred, d)));
+    }
+    return createProgram(files, [], spec =>
+      spec.startsWith(DTS_PREFIX) ? spec.slice(DTS_PREFIX.length) : undefined,
+    );
+  };
+  let program = build();
+  for (let pass = 0; pass < 8 && inferFields(modules, program).length; pass++) program = build();
+  const text = annotate(bundle, readFileSync(bundle, 'utf8'), modules.get(bundle).inferred).text;
+  // A dictionary written only from itself and the callbacks concatenated
+  // (`listeners[evt] = getListeners(evt).concat([cb])`).
+  assert.match(text, /let listeners: \{ \[key: string\]: __dts\d+\.CallbackType\[\] \} = \{\};/);
+  // A nested function declaration, from its calls.
+  assert.match(text, /function getListeners\(evt: string\)/);
+  // Functions only called through a record by a key of its names.
+  assert.match(text, /function center\(n: number\)/);
+  assert.match(text, /function end\(n: number\)/);
+  // Nested functions called by a generic member with its type parameter.
+  assert.match(text, /function byNumber<Type>\(array: Type\[\], groupSize: number\)/);
+  assert.match(text, /function bySize<Type>\(array: Type\[\]\)/);
+  // An empty array a reduce starts from, of the items pushed onto it.
+  assert.match(text, /\}, \[\] as number\[\]\)\.map\(\(currentSize, index, groups\)/);
+  // A function passed to requestAnimationFrame, and the time it stores.
+  assert.match(text, /function animate\(timeStamp: number\)/);
+  assert.match(text, /let lastTimeStamp: number \| null = null;/);
+  // The engine's update and render arrows: their destructured parameter.
+  assert.match(text, /\}: __dts\d+\.EngineType\) => \{\n\s+if \(!loop\)/);
+  assert.match(text, /\}: __dts\d+\.EngineType, alpha: number\) => \{/);
+  // A copy of the slides (`[].slice.call(customSlides || container.children)`).
+  assert.match(text, /let slides: HTMLElement\[\] \| undefined;/);
+});

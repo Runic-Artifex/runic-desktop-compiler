@@ -37,7 +37,7 @@ import {
 } from './irtype.ts';
 import { DOM } from './program.ts';
 import { CSS_SUPPORTS, supportsKey } from './css-supports.ts';
-import { declarationFile, declarationFileOf } from './package-modules.ts';
+import { declarationFile, declarationFileOf, sliceCall } from './package-modules.ts';
 import { asyncBody, isAsync } from './async.ts';
 import { allCertain, analyze, literalParts, syntaxError, type RegexInfo } from './regexp.ts';
 import { intlSpec, LOCALES, verifiedLocale, type IntlKind } from './intl.ts';
@@ -798,9 +798,14 @@ export class Lowerer {
     )
       return false;
     const statement = decl.parent.parent;
-    for (let p: ts.Node | undefined = n.parent; p; p = p.parent)
-      if (ts.isFunctionDeclaration(p) && p.parent === statement.parent && p.pos < statement.pos)
-        return true;
+    // (Also a closure created by an earlier statement of the block, embla's
+    // Engine: `const animation = Animations(…, () => update(engine), …)`
+    // before `const engine = { … }`, called only once it exists.)
+    let inFunction = false;
+    for (let p: ts.Node | undefined = n.parent; p; p = p.parent) {
+      if (ts.isFunctionLike(p)) inFunction = true;
+      if (p.parent === statement.parent) return inFunction && p.pos < statement.pos;
+    }
     return false;
   }
 
@@ -3290,7 +3295,14 @@ export class Lowerer {
     const uses = (n: ts.Node, found: (f: ts.FunctionDeclaration) => void) => {
       const visit = (x: ts.Node) => {
         if (ts.isIdentifier(x)) {
-          const f = symbols.get(this.checker.getSymbolAtLocation(x)!);
+          // (A shorthand property names the function through its value
+          // symbol: embla's Alignment `const predefined = { start, center,
+          // end }` before the declarations.)
+          const f = symbols.get(
+            (ts.isShorthandPropertyAssignment(x.parent) && x.parent.name === x
+              ? this.checker.getShorthandAssignmentValueSymbol(x.parent)
+              : this.checker.getSymbolAtLocation(x))!,
+          );
           if (f && f.name !== x) found(f);
         }
         ts.forEachChild(x, visit);
@@ -3322,15 +3334,25 @@ export class Lowerer {
         if (!ts.isIdentifier(d.name) || !d.initializer) continue;
         const sym = this.checker.getSymbolAtLocation(d.name);
         if (!sym || !this.selfCaptured.has(sym) || !b.boxed.has(sym)) continue;
-        if (!fns.some(f => f.pos < st.pos && refersTo(f, sym, this.checker))) continue;
+        if (!statements.some(f => f.pos < st.pos && closureRefersTo(f, sym, this.checker)))
+          continue;
         const local = b.local(d.name.text, this.types.of(d.name), true);
         this.bindings.set(sym, { kind: 'local', owner: b, local });
         this.predeclared.set(sym, local);
         out.push({ op: 'let', local, ...this.src(d) });
       }
     }
-    for (const f of fns) if (early.has(f)) out.push(...declared.get(f)!.create());
+    // An early function referring to variables of the block declared before
+    // the first statement that uses it (embla's Axis: `const isVertical =
+    // …; const startEdge = getStartEdge();` with `function getStartEdge()`
+    // reading `isVertical` after it) is created just before that statement,
+    // where they are bound; JavaScript's function, created at the block's
+    // start, reads them only when called. (Not before a function created
+    // earlier that uses it.)
+    const at = this.earlyPositions(statements, fns, early, uses);
+    for (const f of fns) if (early.has(f) && !at.has(f)) out.push(...declared.get(f)!.create());
     for (const [i, s] of statements.entries()) {
+      for (const f of fns) if (at.get(f) === i) out.push(...declared.get(f)!.create());
       if (ts.isFunctionDeclaration(s) && declared.has(s)) {
         if (!early.has(s)) out.push(...declared.get(s)!.create());
         continue;
@@ -3363,6 +3385,115 @@ export class Lowerer {
         ];
     }
     return out;
+  }
+
+  /**
+   * The statement index before which each early function of a block that
+   * refers to the block's variables is created (`block`): the first
+   * statement using it (directly or through another early function), where
+   * every variable of the block it refers to (itself or through the early
+   * functions it uses) is declared by a statement before it. The others
+   * are left out (created at the block's start).
+   */
+  private earlyPositions(
+    statements: readonly ts.Statement[],
+    fns: ts.FunctionDeclaration[],
+    early: Set<ts.FunctionDeclaration>,
+    uses: (n: ts.Node, found: (f: ts.FunctionDeclaration) => void) => void,
+  ): Map<ts.FunctionDeclaration, number> {
+    const declaredAt = new Map<ts.Symbol, number>();
+    statements.forEach((st, i) => {
+      if (!ts.isVariableStatement(st)) return;
+      const names = (n: ts.BindingName): void => {
+        if (ts.isIdentifier(n)) {
+          const sym = this.checker.getSymbolAtLocation(n);
+          if (sym) declaredAt.set(sym, i);
+        } else for (const el of n.elements) if (!ts.isOmittedExpression(el)) names(el.name);
+      };
+      for (const d of st.declarationList.declarations) names(d.name);
+    });
+    const list = fns.filter(f => early.has(f));
+    // The early functions each uses, and the block's variables each refers to.
+    const callees = new Map(list.map(f => [f, new Set<ts.FunctionDeclaration>()]));
+    const refs = new Map(list.map(f => [f, 0]));
+    const reads = new Map(list.map(f => [f, false]));
+    for (const f of list) {
+      uses(f, g => {
+        if (g !== f && early.has(g)) callees.get(f)!.add(g);
+      });
+      const visit = (x: ts.Node) => {
+        if (ts.isIdentifier(x)) {
+          const sym =
+            ts.isShorthandPropertyAssignment(x.parent) && x.parent.name === x
+              ? this.checker.getShorthandAssignmentValueSymbol(x.parent)
+              : this.checker.getSymbolAtLocation(x);
+          const i = sym && declaredAt.get(sym);
+          if (i !== undefined) {
+            reads.set(f, true);
+            refs.set(f, Math.max(refs.get(f)!, i));
+          }
+        }
+        ts.forEachChild(x, visit);
+      };
+      visit(f);
+    }
+    // (Through the early functions it uses.)
+    for (let changed = true; changed;) {
+      changed = false;
+      for (const f of list)
+        for (const g of callees.get(f)!) {
+          if (reads.get(g) && !reads.get(f)) (reads.set(f, true), (changed = true));
+          if (refs.get(g)! > refs.get(f)!) (refs.set(f, refs.get(g)!), (changed = true));
+        }
+    }
+    const pos = new Map<ts.FunctionDeclaration, number>();
+    for (const f of list) {
+      if (!reads.get(f)) continue;
+      const first = statements.findIndex(
+        st =>
+          !ts.isFunctionDeclaration(st) &&
+          (() => {
+            let found = false;
+            uses(st, g => {
+              if (g === f || (early.has(g) && this.reaches(g, f, callees))) found = true;
+            });
+            return found;
+          })(),
+      );
+      if (first > refs.get(f)!) pos.set(f, first);
+    }
+    // (Not after an early function using it: the earlier position.)
+    for (let changed = true; changed;) {
+      changed = false;
+      for (const g of list)
+        for (const f of callees.get(g)!) {
+          const pf = pos.get(f);
+          const pg = pos.get(g);
+          if (pf === undefined) continue;
+          if (pg === undefined || pg < pf) {
+            if (pg !== undefined && pg > refs.get(f)!) pos.set(f, pg);
+            else pos.delete(f);
+            changed = true;
+          }
+        }
+    }
+    return pos;
+  }
+
+  /** Whether early function `g` uses `f`, directly or through others. */
+  private reaches(
+    g: ts.FunctionDeclaration,
+    f: ts.FunctionDeclaration,
+    callees: Map<ts.FunctionDeclaration, Set<ts.FunctionDeclaration>>,
+  ): boolean {
+    const seen = new Set<ts.FunctionDeclaration>();
+    const walk = (x: ts.FunctionDeclaration): boolean => {
+      if (x === f) return true;
+      if (seen.has(x)) return false;
+      seen.add(x);
+      return [...(callees.get(x) ?? [])].some(walk);
+    };
+    return walk(g);
   }
 
   /**
@@ -5411,6 +5542,34 @@ export class Lowerer {
             ? { op: 'utf16-length', arg: source }
             : { op: 'builtin', name: 'array.length', args: [source], type: NUMBER };
         bind(el.name, length, NUMBER, el.initializer);
+      }
+      return out;
+    }
+    // An element's layout metrics (embla's NodeRects: `const { offsetTop,
+    // offsetLeft, offsetWidth, offsetHeight } = node`), read in pattern
+    // order as `node.offsetTop` reads them, the element evaluated once.
+    if (ts.isObjectBindingPattern(pattern) && type === 'element') {
+      const tmp = b.local('$element', 'element');
+      out.push({ op: 'let', local: tmp, value: source });
+      for (const el of pattern.elements) {
+        const key = (el.propertyName ?? el.name) as ts.Identifier;
+        if (el.dotDotDotToken || !ts.isIdentifier(key) || !ELEMENT_METRICS.includes(key.text))
+          this.fail(
+            el,
+            'E_DESTRUCTURE',
+            `Elements destructure into their layout metrics (${ELEMENT_METRICS.join(', ')})`,
+          );
+        bind(
+          el.name,
+          {
+            op: 'builtin',
+            name: `element.${key.text}`,
+            args: [{ op: 'local', local: tmp }],
+            type: NUMBER,
+          },
+          NUMBER,
+          el.initializer,
+        );
       }
       return out;
     }
@@ -8697,6 +8856,17 @@ export class Lowerer {
         right = { op: 'some', value: right };
       if (lt === 'boolean' && rt === 'boolean')
         return { op: op === K.AmpersandAmpersandToken ? 'and' : 'or', left, right };
+      // A left operand that is always an object (embla's SlideSizes:
+      // `slideRects[0] && readEdgeGap`, a checked array read): truthy, so
+      // `&&` gives the right operand after evaluating it, `||` the left one.
+      const alwaysObject =
+        lt === 'element' ||
+        (typeof lt === 'object' &&
+          ['array', 'record', 'map', 'set', 'class', 'classes', 'fn'].some(k => k in lt));
+      if (alwaysObject && op === K.AmpersandAmpersandToken && !sameType(lt, rt)) {
+        const tmp = b.local('$logical', lt);
+        return { op: 'with', local: tmp, value: left, body: right };
+      }
       // JS value semantics: evaluate the left operand once.
       const tmp = b.local('$logical', lt);
       const read: Expr = { op: 'local', local: tmp };
@@ -11694,6 +11864,7 @@ export class Lowerer {
     if (first) return first;
     const counted = this.arrayFromLength(e, b);
     if (counted) return counted;
+    if (sliceCall(e)) return this.sliceCall(e, b);
     const callee = e.expression;
     const args = () => e.arguments.map(a => this.expr(a, b));
     if (callee.kind === ts.SyntaxKind.SuperKeyword)
@@ -12177,6 +12348,30 @@ export class Lowerer {
             args: [v],
             type: { array: method === 'keys' ? STRING : t.map[1] },
           };
+        // An array's (embla's `arrayKeys(array)`, `Object.keys(array).map(Number)`):
+        // its index keys in ascending order, as strings (the IR's arrays have
+        // no holes, so every index is a key), or its items.
+        if (typeof t === 'object' && 'array' in t) {
+          if (method === 'values')
+            return { op: 'builtin', name: 'array.slice', args: [v], type: t };
+          const index = this.reserve();
+          this.functions[index] = {
+            name: 'Object.keys$index',
+            params: [
+              { name: 'item', type: t.array },
+              { name: 'index', type: NUMBER },
+            ],
+            locals: [],
+            result: STRING,
+            body: [{ op: 'return', value: this.stringify({ op: 'local', local: 1 }, NUMBER) }],
+          };
+          return {
+            op: 'builtin',
+            name: 'array.map',
+            args: [v, { op: 'closure', function: index, captures: [] }],
+            type: { array: STRING },
+          };
+        }
       }
       // `Array.isArray(x.m)` of a member whose type differs between the
       // classes of `x` (bits-ui's Select root template tests its value box,
@@ -12608,6 +12803,38 @@ export class Lowerer {
             };
             return { op: 'closure', function: index, captures: [] } as Expr;
           }
+          // The global `Number` as `map`'s function (embla's
+          // `objectKeys(array).map(Number)`): `Number(item)`, the index and
+          // the array ignored.
+          if (
+            ts.isIdentifier(f) &&
+            f.text === 'Number' &&
+            method === 'map' &&
+            this.symbol(f)?.declarations?.some(d =>
+              /[\\/]lib\.es5\.d\.ts$/.test(d.getSourceFile().fileName),
+            )
+          ) {
+            const index = this.reserve();
+            this.functions[index] = {
+              name: 'Number',
+              params: [{ name: 'value', type: at.array }],
+              locals: [],
+              result: NUMBER,
+              body: [
+                {
+                  op: 'return',
+                  value: {
+                    op: 'builtin',
+                    name: 'Number',
+                    args: [{ op: 'local', local: 0 }],
+                    type: NUMBER,
+                  },
+                },
+              ],
+            };
+            mapsTo = NUMBER;
+            return { op: 'closure', function: index, captures: [] } as Expr;
+          }
           const named = ts.isIdentifier(f) ? this.binding(f) : undefined;
           if (named?.kind === 'generic' && !named.outer)
             return this.genericValue(named, callbackParams(named.decl.parameters.length), f, b);
@@ -12791,6 +13018,16 @@ export class Lowerer {
               this.expected.set(x, element);
           }
       }
+      // Array literals concatenated (`xs.concat([v])`, embla's EventHandler):
+      // arrays of the receiver's type, which `concat` spreads, where their
+      // contextual type (`ConcatArray<T>`) is outside the value model.
+      if (kind === 'array' && method === 'concat') {
+        const at = this.irType(receiver, b);
+        for (const a of e.arguments) {
+          const x = skipParens(a);
+          if (ts.isArrayLiteralExpression(x) && !this.expected.has(x)) this.expected.set(x, at);
+        }
+      }
       if (kind === 'event' && method === 'composedPath')
         return this.fail(
           e,
@@ -12806,7 +13043,128 @@ export class Lowerer {
           e,
         );
     }
+    if (ts.isElementAccessExpression(skipParens(callee))) {
+      const keyed = this.keyedCall(e, skipParens(callee) as ts.ElementAccessExpression, b);
+      if (keyed) return keyed;
+    }
     return this.fail(e, 'E_CALL', 'Unsupported call');
+  }
+
+  /**
+   * The strings expression `e` may be, where TypeScript's types give a
+   * finite set: a literal, a value of a union of string literals, or a
+   * template whose substitutions are such values (each combination).
+   * Undefined otherwise.
+   */
+  finiteStrings(e: ts.Expression): string[] | undefined {
+    const x = skipParens(e);
+    if (ts.isStringLiteralLike(x)) return [x.text];
+    const literals = (t: ts.Type): string[] | undefined => {
+      const parts = t.isUnion() ? t.types : [t];
+      return parts.every(m => m.isStringLiteral())
+        ? parts.map(m => (m as ts.StringLiteralType).value)
+        : undefined;
+    };
+    if (ts.isTemplateExpression(x)) {
+      let out = [x.head.text];
+      for (const span of x.templateSpans) {
+        const values = literals(this.checker.getTypeAtLocation(span.expression));
+        if (!values || out.length * values.length > 64) return undefined;
+        out = out.flatMap(o => values.map(v => o + v + span.literal.text));
+      }
+      return out;
+    }
+    return literals(this.checker.getTypeAtLocation(x));
+  }
+
+  /**
+   * A call of a record's function field chosen by a key TypeScript types as
+   * a union of field names (embla's Alignment: `predefined[align](n)` of
+   * `{ start, center, end }`, `start()` taking no parameter): the arguments
+   * evaluated once, in order, then the field the key names called with as
+   * many of them as it takes (JavaScript ignores the others). The functions
+   * must give one result type and take parameters of the same types where
+   * they take them; a key outside the union (an unsound cast) throws a
+   * TypeError, as calling undefined does. Undefined where the receiver is
+   * not such a record.
+   */
+  private keyedCall(
+    e: ts.CallExpression,
+    callee: ts.ElementAccessExpression,
+    b: FnBuilder,
+  ): Expr | undefined {
+    const keyType = this.checker.getTypeAtLocation(callee.argumentExpression);
+    const literals = (keyType.isUnion() ? keyType.types : [keyType]).map(m =>
+      m.isStringLiteral() ? m.value : undefined,
+    );
+    if (literals.some(l => l === undefined)) return undefined;
+    const object = this.expr(callee.expression, b);
+    const t = this.irType(object, b);
+    if (!(typeof t === 'object' && 'record' in t)) return undefined;
+    const r = this.types.records[t.record];
+    if (r.class) return undefined;
+    const names = r.fields.map(f => f.name);
+    if (!literals.every(l => names.includes(l!))) return undefined;
+    const fns = literals.map(l => {
+      const ft = r.fields[names.indexOf(l!)].type;
+      return typeof ft === 'object' && 'fn' in ft ? ft.fn : undefined;
+    });
+    if (fns.some(f => f === undefined))
+      return this.fail(e, 'E_CALL', 'A record call with a computed key calls function fields');
+    const longest = fns.reduce((a, f) => (f!.params.length > a!.params.length ? f : a))!;
+    if (
+      fns.some(
+        f =>
+          !sameType(f!.result, longest.result) ||
+          f!.params.some((p, i) => !sameType(p, longest.params[i])),
+      )
+    )
+      return this.fail(
+        e,
+        'E_CALL',
+        'A record call with a computed key needs functions of one result type whose parameters agree',
+      );
+    if (
+      e.arguments.length !== longest.params.length ||
+      e.arguments.some(a => ts.isSpreadElement(a))
+    )
+      return this.fail(
+        e,
+        'E_CALL',
+        'A record call with a computed key passes as many arguments as its widest function takes',
+      );
+    const rec = b.local('$record', t);
+    const k = b.local('$key', STRING);
+    const args = e.arguments.map((a, i) => ({
+      local: b.local(`$arg${i}`, longest.params[i]),
+      value: this.coerce(a, b, longest.params[i]),
+    }));
+    let chain: Expr = { op: 'unwrap', value: { op: 'undefined', type: { maybe: longest.result } } };
+    for (const [j, name] of [...literals.entries()].reverse())
+      chain = {
+        op: 'cond',
+        test: { op: 'eq', left: { op: 'local', local: k }, right: { op: 'lit', value: name! } },
+        then: {
+          op: 'call-value',
+          callee: { op: 'get', object: { op: 'local', local: rec }, field: names.indexOf(name!) },
+          args: args.slice(0, fns[j]!.params.length).map(a => ({ op: 'local', local: a.local })),
+        },
+        else: chain,
+      };
+    let out: Expr = chain;
+    for (const a of [...args].reverse())
+      out = { op: 'with', local: a.local, value: a.value, body: out };
+    return {
+      op: 'with',
+      local: rec,
+      value: object,
+      body: {
+        op: 'with',
+        local: k,
+        value: this.coerce(callee.argumentExpression, b, STRING),
+        body: out,
+      },
+    };
   }
 
   /** Member `name` of a record a pack reads. */
@@ -13236,17 +13594,20 @@ export class Lowerer {
         // Computed values that are also the resolved values getComputedStyle
         // gives (no layout-dependent properties).
         const [p] = e.arguments;
-        if (
-          e.arguments.length !== 1 ||
-          !ts.isStringLiteralLike(p) ||
-          !COMPUTED_PROPERTIES.has(p.text)
-        )
+        // (A name computed from literals, embla's `margin-${endEdge}` of
+        // the edges: each name it may be.)
+        const names = p && e.arguments.length === 1 ? this.finiteStrings(p) : undefined;
+        if (!names || !names.every(n => COMPUTED_PROPERTIES.has(n)))
           return this.fail(
             e,
             'E_CALL',
             `getComputedStyle(…).getPropertyValue reads ${[...COMPUTED_PROPERTIES].join(', ')}`,
           );
-        return call('computed-style', [lit(p.text)], STRING);
+        return call(
+          'computed-style',
+          [ts.isStringLiteralLike(p) ? lit(p.text) : this.coerce(p, b, STRING)],
+          STRING,
+        );
       }
       case 'querySelectorAll':
       case 'querySelector':
@@ -14518,6 +14879,42 @@ export class Lowerer {
   }
 
   /**
+   * `[].slice.call(list)` and `Array.prototype.slice.call(list)` (embla's
+   * `[].slice.call(customSlides || container.children)`): a copy of the
+   * array or the list read now, `array.slice`. TypeScript types the result
+   * `any[]`; its type is the argument's.
+   */
+  private sliceCall(e: ts.CallExpression, b: FnBuilder): Expr {
+    const owner = skipParens(
+      (
+        skipParens(
+          (skipParens(e.expression) as ts.PropertyAccessExpression).expression,
+        ) as ts.PropertyAccessExpression
+      ).expression,
+    );
+    if (
+      ts.isPropertyAccessExpression(owner) &&
+      this.globalName(owner.expression as ts.Identifier) !== 'Array'
+    )
+      return this.fail(owner, 'E_CALL', 'Unsupported call: Array is not the global');
+    if (e.arguments.length !== 1 || ts.isSpreadElement(e.arguments[0]))
+      return this.fail(
+        e,
+        'E_CALL',
+        'Array.prototype.slice.call is covered with one argument, the array or list to copy',
+      );
+    const list = this.expr(e.arguments[0], b);
+    const t = this.irType(list, b);
+    if (!(typeof t === 'object' && 'array' in t))
+      return this.fail(
+        e.arguments[0],
+        'E_CALL',
+        'Array.prototype.slice.call copies an array or a node list here',
+      );
+    return { op: 'builtin', name: 'array.slice', args: [list], type: t };
+  }
+
+  /**
    * Where a live list (`childNodes`, `children`; M6 script DOM) is read: as
    * a list of the time of the read, which is exact only where it is used at
    * once: `.length`, an index, `Array.from(list)`. Kept in a variable or
@@ -14526,8 +14923,24 @@ export class Lowerer {
    */
   private liveListUse(e: ts.PropertyAccessExpression, name: string): void {
     let at: ts.Node = e;
-    while (ts.isParenthesizedExpression(at.parent)) at = at.parent;
+    // (Through the value operand of `||`, `??` or a conditional: the list
+    // is the value the copy below receives at once.)
+    for (;;) {
+      while (ts.isParenthesizedExpression(at.parent)) at = at.parent;
+      const q = at.parent;
+      if (
+        (ts.isBinaryExpression(q) &&
+          q.right === at &&
+          (q.operatorToken.kind === ts.SyntaxKind.BarBarToken ||
+            q.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken)) ||
+        (ts.isConditionalExpression(q) && q.condition !== at)
+      )
+        at = q;
+      else break;
+    }
     const p = at.parent;
+    const copied =
+      ts.isCallExpression(p) && sliceCall(p) && p.arguments.length === 1 && p.arguments[0] === at;
     const ok =
       (ts.isPropertyAccessExpression(p) && p.expression === at && p.name.text === 'length') ||
       (ts.isElementAccessExpression(p) && p.expression === at) ||
@@ -14537,7 +14950,8 @@ export class Lowerer {
         ts.isPropertyAccessExpression(p.expression) &&
         p.expression.name.text === 'from' &&
         ts.isIdentifier(p.expression.expression) &&
-        p.expression.expression.text === 'Array');
+        p.expression.expression.text === 'Array') ||
+      copied;
     if (!ok)
       this.fail(
         e,
@@ -17850,6 +18264,13 @@ export class Lowerer {
         // (A contextual type outside the value model: `new Set([id])`'s
         // `Iterable<T>` parameter, `newExpression`.)
         (context !== undefined && this.types.tryMap(context, e) === undefined) ||
+        // (`concat`'s `ConcatArray<T>` parameter, which the type mapper
+        // takes as an interface: the receiver's array type, `call`.)
+        (context !== undefined &&
+          context.symbol?.name === 'ConcatArray' &&
+          !!context.symbol.declarations?.some(d =>
+            /[\\/]lib\.es5\.d\.ts$/.test(d.getSourceFile().fileName),
+          )) ||
         widened())
         ? want
         : this.exprType(e);
@@ -18179,6 +18600,12 @@ function platformUserAgent(): string {
 }
 
 /** Whether `n` contains an identifier naming `sym`. */
+/** Whether a function in `n` (or `n`, a function) refers to `sym`. */
+function closureRefersTo(n: ts.Node, sym: ts.Symbol, checker: ts.TypeChecker): boolean {
+  if (ts.isFunctionLike(n)) return refersTo(n, sym, checker);
+  return !!ts.forEachChild(n, x => closureRefersTo(x, sym, checker) || undefined);
+}
+
 function refersTo(n: ts.Node, sym: ts.Symbol, checker: ts.TypeChecker): boolean {
   let found = false;
   const visit = (x: ts.Node) => {

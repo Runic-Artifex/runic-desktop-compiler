@@ -1025,6 +1025,8 @@ export function annotate(
   // constants that start as empty arrays (`var:<end>`).
   for (const [key, text] of inferred) {
     if (key.startsWith('new:')) add(Number(key.slice(4)), `<${text}>`);
+    if (key.startsWith('tp:')) add(Number(key.slice(3)), text);
+    if (key.startsWith('as:')) add(Number(key.slice(3)), ` as ${text}`);
     if (key.startsWith('param:')) add(Number(key.slice(6)), `: ${text}`);
     if (key.startsWith('ret:')) add(Number(key.slice(4)), `: ${text}`);
     if (key.startsWith('var:')) add(Number(key.slice(4)), `: ${text}`);
@@ -1136,6 +1138,15 @@ export function inferFields(
               list.push(n);
               callsOf!.set(d, list);
             }
+            // A call through a constant object literal by a key of its
+            // names (embla's Alignment: `predefined[align](n)`, `const
+            // predefined = { start, center, end }`): a call of each.
+            if (ts.isCallExpression(n))
+              for (const f of keyedCallees(n, checker)) {
+                const list = callsOf!.get(f) ?? [];
+                if (!list.includes(n)) list.push(n);
+                callsOf!.set(f, list);
+              }
           }
           ts.forEachChild(n, visit);
         };
@@ -2151,6 +2162,25 @@ export function inferFields(
     // function declarations at any depth (bits-ui's scroll lock returns its
     // `resetBodyStyle(documentObj)` in an object its callers call through):
     // the one type the program's calls pass, where they agree.
+    /** The references to a function declaration that are call arguments. */
+    const passedAsArgument = (fn: ts.FunctionLikeDeclaration): ts.Identifier[] => {
+      if (!ts.isFunctionDeclaration(fn) || !fn.name) return [];
+      const sym = checker.getSymbolAtLocation(fn.name);
+      const out: ts.Identifier[] = [];
+      const visit = (x: ts.Node) => {
+        if (
+          ts.isIdentifier(x) &&
+          x !== fn.name &&
+          checker.getSymbolAtLocation(x) === sym &&
+          (ts.isCallExpression(x.parent) || ts.isNewExpression(x.parent)) &&
+          x.parent.arguments?.includes(x)
+        )
+          out.push(x);
+        ts.forEachChild(x, visit);
+      };
+      if (sym) visit(fn.getSourceFile());
+      return out;
+    };
     const untypedParams = (member: ts.FunctionLikeDeclaration, outside = false) =>
       member.parameters.forEach((p, i) => {
         // (Also an object pattern, `#findNextNonDisabledItem({ start, grid })`
@@ -2183,7 +2213,27 @@ export function inferFields(
         const sites = calls(member).filter(
           c => !outside || c.pos < member.pos || c.end > member.end,
         );
-        if (!sites.length) return;
+        // (A function declaration passed by name as an argument, embla's
+        // Animations `requestAnimationFrame(animate)`: the parameter type
+        // the callee declares for it.)
+        const passed = passedAsArgument(member).map(x => {
+          const ctx = checker.getContextualType(x);
+          const sigs = ctx?.getCallSignatures() ?? [];
+          const param = sigs.length === 1 ? sigs[0].parameters[i] : undefined;
+          return param && checker.getTypeOfSymbolAtLocation(param, x);
+        });
+        if (!sites.length && !passed.length) return;
+        for (const t of passed) {
+          const text =
+            t && !(t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown))
+              ? print(checker.getBaseTypeOfLiteralType(t), member)
+              : undefined;
+          if (text === undefined) open = true;
+          else {
+            texts.add(text);
+            if (!typeOf.has(text)) typeOf.set(text, t!);
+          }
+        }
         for (const c of sites) {
           const a = c.arguments?.[i];
           if (!a || ts.isSpreadElement(a)) {
@@ -2434,9 +2484,15 @@ export function inferFields(
         const sym = checker.getSymbolAtLocation(n.name);
         if (sym && (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)))
           fn.parameters.forEach((fp, i) => {
-            if (fp.type || fp.dotDotDotToken || !ts.isIdentifier(fp.name)) return;
-            if (!(checker.getTypeAtLocation(fp).flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)))
-              return;
+            if (fp.type || fp.dotDotDotToken) return;
+            // (Also an object pattern, embla's Engine `update({ dragHandler,
+            // scrollBody, …, options: { loop } })`: the pattern is annotated.)
+            const pt = checker.getTypeAtLocation(fp);
+            const anyOf = (t: ts.Type) => !!(t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown));
+            if (ts.isObjectBindingPattern(fp.name)) {
+              if (!checker.getPropertiesOfType(pt).some(q => anyOf(checker.getTypeOfSymbol(q))))
+                return;
+            } else if (!ts.isIdentifier(fp.name) || !anyOf(pt)) return;
             const texts = new Set<string>();
             let open = false;
             const add = (t: ts.Type | undefined, at: ts.Node) => {
@@ -2550,6 +2606,88 @@ export function inferFields(
     // outside itself, with a called function giving one of its arguments,
     // `formatInput(command)`, typed from its calls first.)
     const within = (c: ts.Node, fn: ts.Node) => c.pos >= fn.pos && c.end <= fn.end;
+    // (And function declarations in a function body, which lowering binds
+    // as closures of one type (`Lowerer.declareFunction`), not specialised:
+    // typed from their calls, all inside the enclosing function's body,
+    // where they agree; embla's EventHandler `getListeners(evt)`.)
+    const nestedDeclaration = (fn: ts.FunctionDeclaration): boolean =>
+      ts.isBlock(fn.parent) && ts.isFunctionLike(fn.parent.parent);
+    /** The type parameters type `t` refers to. */
+    const typeParametersIn = (t: ts.Type, out: Set<ts.TypeParameter>, depth = 0): void => {
+      if (depth > 8) return;
+      if (t.flags & ts.TypeFlags.TypeParameter) out.add(t as ts.TypeParameter);
+      else if (t.isUnionOrIntersection())
+        for (const m of t.types) typeParametersIn(m, out, depth + 1);
+      else if (
+        t.flags & ts.TypeFlags.Object &&
+        (t as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference
+      )
+        for (const a of checker.getTypeArguments(t as ts.TypeReference))
+          typeParametersIn(a, out, depth + 1);
+    };
+    // (A nested function whose calls, all in the body of one generic
+    // function it is declared outside of, pass values of that function's
+    // type parameters, embla's SlidesToScroll `byNumber(array, groupSize)`
+    // called by `groupSlides<Type>(array: Type[])`: generic in them, the
+    // same type parameters declared on it (TypeScript then checks its body
+    // once for every instantiation, which lowering creates per
+    // instantiation, `nested-generic`), its parameters typed from the
+    // calls, which must agree.)
+    const genericFromCalls = (fn: ts.FunctionDeclaration): boolean => {
+      if (fn.typeParameters || !fn.name || !fn.body) return false;
+      const sites = calls(fn);
+      if (!sites.length) return false;
+      const used = new Set<ts.TypeParameter>();
+      const texts: (string | undefined)[] = [];
+      for (const [i, p] of fn.parameters.entries()) {
+        if (p.type || p.dotDotDotToken || !ts.isIdentifier(p.name)) return false;
+        const seen = new Set<string>();
+        for (const c of sites) {
+          const a = c.arguments?.[i];
+          if (!a || ts.isSpreadElement(a)) return false;
+          const t = checker.getTypeAtLocation(a);
+          if (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return false;
+          typeParametersIn(t, used);
+          const text = print(
+            t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)
+              ? t
+              : checker.getBaseTypeOfLiteralType(t),
+            a,
+          );
+          if (text === undefined) return false;
+          seen.add(text);
+        }
+        if (seen.size !== 1) return false;
+        texts.push([...seen][0]);
+      }
+      if (!used.size) return false;
+      const decls = [...used].map(tp => tp.symbol?.declarations?.[0]);
+      if (decls.some(d => !d || !ts.isTypeParameterDeclaration(d))) return false;
+      const owner = (decls[0] as ts.TypeParameterDeclaration).parent;
+      if (
+        !decls.every(d => (d as ts.TypeParameterDeclaration).parent === owner) ||
+        !ts.isFunctionLike(owner) ||
+        within(fn, owner) ||
+        !sites.every(c => within(c, owner)) ||
+        // (Its type parameters by name, which the function must not shadow.)
+        new Set(decls.map(d => (d as ts.TypeParameterDeclaration).name.text)).size !== decls.length
+      )
+        return false;
+      const keyOf = (prefix: string, end: number): string | undefined => {
+        const seg = m.segments.find(g => end >= g.synth && end <= g.synth + g.length);
+        return seg ? `${prefix}:${seg.orig + (end - seg.synth)}` : undefined;
+      };
+      const tpKey = keyOf('tp', fn.name.end);
+      if (!tpKey) return false;
+      const own = (owner as ts.SignatureDeclaration).typeParameters!.filter(d => decls.includes(d));
+      const text = `<${own.map(d => d.getText()).join(', ')}>`;
+      if (next.get(tpKey) !== text) next.set(tpKey, text);
+      fn.parameters.forEach((p, i) => {
+        const key = keyOf('param', p.name.end);
+        if (key && next.get(key) !== texts[i]) next.set(key, texts[i]!);
+      });
+      return true;
+    };
     const functions = (n: ts.Node) => {
       if (ts.isFunctionDeclaration(n) && n.body) {
         const own = calls(n);
@@ -2570,7 +2708,9 @@ export function inferFields(
                 )
                   untypedParams(callee);
               }
-        } else if (usedAsValue(n) || feedsGeneric(n)) untypedParams(n);
+        } else if (nestedDeclaration(n) && genericFromCalls(n)) {
+          // (Typed generic, below.)
+        } else if (usedAsValue(n) || feedsGeneric(n) || nestedDeclaration(n)) untypedParams(n);
       }
       ts.forEachChild(n, functions);
     };
@@ -2704,6 +2844,69 @@ export function inferFields(
       ts.forEachChild(n, emptyArrays);
     };
     emptyArrays(sf);
+    // An empty array a `reduce` starts from (embla's SlidesToScroll
+    // `arrayKeys(array).reduce((groups, rectB, index) => { …
+    // groups.push(rectB) … return groups }, [])`, TypeScript's `never[]`):
+    // an array of the one type of the items its callback pushes onto the
+    // accumulator, which every return of the callback returns.
+    const reduceSeeds = (n: ts.Node) => {
+      ts.forEachChild(n, reduceSeeds);
+      if (
+        !ts.isCallExpression(n) ||
+        !ts.isPropertyAccessExpression(n.expression) ||
+        !['reduce', 'reduceRight'].includes(n.expression.name.text) ||
+        n.arguments.length !== 2
+      )
+        return;
+      const seed = skipParensOf(n.arguments[1]);
+      const cb = skipParensOf(n.arguments[0]);
+      if (
+        !ts.isArrayLiteralExpression(seed) ||
+        seed.elements.length ||
+        !(ts.isArrowFunction(cb) || ts.isFunctionExpression(cb)) ||
+        !cb.parameters.length ||
+        cb.parameters[0].type ||
+        !ts.isIdentifier(cb.parameters[0].name) ||
+        !ts.isBlock(cb.body)
+      )
+        return;
+      const sym = checker.getSymbolAtLocation(cb.parameters[0].name);
+      if (!sym) return;
+      const isAcc = (x: ts.Node) => ts.isIdentifier(x) && checker.getSymbolAtLocation(x) === sym;
+      const items = new Set<string>();
+      let open = false;
+      const visit = (x: ts.Node) => {
+        if (ts.isReturnStatement(x) && !(x.expression && isAcc(skipParensOf(x.expression))))
+          open = true;
+        if (
+          ts.isCallExpression(x) &&
+          ts.isPropertyAccessExpression(x.expression) &&
+          ['push', 'unshift'].includes(x.expression.name.text) &&
+          isAcc(x.expression.expression)
+        )
+          for (const a of x.arguments) {
+            const t = ts.isSpreadElement(a) ? undefined : checker.getTypeAtLocation(a);
+            const text =
+              t && !(t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown))
+                ? print(checker.getBaseTypeOfLiteralType(t), a)
+                : undefined;
+            if (text === undefined || /\b(never|any)\b/.test(text)) open = true;
+            else items.add(text);
+          }
+        // (Not the returns of functions inside it.)
+        if (!ts.isFunctionLike(x)) ts.forEachChild(x, visit);
+      };
+      ts.forEachChild(cb.body, visit);
+      const last = cb.body.statements[cb.body.statements.length - 1];
+      if (open || items.size !== 1 || !last || !ts.isReturnStatement(last)) return;
+      const end = seed.end;
+      const seg = m.segments.find(g => end >= g.synth && end <= g.synth + g.length);
+      if (!seg) return;
+      const key = `as:${seg.orig + (end - seg.synth)}`;
+      const text = arrayOf([...items][0]);
+      if (next.get(key) !== text) next.set(key, text);
+    };
+    reduceSeeds(sf);
     // A constant of an object or array literal TypeScript types with `any` or
     // `never` in it (bits-ui's Command `defaultState` of `new Map()` and
     // `new Set()`, `const grid = [[]]`) that initialises class fields of one
@@ -2883,7 +3086,12 @@ export function inferFields(
           if (x.operatorToken.kind !== ts.SyntaxKind.EqualsToken) open = true;
           else if (v.kind === ts.SyntaxKind.NullKeyword) nullable = true;
           else if (ts.isIdentifier(v) && v.text === 'undefined') nullable = true;
-          else {
+          else if (ts.isCallExpression(v) && sliceCall(v)) {
+            // (A copy of an array or a node list: of its items' type.)
+            const items = sliceCallType(v, checker)?.map(t => print(t, v));
+            if (!items || items.some(t => t === undefined || /\bnever\b/.test(t))) open = true;
+            else values.add(arrayOf([...new Set(items)].join(' | ')));
+          } else {
             const t = checker.getTypeAtLocation(v);
             const text =
               t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)
@@ -2906,6 +3114,7 @@ export function inferFields(
       if (next.get(key) !== text) next.set(key, text);
     };
     assignedLets(sf);
+    assignedDictionaries(sf, m, next, checker, print);
     if (JSON.stringify([...next]) !== JSON.stringify([...m.inferred])) {
       const code = readFileSync(m.file, 'utf8');
       const again = annotate(m.file, code, next);
@@ -2914,6 +3123,248 @@ export function inferFields(
     }
   }
   return changed;
+}
+
+/**
+ * A variable initialised with an empty object literal that the program uses
+ * only as a dictionary (embla-carousel's EventHandler: `let listeners =
+ * {}`, then `listeners[evt]` reads, `listeners[evt] = …` writes, `delete
+ * listeners[evt]` and resets `listeners = {}`), with string keys: typed `{
+ * [key: string]: V }`, V the one type of the values written. The variable
+ * never escapes (any other use, a dot member, an argument, a return, leaves
+ * it untyped), so every value it holds enters through those writes.
+ *
+ * A write may compute its value from the dictionary itself, which
+ * TypeScript can type only through the dictionary (`listeners[evt] =
+ * getListeners(evt).concat([cb])`, `getListeners` returning `listeners[evt]
+ * || []`). Such a value is an array of the dictionary's own values: a read
+ * of it (`d[k]`, `d[k] || []`, `d[k] ?? []`, or a call of a local function
+ * all of whose returns are such reads), filtered or sliced (a subset of its
+ * items), or concatenated with array literals (whose items are added; the
+ * literals are spread by `concat`, being arrays). The cycle is broken by
+ * induction over the writes: if every value held so far is a `T[]` and the
+ * literals' items are `T`, the written value is a `T[]`; T is the one type
+ * of those items, and a write of another form must have type `T[]`.
+ */
+function assignedDictionaries(
+  sf: ts.SourceFile,
+  m: PackageModule,
+  next: Map<string, string>,
+  checker: ts.TypeChecker,
+  print: (t: ts.Type, at: ts.Node) => string | undefined,
+): void {
+  const visit = (n: ts.Node) => {
+    ts.forEachChild(n, visit);
+    if (
+      !ts.isVariableDeclaration(n) ||
+      n.type ||
+      !ts.isIdentifier(n.name) ||
+      !n.initializer ||
+      !emptyObject(n.initializer) ||
+      !ts.isVariableDeclarationList(n.parent) ||
+      !(n.parent.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) ||
+      !ts.isVariableStatement(n.parent.parent)
+    )
+      return;
+    const end = n.name.end;
+    const seg = m.segments.find(g => end >= g.synth && end <= g.synth + g.length);
+    if (!seg) return;
+    const key = `var:${seg.orig + (end - seg.synth)}`;
+    // (Ours from an earlier pass: inferred again from the values.)
+    if (!m.inferred.has(key) && checker.typeToString(checker.getTypeAtLocation(n.name)) !== '{}')
+      return;
+    const sym = checker.getSymbolAtLocation(n.name);
+    if (!sym) return;
+    const isOwn = (e: ts.Node) => ts.isIdentifier(e) && checker.getSymbolAtLocation(e) === sym;
+    /**
+     * `d[k]` with a key TypeScript types as a string or a number (a property
+     * key a dictionary's string index covers), or not yet (a nested
+     * function's parameter, typed per call by lowering, which then checks
+     * the key against the dictionary's).
+     */
+    const ownRead = (e: ts.Expression): e is ts.ElementAccessExpression => {
+      if (!ts.isElementAccessExpression(e) || !isOwn(e.expression) || e.questionDotToken)
+        return false;
+      const k = checker.getTypeAtLocation(e.argumentExpression);
+      return (
+        !!(k.flags & ts.TypeFlags.Any) ||
+        checker.isTypeAssignableTo(k, checker.getStringType()) ||
+        checker.isTypeAssignableTo(k, checker.getNumberType())
+      );
+    };
+    let array = false;
+    const inProgress = new Set<ts.Node>();
+    /** An array of the dictionary's own values (above). */
+    const selfDerived = (e0: ts.Expression): boolean => {
+      const e = skipParensOf(e0);
+      if (ownRead(e)) return true;
+      if (
+        ts.isBinaryExpression(e) &&
+        (e.operatorToken.kind === ts.SyntaxKind.BarBarToken ||
+          e.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) &&
+        ts.isArrayLiteralExpression(skipParensOf(e.right)) &&
+        !(skipParensOf(e.right) as ts.ArrayLiteralExpression).elements.length &&
+        selfDerived(e.left)
+      )
+        return (array = true);
+      if (ts.isCallExpression(e) && ts.isIdentifier(e.expression)) {
+        const callee = checker.getSymbolAtLocation(e.expression)?.valueDeclaration;
+        const fn =
+          callee && ts.isFunctionDeclaration(callee)
+            ? callee
+            : callee &&
+                ts.isVariableDeclaration(callee) &&
+                callee.parent.flags & ts.NodeFlags.Const &&
+                callee.initializer &&
+                (ts.isArrowFunction(skipParensOf(callee.initializer)) ||
+                  ts.isFunctionExpression(skipParensOf(callee.initializer)))
+              ? (skipParensOf(callee.initializer) as ts.ArrowFunction | ts.FunctionExpression)
+              : undefined;
+        if (!fn || !fn.body || fn.getSourceFile() !== sf || fn.asteriskToken || hasAsync(fn))
+          return false;
+        if (inProgress.has(fn)) return true;
+        inProgress.add(fn);
+        try {
+          if (!ts.isBlock(fn.body)) return selfDerived(fn.body);
+          const returns: (ts.Expression | undefined)[] = [];
+          const collect = (x: ts.Node) => {
+            if (ts.isReturnStatement(x)) returns.push(x.expression);
+            if (!ts.isFunctionLike(x)) ts.forEachChild(x, collect);
+          };
+          collect(fn.body);
+          // (A body that may end without `return` returns undefined: only
+          // a body whose last statement returns is taken.)
+          const last = fn.body.statements[fn.body.statements.length - 1];
+          return (
+            !!last &&
+            ts.isReturnStatement(last) &&
+            returns.every(r => r !== undefined && selfDerived(r))
+          );
+        } finally {
+          inProgress.delete(fn);
+        }
+      }
+      return false;
+    };
+    const items = new Set<string>();
+    const values = new Set<string>();
+    let open = false;
+    const itemText = (t: ts.Type, at: ts.Node) =>
+      t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)
+        ? undefined
+        : print(checker.getBaseTypeOfLiteralType(t), at);
+    /** A written value's contribution (above); false where it has none. */
+    const written = (v0: ts.Expression) => {
+      const v = skipParensOf(v0);
+      if (selfDerived(v)) return void (array = true);
+      if (
+        ts.isCallExpression(v) &&
+        ts.isPropertyAccessExpression(v.expression) &&
+        !v.expression.questionDotToken &&
+        selfDerived(v.expression.expression)
+      ) {
+        const method = v.expression.name.text;
+        if (method === 'filter' || method === 'slice') return void (array = true);
+        if (method === 'concat') {
+          array = true;
+          for (const a of v.arguments) {
+            const lit = skipParensOf(a);
+            if (!ts.isArrayLiteralExpression(lit)) return void (open = true);
+            for (const el of lit.elements) {
+              const text =
+                ts.isSpreadElement(el) || ts.isOmittedExpression(el)
+                  ? undefined
+                  : itemText(checker.getTypeAtLocation(el), el);
+              if (text === undefined || /\bnever\b/.test(text)) return void (open = true);
+              items.add(text);
+            }
+          }
+          return;
+        }
+      }
+      const text = itemText(checker.getTypeAtLocation(v), v);
+      if (text === undefined || /\bnever\b/.test(text)) open = true;
+      else values.add(text);
+    };
+    const uses = (x: ts.Node) => {
+      if (open) return;
+      if (ts.isIdentifier(x) && x !== n.name && isOwn(x)) {
+        let at: ts.Node = x;
+        while (ts.isParenthesizedExpression(at.parent)) at = at.parent;
+        const p = at.parent;
+        if (ts.isBinaryExpression(p) && p.left === at) {
+          // A reset to an empty object literal (a `let` only).
+          if (
+            p.operatorToken.kind !== ts.SyntaxKind.EqualsToken ||
+            !emptyObject(p.right) ||
+            !(n.parent.flags & ts.NodeFlags.Let)
+          )
+            open = true;
+        } else if (ts.isElementAccessExpression(p) && p.expression === at && ownRead(p)) {
+          let el: ts.Node = p;
+          while (ts.isParenthesizedExpression(el.parent)) el = el.parent;
+          const q = el.parent;
+          if (ts.isBinaryExpression(q) && q.left === el) {
+            if (q.operatorToken.kind === ts.SyntaxKind.EqualsToken) written(q.right);
+            else if (
+              q.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+              q.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+            )
+              open = true;
+          } else if (
+            (ts.isPrefixUnaryExpression(q) || ts.isPostfixUnaryExpression(q)) &&
+            (q.operator === ts.SyntaxKind.PlusPlusToken ||
+              q.operator === ts.SyntaxKind.MinusMinusToken)
+          )
+            open = true;
+          else if (
+            ts.isArrayLiteralExpression(q) ||
+            ts.isObjectLiteralElement(q) ||
+            ts.isForInStatement(q) ||
+            ts.isForOfStatement(q)
+          )
+            // (A destructuring target or a loop variable writes it.)
+            open = true;
+        } else open = true;
+      }
+      ts.forEachChild(x, uses);
+    };
+    uses(sf);
+    if (open) return;
+    let value: string;
+    if (array) {
+      // (Items of another form's values are compared as the arrays.)
+      const all = new Set([...items].map(i => arrayOf(i)));
+      for (const v of values) all.add(v);
+      if (all.size !== 1) return;
+      [value] = all;
+      if (!/\[\]$/.test(value)) return;
+    } else {
+      if (values.size !== 1) return;
+      [value] = values;
+    }
+    const text = `{ [key: string]: ${value} }`;
+    if (next.get(key) !== text) next.set(key, text);
+  };
+  visit(sf);
+}
+
+/** `{}`, parenthesised or not. */
+function emptyObject(e: ts.Expression): boolean {
+  const v = skipParensOf(e);
+  return ts.isObjectLiteralExpression(v) && !v.properties.length;
+}
+
+/** An item type's array type, as TypeScript prints one. */
+function arrayOf(item: string): string {
+  // (A union or intersection parenthesised, a function type already is.)
+  return /^[\w.$]+(<.*>)?$|^\(.*\)$/.test(item) ? `${item}[]` : `(${item})[]`;
+}
+
+function hasAsync(fn: ts.FunctionLikeDeclaration): boolean {
+  return !!ts
+    .getModifiers(fn as ts.FunctionDeclaration)
+    ?.some(x => x.kind === ts.SyntaxKind.AsyncKeyword);
 }
 
 /**
@@ -3324,6 +3775,91 @@ function declaredAnyTypes(
     out.set(c.m, map);
   }
   return out;
+}
+
+/**
+ * The functions a call `o[k](…)` may call, where `o` names a constant
+ * object literal and TypeScript types `k` as a union of string literals,
+ * each naming a member of the literal whose value is a function declared
+ * in the program (shorthand of a function declaration, or a function
+ * expression): those functions, one per literal. Empty otherwise.
+ */
+export function keyedCallees(
+  n: ts.CallExpression,
+  checker: ts.TypeChecker,
+): ts.FunctionLikeDeclaration[] {
+  const callee = skipParensOf(n.expression);
+  if (!ts.isElementAccessExpression(callee) || !ts.isIdentifier(skipParensOf(callee.expression)))
+    return [];
+  const decl = checker.getSymbolAtLocation(skipParensOf(callee.expression))?.valueDeclaration;
+  if (
+    !decl ||
+    !ts.isVariableDeclaration(decl) ||
+    !(decl.parent.flags & ts.NodeFlags.Const) ||
+    !decl.initializer ||
+    !ts.isObjectLiteralExpression(skipParensOf(decl.initializer))
+  )
+    return [];
+  const lit = skipParensOf(decl.initializer) as ts.ObjectLiteralExpression;
+  const k = checker.getTypeAtLocation(callee.argumentExpression);
+  const out: ts.FunctionLikeDeclaration[] = [];
+  for (const m of k.isUnion() ? k.types : [k]) {
+    if (!m.isStringLiteral()) return [];
+    const prop = lit.properties.find(
+      p => p.name && ts.isIdentifier(p.name) && p.name.text === m.value,
+    );
+    let fn: ts.Node | undefined;
+    if (prop && ts.isShorthandPropertyAssignment(prop))
+      fn = checker.getShorthandAssignmentValueSymbol(prop)?.valueDeclaration;
+    else if (prop && ts.isPropertyAssignment(prop)) fn = skipParensOf(prop.initializer);
+    if (
+      !fn ||
+      !(ts.isFunctionDeclaration(fn) || ts.isFunctionExpression(fn) || ts.isArrowFunction(fn))
+    )
+      return [];
+    out.push(fn);
+  }
+  return out;
+}
+
+/**
+ * `[].slice.call(x)` or `Array.prototype.slice.call(x)` (by syntax: the
+ * lowerer checks that `Array` is the global).
+ */
+export function sliceCall(e: ts.CallExpression): boolean {
+  const callee = skipParensOf(e.expression);
+  if (!ts.isPropertyAccessExpression(callee) || callee.name.text !== 'call') return false;
+  const slice = skipParensOf(callee.expression);
+  if (!ts.isPropertyAccessExpression(slice) || slice.name.text !== 'slice') return false;
+  const owner = skipParensOf(slice.expression);
+  return (
+    (ts.isArrayLiteralExpression(owner) && !owner.elements.length) ||
+    (ts.isPropertyAccessExpression(owner) &&
+      owner.name.text === 'prototype' &&
+      ts.isIdentifier(owner.expression) &&
+      owner.expression.text === 'Array')
+  );
+}
+
+/**
+ * The array type a `sliceCall` gives (TypeScript's is `any[]`): the
+ * argument's items' type, an array or an array-like list (each member of a
+ * union with a number index), `undefined` where it has none.
+ */
+export function sliceCallType(
+  e: ts.CallExpression,
+  checker: ts.TypeChecker,
+): ts.Type[] | undefined {
+  const a = e.arguments[0];
+  if (e.arguments.length !== 1 || ts.isSpreadElement(a)) return undefined;
+  const t = checker.getTypeAtLocation(a);
+  const items: ts.Type[] = [];
+  for (const m of t.isUnion() ? t.types : [t]) {
+    const item = checker.getIndexTypeOfType(m, ts.IndexKind.Number);
+    if (!item || item.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return undefined;
+    if (!items.includes(item)) items.push(item);
+  }
+  return items.length ? items : undefined;
 }
 
 function skipParensOf(e: ts.Expression): ts.Expression {

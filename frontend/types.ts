@@ -972,6 +972,20 @@ export class TypeMapper {
     // (or nullish). Where the program knows which (`Lowerer.hostName`) no
     // value is read at all.
     if (this.hostOf(t)) return 'element';
+    // A node list (frontend/dom.d.ts `NodeListOf<T>`, `HTMLCollection`): the
+    // array of its items read at once, as lowering reads a live list
+    // (`Lowerer.liveListUse` keeps a live one from being held), and as a
+    // static one (an option of nodes the program gives) is.
+    const list = t.symbol?.getName();
+    if (
+      (list === 'NodeListOf' || list === 'HTMLCollection') &&
+      t.symbol.declarations?.every(
+        d => d.getSourceFile().fileName === HOST_DECLARATIONS + 'dom.d.ts',
+      )
+    ) {
+      const item = this.checker.getIndexTypeOfType(t, ts.IndexKind.Number);
+      if (item) return { array: this.map(item, at) };
+    }
     // An image object (frontend/dom.d.ts), read and written through built-ins.
     if (t.getProperty('__runicImage')) return 'image';
     // A computed style declaration stands for its element (frontend/dom.d.ts).
