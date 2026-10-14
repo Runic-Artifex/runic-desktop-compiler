@@ -383,8 +383,51 @@ export class TypeMapper {
     }
   }
 
+  /**
+   * TypeScript types standing for other IR types in the generic function
+   * instantiations being lowered, innermost last (`Lowerer.constrainedRead`):
+   * TypeScript types a generic body through its type parameters'
+   * constraints, while each instantiation's values have its own types.
+   */
+  readonly substitutions: Map<ts.Type, Type>[] = [];
+
+  /** The IR type an instantiation being lowered gives TypeScript type `t`, if any. */
+  substituted(t: ts.Type): Type | undefined {
+    for (let i = this.substitutions.length - 1; i >= 0; i--) {
+      const s = this.substitutions[i].get(t);
+      if (s !== undefined) return s;
+    }
+    // (TypeScript may build the same type again, another object: an
+    // instantiated signature's `Omit<…>`. The same printed type, each
+    // assignable to the other.)
+    const text = (x: ts.Type) =>
+      this.checker.typeToString(x, undefined, ts.TypeFormatFlags.NoTruncation);
+    let printed: string | undefined;
+    for (let i = this.substitutions.length - 1; i >= 0; i--)
+      for (const [k, s] of this.substitutions[i]) {
+        if (
+          !(
+            k.flags &
+            t.flags &
+            (ts.TypeFlags.Object | ts.TypeFlags.Union | ts.TypeFlags.Intersection)
+          )
+        )
+          continue;
+        printed ??= text(t);
+        if (
+          text(k) === printed &&
+          this.checker.isTypeAssignableTo(k, t) &&
+          this.checker.isTypeAssignableTo(t, k)
+        )
+          return s;
+      }
+    return undefined;
+  }
+
   map(t: ts.Type, at: ts.Node): Type {
     const F = ts.TypeFlags;
+    const substituted = this.substitutions.length ? this.substituted(t) : undefined;
+    if (substituted !== undefined) return substituted;
     if (this.boxFunction && this.anyFn(t)) {
       t = this.boxFunction;
       this.boxFunction = undefined;

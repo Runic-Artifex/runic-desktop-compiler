@@ -123,3 +123,39 @@ test('a constant naming a function, `d || {}` of a dictionary and matchMedia as 
   // (The function value's query is known at run time only: reported there.)
   assert.match(out.value, /"op":"call"/);
 });
+
+test("an instantiation's result typed through its type parameter's constraint is rejected, located", async () => {
+  // TypeScript types `o.m` through `T`'s constraint (values of `{ [x: string]:
+  // unknown }`, an attribute bag); the instantiation's values are records
+  // (Lowerer.constrainedRead), so a result TypeScript types `Loose[]` is not
+  // theirs. (The instantiation typed through its members' values is
+  // exercised by embla's optionsAtMedia, conformance/triage.mjs.)
+  const app = result => ({
+    'App.svelte': `<script lang="ts">
+  type Loose = { [x: string]: unknown };
+  function outer(k: string) {
+    function pick<T extends { m?: { [k: string]: Loose } }>(o: T)${result} {
+      const d = o.m || {};
+      const found = Object.keys(d)
+        .filter(x => x === k)
+        .map(x => d[x]);
+      return ${result ? 'found.length' : 'found'};
+    }
+    const m: { [k: string]: { c: number } } = { a: { c: 1 }, b: { c: 2 } };
+    return pick({ m });
+  }
+  const r = outer('b');
+</script>
+<p id="out">{${result ? 'r' : 'r.length'}}</p>
+`,
+  });
+  // A result TypeScript types through the constraint (`Loose[]`): rejected, located.
+  await withApp(app(''), root =>
+    assert.rejects(
+      collect(root).then(g => lower(g)),
+      e =>
+        (e.code === 'E_TYPE_UNION' && /constraint/.test(e.message) && !!e.source) ||
+        assert.fail(`${e.code}: ${e.message}`),
+    ),
+  );
+});

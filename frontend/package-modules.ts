@@ -2772,6 +2772,98 @@ export function inferFields(
       ts.forEachChild(n, fieldConstants);
     };
     fieldConstants(sf);
+    // A `let` declared without a value, with `null` or `undefined`, or with
+    // an empty array, and assigned later (embla's `let engine`, `let
+    // lastTimeStamp = null`, `let activePlugins = []`, then `activePlugins =
+    // plugins.filter(…)`): the one type of the values assigned (literals
+    // widened), nullable as its initial value is. In a bundle typed by its
+    // declaration files only: other modules' such variables keep the
+    // flow-sensitive rules the lowerer applies to them (bits-ui's `let scope
+    // = null; … if (!scope) scope = new FocusScope(opts)`, `Lowerer.createdIn`).
+    const assignedLets = (n: ts.Node) => {
+      ts.forEachChild(n, assignedLets);
+      if (
+        !m.bundleDts ||
+        !ts.isVariableDeclaration(n) ||
+        n.type ||
+        !ts.isIdentifier(n.name) ||
+        !ts.isVariableDeclarationList(n.parent) ||
+        !(n.parent.flags & ts.NodeFlags.Let) ||
+        !ts.isVariableStatement(n.parent.parent)
+      )
+        return;
+      const init = n.initializer && skipParensOf(n.initializer);
+      const initial = !init
+        ? 'undefined'
+        : init.kind === ts.SyntaxKind.NullKeyword
+          ? 'null'
+          : ts.isIdentifier(init) && init.text === 'undefined'
+            ? 'undefined'
+            : ts.isArrayLiteralExpression(init) && !init.elements.length
+              ? 'array'
+              : undefined;
+      if (initial === undefined) return;
+      const end = n.name.end;
+      const seg = m.segments.find(g => end >= g.synth && end <= g.synth + g.length);
+      if (!seg) return;
+      const key = `var:${seg.orig + (end - seg.synth)}`;
+      // (Ours from an earlier pass: inferred again from the values.)
+      if (!m.inferred.has(key)) {
+        const declared = checker.typeToString(
+          checker.getTypeAtLocation(n.name),
+          undefined,
+          ts.TypeFormatFlags.NoTruncation,
+        );
+        if (!/\b(any|never|null|undefined)\b/.test(declared)) return;
+      }
+      const sym = checker.getSymbolAtLocation(n.name);
+      const values = new Set<string>();
+      let nullable = false;
+      let open = false;
+      const writes = (x: ts.Node) => {
+        if (
+          ts.isBinaryExpression(x) &&
+          ts.isIdentifier(x.left) &&
+          checker.getSymbolAtLocation(x.left) === sym &&
+          x.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+          x.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+        ) {
+          const v = skipParensOf(x.right);
+          // (A value computed from the variable itself, `activePlugins =
+          // activePlugins.filter(…)`: of its own type once annotated.)
+          let own = false;
+          const reads = (y: ts.Node) => {
+            if (ts.isIdentifier(y) && checker.getSymbolAtLocation(y) === sym) own = true;
+            else ts.forEachChild(y, reads);
+          };
+          reads(v);
+          if (own && !m.inferred.has(key)) return;
+          if (x.operatorToken.kind !== ts.SyntaxKind.EqualsToken) open = true;
+          else if (v.kind === ts.SyntaxKind.NullKeyword) nullable = true;
+          else if (ts.isIdentifier(v) && v.text === 'undefined') nullable = true;
+          else {
+            const t = checker.getTypeAtLocation(v);
+            const text =
+              t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)
+                ? undefined
+                : print(checker.getBaseTypeOfLiteralType(t), v);
+            if (text === undefined || /\bnever\b/.test(text)) open = true;
+            else values.add(text);
+          }
+        }
+        ts.forEachChild(x, writes);
+      };
+      if (sym) writes(sf);
+      if (open || values.size !== 1) return;
+      const [value] = values;
+      if (initial === 'array' && !/\[\]$/.test(value)) return;
+      const text =
+        initial === 'array'
+          ? value
+          : `${value} | ${initial}${nullable && initial !== 'null' ? ' | null' : ''}`;
+      if (next.get(key) !== text) next.set(key, text);
+    };
+    assignedLets(sf);
     if (JSON.stringify([...next]) !== JSON.stringify([...m.inferred])) {
       const code = readFileSync(m.file, 'utf8');
       const again = annotate(m.file, code, next);

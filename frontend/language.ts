@@ -6736,10 +6736,32 @@ export class Lowerer {
   ): Expr {
     const restore = this.bindTypeParameters(g.decl, params);
     try {
-      return this.closure(g.decl, b, g.decl.name?.text ?? 'fn', params, result);
+      const value = this.closure(g.decl, b, g.decl.name?.text ?? 'fn', params, result);
+      this.checkConstrainedResult(g.decl, result);
+      return value;
     } finally {
       restore();
     }
+  }
+
+  /**
+   * The result type `result` an instantiation of generic `decl` was given
+   * before its body was lowered, against the type its reads of type
+   * parameter members (`constrainedRead`) show TypeScript's result type
+   * stands for: where they differ (a result TypeScript types through the
+   * constraint, `Loose[]`), rejected, located.
+   */
+  private checkConstrainedResult(decl: ts.FunctionLikeDeclaration, result: Type): void {
+    if (!this.types.substitutions.at(-1)?.size) return;
+    const sig = this.checker.getSignatureFromDeclaration(decl);
+    const rt = sig && this.checker.getReturnTypeOfSignature(sig);
+    const now = rt && this.types.tryMap(rt, decl);
+    if (now !== undefined && !sameType(now, result))
+      this.fail(
+        decl,
+        'E_TYPE_UNION',
+        `This instantiation's result is typed through its type parameter's constraint (${this.checker.typeToString(rt!)}): its values have another type; annotate the result with the type parameter`,
+      );
   }
 
   /** A value of an initialiser as type `want` (nullable widening, null of the type). */
@@ -8150,8 +8172,9 @@ export class Lowerer {
       }
       // `d || {}` of a nullable dictionary object (embla's
       // `options.breakpoints || {}`, whose `{}` TypeScript types apart): the
-      // empty object is an empty dictionary of the same type.
-      const li = maybeInner(lt);
+      // empty object is an empty dictionary of the same type. (Of one that
+      // is never nullish: the dictionary, an object being truthy.)
+      const li = maybeInner(lt) ?? lt;
       const leftType = this.checker.getNonNullableType(this.checker.getTypeAtLocation(e.left));
       if (
         op === K.BarBarToken &&
@@ -8163,6 +8186,7 @@ export class Lowerer {
         !!leftType.getStringIndexType() &&
         !leftType.getCallSignatures().length
       ) {
+        if (maybeInner(lt) === undefined) return left;
         const tmp = b.local('$logical', lt);
         const read: Expr = { op: 'local', local: tmp };
         return {
@@ -10281,6 +10305,7 @@ export class Lowerer {
       if (this.types.accessors.has(record)) return this.accessorRead(object, record, name, e);
       const field = this.types.fieldIndex(record, name, e);
       const read: Expr = { op: 'get', object, field };
+      this.constrainedRead(e, this.types.records[record].fields[field].type);
       return this.types.merged.has(record) ? this.mergedRead(read, record, field, e) : read;
     }
     if (kind === 'regexp') {
@@ -13099,6 +13124,7 @@ export class Lowerer {
               : {}),
           },
         );
+        this.checkConstrainedResult(g.decl, this.functions[index].result);
       } finally {
         restore();
       }
@@ -13164,6 +13190,65 @@ export class Lowerer {
    * records of types using them are not cached by TypeScript type (another
    * specialisation binds them otherwise).
    */
+  /**
+   * A member read `e` (of IR type `t`) on a value whose TypeScript type is a
+   * type parameter bound in the instantiation being lowered: TypeScript
+   * types the read through the parameter's constraint (embla's
+   * `optionsAtMedia<Type extends OptionsType>` reads `options.breakpoints`
+   * as `LooseOptionsType`'s, a dictionary of `{ [x: string]: unknown }`),
+   * while the instantiation's value has its record's type. That TypeScript
+   * type stands for `t` in the instantiation (`TypeMapper.substitutions`),
+   * and so do the types inside it: a nullable's value, a dictionary's
+   * values, an array's elements, a record's fields. One TypeScript type
+   * standing for two IR types there is rejected.
+   */
+  private constrainedRead(e: ts.PropertyAccessExpression, t: Type): void {
+    const scope = this.types.substitutions.at(-1);
+    if (!scope) return;
+    const receiver = this.checker.getTypeAtLocation(e.expression);
+    if (
+      !(receiver.flags & ts.TypeFlags.TypeParameter) ||
+      this.types.typeParameter?.(receiver) === undefined
+    )
+      return;
+    const F = ts.TypeFlags;
+    const seen = new Set<ts.Type>();
+    const stand = (ts0: ts.Type, ir: Type) => {
+      if (seen.has(ts0)) return;
+      seen.add(ts0);
+      // (Primitives and literals map alike everywhere.)
+      if (!(ts0.flags & (F.Object | F.Union | F.Intersection))) return;
+      const had = this.types.substituted(ts0);
+      if (had !== undefined && !sameType(had, ir))
+        this.fail(
+          e,
+          'E_TYPE_UNION',
+          `In this instantiation of a generic function, TypeScript's type ${this.checker.typeToString(ts0)} (from a type parameter's constraint) stands for two types (${JSON.stringify(had)} and ${JSON.stringify(ir)})`,
+        );
+      scope.set(ts0, ir);
+      // (TypeScript's nullable type of a value the instantiation's type
+      // holds always: its present part.)
+      const inner = maybeInner(ir);
+      const present = this.checker.getNonNullableType(ts0);
+      if (present !== ts0) return stand(present, inner ?? ir);
+      if (inner !== undefined) return;
+      if (typeof ir !== 'object') return;
+      if ('map' in ir && ir.map[0] === 'string') {
+        const index = ts0.getStringIndexType();
+        if (index) stand(index, ir.map[1]);
+      } else if ('array' in ir && this.checker.isArrayType(ts0)) {
+        const [el] = this.checker.getTypeArguments(ts0 as ts.TypeReference);
+        if (el) stand(el, ir.array);
+      } else if ('record' in ir && !this.types.records[ir.record].class) {
+        for (const f of this.types.records[ir.record].fields) {
+          const p = this.checker.getPropertyOfType(ts0, f.name);
+          if (p) stand(this.checker.getTypeOfSymbolAtLocation(p, e), f.type);
+        }
+      }
+    };
+    stand(this.checker.getTypeAtLocation(e), t);
+  }
+
   private bindTypeParameters(decl: ts.FunctionLikeDeclaration, types: Type[]): () => void {
     const params = (decl.typeParameters ?? []).map(tp => ({
       name: tp.name.text,
@@ -13199,7 +13284,9 @@ export class Lowerer {
     const bound = new Set(params.map(p => p.type));
     const uncached = this.types.uncached;
     this.types.uncached = t => !!uncached?.(t) || usesTypeParameter(t, bound, this.checker);
+    this.types.substitutions.push(new Map());
     return () => {
+      this.types.substitutions.pop();
       this.types.uncached = uncached;
       params.forEach((p, i) => {
         if (!p.sym) return;

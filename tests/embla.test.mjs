@@ -115,4 +115,9 @@ test("the pack's pinned declaration override types mergeOptions' result; activat
     text,
     /function activate\(withOptions: Partial<__dts\d+\.OptionsType> \| undefined, /,
   );
+  // `let`s assigned later: the values' type, nullable as the initial value
+  // (`let engine;`), an empty array's from the arrays assigned (also from
+  // `activePlugins = activePlugins.filter(…)` once typed).
+  assert.match(text, /let engine: __dts\d+\.EngineType \| undefined;/);
+  assert.match(text, /let activePlugins: __dts\d+\.CreatePluginType<[^>]+>\[\] = \[\];/);
 });
