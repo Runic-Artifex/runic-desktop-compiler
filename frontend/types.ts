@@ -461,6 +461,8 @@ export class TypeMapper {
     if (t.flags & F.Intersection) {
       // A DOM handle refined by an intersection (bits-ui's `MouseEvent & { currentTarget: … }`).
       if (t.getProperty('__runicElement')) return 'element';
+      // (The window as `Window & typeof globalThis`, embla's `WindowType`: the window's handle.)
+      if (this.hostOf(t)) return 'element';
       if (t.getProperty('__runicEvent')) return 'event';
       const attrs = (t as ts.IntersectionType).types.some(p => p.getProperty('__runicAttrs'));
       if (attrs) return 'attrs';
