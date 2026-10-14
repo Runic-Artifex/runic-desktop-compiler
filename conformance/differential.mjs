@@ -106,6 +106,8 @@ function layoutBuiltin(v) {
     if (ns === 'animation') return v.name;
     // Scroll events come from layout (scrolling) too.
     if (m === 'listen' && v.args[0]?.value === 'scroll') return `${v.name} scroll`;
+    // (`target.listen(t, type, …)` names its type second.)
+    if (v.name === 'target.listen' && v.args[1]?.value === 'scroll') return `${v.name} scroll`;
     // Animation and transition events come from the style engine (CSS slice 3b).
     if (m === 'listen' && ANIMATION_EVENTS.has(v.args[0]?.value)) return `${v.name} ${v.args[0].value}`;
     if (v.name === 'target.listen' && ANIMATION_EVENTS.has(v.args[1]?.value)) return `${v.name} ${v.args[1].value}`;
