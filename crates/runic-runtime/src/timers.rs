@@ -179,3 +179,32 @@ pub fn clock_origin() -> f64 {
         .map(|d| d.as_secs_f64() * 1000.0 - CLOCK_START)
         .unwrap_or(0.0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Apps (not probes): frame callbacks wait for the window's frame, not a
+    /// due time, so the shell is asked for one while any is pending
+    /// (`Native::request_frame_if_needed`); timers keep their due times.
+    #[test]
+    fn app_frames_wait_for_the_window_frame() {
+        let mut t: Timers<u32> = Timers::new(0.0);
+        t.frame(1);
+        t.add(TimerKind::Timeout, 2, 5.0);
+        t.frame(3);
+        assert!(t.has_frames());
+        // The next due time is the timeout's: frames do not wake the app.
+        assert_eq!(t.next_due(), Some(CLOCK_START + 5.0));
+        // Time passing runs the timeout only.
+        assert_eq!(
+            t.take_due(CLOCK_START + 100.0),
+            Some((TimerKind::Timeout, 2))
+        );
+        assert!(t.take_due(CLOCK_START + 100.0).is_none());
+        // The frame runs every callback requested before it, in order.
+        assert_eq!(t.take_frames(), vec![1, 3]);
+        assert!(!t.has_frames());
+        assert_eq!(t.next_due(), None);
+    }
+}

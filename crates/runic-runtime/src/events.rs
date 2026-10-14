@@ -120,6 +120,7 @@ impl<A: App> Document for Native<A> {
             self.fix_focus_after_update();
             self.host_tasks();
         }
+        self.request_frame_if_needed();
     }
     /// Production timers: run what is due by real time, then wake again for
     /// the next timer.
@@ -171,6 +172,7 @@ impl<A: App> Document for Native<A> {
                 });
             }
         }
+        self.request_frame_if_needed();
         ran
     }
 
@@ -204,10 +206,20 @@ impl<A: App> Document for Native<A> {
                 w.wake_by_ref();
             }
         }
+        self.request_frame_if_needed();
     }
 }
 
 impl<A: App> Native<A> {
+    /// Animation frame callbacks wait for the window's next frame (apps): a
+    /// frame is requested whenever any is pending, so a loop of them keeps
+    /// the window drawing, and without them (or animations) it goes idle.
+    fn request_frame_if_needed(&self) {
+        if self.app.has_frame_callbacks() {
+            self.doc.shell_provider.request_redraw();
+        }
+    }
+
     /// Run the timers due at or before clock time `to`, then apply the focus
     /// fixups that follow any update.
     pub(crate) fn advance(&mut self, to: f64) {
