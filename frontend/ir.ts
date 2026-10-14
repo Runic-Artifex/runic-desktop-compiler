@@ -404,6 +404,12 @@ export type Node =
        */
       props?: Attr[];
       listeners?: Listener[];
+      /**
+       * Listeners of custom event types (M6 script DOM, slice 3): a type
+       * Chromium never dispatches itself, and a listener value (template
+       * scope, evaluated at each dispatch; nullish: nothing runs).
+       */
+      customListeners?: { event: string; listener: Expr }[];
       /** A cell holding this element while mounted (null after removal). */
       ref?: number;
       /** An attribute bag applied after `attrs` (whose names it never holds). */
@@ -554,6 +560,20 @@ export interface Schedule {
    * (`scroll`); a discrete update before that renders them at once.
    */
   continuous?: EventKind[];
+  /**
+   * How the framework orders its template listeners with listeners script
+   * adds (docs/IR.md "Delegation"): the kinds whose bubbling template
+   * listeners it runs from a delegation root (Svelte's); absent where not
+   * declared (the runtime then reports an order it cannot know).
+   */
+  delegation?: EventKind[];
+  /**
+   * The framework's template listeners are native listeners of their
+   * elements, registered when it creates the element (Vue's invokers;
+   * docs/IR.md "Delegation"): they run at their elements in registration
+   * order with listeners script adds. Not together with `delegation`.
+   */
+  elementListeners?: true;
 }
 
 /**

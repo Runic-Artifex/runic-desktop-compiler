@@ -595,18 +595,22 @@ export async function lowerReact(graph: Graph): Promise<Lowering> {
   // made while remapping function locals. Membership tests stay unmarked.
   const eventInstanceOf: ts.BinaryExpression[] = [];
   const elementSubmitRegistrations = new Set<ts.CallExpression>();
-  const registersElementSubmit = (value: Expr): boolean => {
+  // Listeners script adds to nodes (M6 script DOM), by event kind: React
+  // runs its handlers from its root container, so where one of a kind it
+  // handles is in the program the order differs (located below).
+  const elementRegistrations = new Map<string, ts.CallExpression>();
+  const registeredKind = (value: Expr): string | undefined => {
     if (value.op === 'builtin')
-      return (
-        value.name === 'element.listen' &&
+      return (value.name === 'element.listen' || value.name === 'target.listen') &&
         value.args[1]?.op === 'lit' &&
-        value.args[1].value === 'submit'
-      );
-    if (value.op === 'with') return registersElementSubmit(value.body);
-    if (value.op === 'cond')
-      return registersElementSubmit(value.then) || registersElementSubmit(value.else);
-    return false;
+        typeof value.args[1].value === 'string'
+        ? value.args[1].value
+        : undefined;
+    if (value.op === 'with') return registeredKind(value.body);
+    if (value.op === 'cond') return registeredKind(value.then) ?? registeredKind(value.else);
+    return undefined;
   };
+  const registersElementSubmit = (value: Expr): boolean => registeredKind(value) === 'submit';
   const expression = lower.expr.bind(lower);
   lower.expr = (node, context) => {
     const value = expression(node, context);
@@ -614,6 +618,9 @@ export async function lowerReact(graph: Graph): Promise<Lowering> {
     // wrapped by optional chaining. Host listeners have distinct builtins.
     if (ts.isCallExpression(node) && registersElementSubmit(value))
       elementSubmitRegistrations.add(node);
+    const kind = ts.isCallExpression(node) ? registeredKind(value) : undefined;
+    if (kind && !elementRegistrations.has(kind))
+      elementRegistrations.set(kind, node as ts.CallExpression);
     if (
       ts.isBinaryExpression(node) &&
       node.operatorToken.kind === ts.SyntaxKind.InstanceOfKeyword &&
@@ -3393,6 +3400,16 @@ export async function lowerReact(graph: Graph): Promise<Lowering> {
         'E_EVENT',
         'Native element submit listeners together with onSubmit are unsupported: React delegates onSubmit to its root, after native element listeners, while the runtime runs template handlers on the element first',
       );
+    // The same for every kind (M6 script DOM): React's handlers run from its
+    // root container (bubbling handlers after, capturing ones before the
+    // listeners script adds below it), which the IR does not model.
+    for (const [kind, call] of elementRegistrations)
+      if (kind !== 'submit' && listening.some(l => l.h.event === kind))
+        fail(
+          call,
+          'E_EVENT',
+          `A ${kind} listener added with addEventListener together with React ${kind} handlers is unsupported: React runs its handlers from its root container, not ordered with the listeners script adds to elements (docs/gaps/PLATFORM.md)`,
+        );
     // Change listeners of selects (the others are on checkboxes and radio buttons).
     const selectChanges = new Set<unknown>();
     const selects = (k: number, nodes: Node[]) => {

@@ -264,6 +264,11 @@ export const EVENT_MEMBERS: Record<string, Type> = {
   pointerType: S,
   pointerId: N,
   defaultPrevented: B,
+  // M6 script DOM, slice 3.
+  isTrusted: B,
+  bubbles: B,
+  cancelable: B,
+  timeStamp: N,
   target: 'element',
   relatedTarget: { maybe: 'element' },
   currentTarget: { maybe: 'element' },
@@ -324,6 +329,8 @@ export function builtinType(name: string, args: Type[]): Type | undefined {
     if (typeof recv === 'object' && 'array' in recv) return recv;
     if (typeof recv === 'object' && 'set' in recv) return { array: recv.set };
   }
+  // Events script creates (M6 script DOM, slice 3).
+  if (ns === 'event' && ['new', 'custom', 'create', 'keyboard'].includes(method)) return 'event';
   if (ns === 'event')
     // (`composedPath()[0]`: undefined once the dispatch is over.)
     return method === 'path-target' ? { maybe: 'element' } : EVENT_MEMBERS[method];

@@ -1,0 +1,19 @@
+{
+  "description": "Script DOM slice 3 (docs/design/M6-SCRIPT-DOM.md), compared with Chromium: listeners script adds with options (capture given twice as an object and a boolean, once with a named function, passive whose preventDefault does nothing and a non-passive one that cancels a checkbox's toggle) on rendered elements, the document (once) and the window (capture, passive), reached by harness clicks and a key press; removeEventListener by type, listener and capture; CustomEvent with a typed detail dispatched at an element, bubbling to a template listener of the custom type (ontick) and cancelled by an ancestor's listener, and one that does not bubble; MouseEvent with init members dispatched at an element (isTrusted false, the window's capture listener included); Event dispatched at a script-created node bubbling to the document, InvalidStateError of a nested re-dispatch and a second dispatch of the same event; 'addEventListener' in node and typeof window.MouseEvent",
+  "fixtures": ["script-dom-events-svelte"],
+  "actions": [
+    { "kind": "click", "id": "inner" },
+    { "kind": "click", "id": "inner" },
+    { "kind": "click", "id": "held" },
+    { "kind": "click", "id": "cancelled" },
+    { "kind": "press", "key": "a" },
+    { "kind": "press", "key": "b" },
+    { "kind": "click", "id": "custom" },
+    { "kind": "click", "id": "custom" },
+    { "kind": "click", "id": "native" },
+    { "kind": "click", "id": "nodes" },
+    { "kind": "click", "id": "nodes" },
+    { "kind": "click", "id": "unhook" },
+    { "kind": "click", "id": "inner" }
+  ]
+}

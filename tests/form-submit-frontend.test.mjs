@@ -344,8 +344,8 @@ export function App(){
     async graph => {
       const { ir } = await lowerReact(graph);
       assert.equal(handlers(ir).filter(handler => handler.event === 'submit').length, 0);
-      assert.ok(builtins(ir).includes('element.listen'));
-      assert.ok(builtins(ir).includes('element.unlisten'));
+      assert.ok(builtins(ir).includes('target.listen'));
+      assert.ok(builtins(ir).includes('target.unlisten'));
       assert.ok(builtins(ir).includes('event.stopPropagation'));
     },
   );
@@ -388,8 +388,8 @@ export function App(){
     async graph => {
       const { ir } = await lowerReact(graph);
       assert.equal(handlers(ir).filter(handler => handler.event === 'submit').length, 1);
-      assert.ok(builtins(ir).includes('element.unlisten'));
-      assert.ok(!builtins(ir).includes('element.listen'));
+      assert.ok(builtins(ir).includes('target.unlisten'));
+      assert.ok(!builtins(ir).includes('target.listen'));
     },
   );
 });

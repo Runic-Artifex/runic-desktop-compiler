@@ -25,8 +25,10 @@ import type {
   StyleGuard,
   Lowering,
   ImageUrl,
+  EventKind,
 } from '../ir.ts';
 import { EVENT_KINDS, IMAGE_EVENT_KINDS } from '../ir.ts';
+import { customType } from '../event-types.ts';
 import {
   FnBuilder,
   Lowerer,
@@ -101,6 +103,33 @@ const LEGACY_WARNINGS = [
 ];
 /** `svelte` exports modules may import. */
 const MODULE_SVELTE = ['tick', 'untrack', 'settled', 'setContext', 'getContext', 'hasContext'];
+
+/**
+ * The IR event kinds among Svelte 5's DELEGATED_EVENTS (svelte/src/utils.js):
+ * its template listeners of these kinds (attributes and spreads on regular
+ * elements) run from the delegation roots (`handle_event_propagation`).
+ */
+const SVELTE_DELEGATED: EventKind[] = [
+  'click',
+  'change',
+  'dblclick',
+  'contextmenu',
+  'focusin',
+  'focusout',
+  'input',
+  'keydown',
+  'keyup',
+  'mousedown',
+  'mousemove',
+  'mouseout',
+  'mouseover',
+  'mouseup',
+  'pointerdown',
+  'pointermove',
+  'pointerout',
+  'pointerover',
+  'pointerup',
+];
 
 /** Inline SVG elements (runic-ir's SVG_TAGS). */
 const SVG_TAGS = ['svg', 'g', 'path', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'rect'];
@@ -5646,6 +5675,7 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
       const attrs: { name: string; value: Expr }[] = [];
       const props: { name: string; value: Expr }[] = [];
       const listeners: Listener[] = [];
+      const customListeners: { event: string; listener: Expr }[] = [];
       const checkbox =
         n.name === 'input' &&
         n.attributes.some(
@@ -5673,6 +5703,29 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
       for (const a of n.attributes) {
         if (a.type === 'Attribute') {
           const name: string = a.name;
+          // An event attribute of a custom event type (M6 script DOM, slice
+          // 3: shadcn-svelte's `onemblaInit`): Svelte adds the listener when
+          // it creates the element, calling the value at each event.
+          // (`on<type>capture` listens in the capture phase: not here.)
+          if (
+            /^on[A-Za-z][\w-]*$/.test(name) &&
+            customType(name.slice(2)) &&
+            !name.endsWith('capture')
+          ) {
+            const v = a.value;
+            const tag = Array.isArray(v) ? v[0] : v;
+            if (
+              v === true ||
+              !tag ||
+              tag.type !== 'ExpressionTag' ||
+              (Array.isArray(v) && v.length !== 1)
+            )
+              fail('E_EVENT', 'Event attributes need a handler expression', loc(a));
+            const e = exprNode(tag.expression);
+            lower.expected.set(skipParens(e), { fn: { params: ['event'], result: 'void' } });
+            customListeners.push({ event: name.slice(2), listener: value(e) });
+            continue;
+          }
           if (/^on[a-z]+$/.test(name)) {
             const event = name.slice(2);
             // An image's outcome (M6 images): `<img>` attributes only.
@@ -5998,6 +6051,7 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
         ...(attrs.length ? { attrs } : {}),
         ...(props.length ? { props } : {}),
         ...(listeners.length ? { listeners } : {}),
+        ...(customListeners.length ? { customListeners } : {}),
         ...(reference !== undefined ? { ref: reference } : {}),
         ...(bag ? { spread: bag, spreadBooleanText: true as const } : {}),
         ...(classes.length ? { classes } : {}),
@@ -6054,7 +6108,10 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
     root: units.get(rootFile!)!.index,
     // Delegated listeners and microtask flushes (the defaults); teardowns
     // read state as it was before the batch that destroys or re-runs them.
-    schedule: { cleanupReadsPrevious: true },
+    // Svelte 5 runs its template listeners of the kinds in its
+    // DELEGATED_EVENTS (svelte/src/utils.js) from its delegation roots, the
+    // mount targets (M6 script DOM: ordered with listeners script adds).
+    schedule: { cleanupReadsPrevious: true, delegation: SVELTE_DELEGATED },
     ...(fragments.list.length ? { fragments: fragments.list } : {}),
   };
   lower.widenRecords(ir);

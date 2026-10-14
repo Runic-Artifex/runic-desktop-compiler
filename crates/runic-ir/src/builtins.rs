@@ -281,6 +281,18 @@ fn arity(args: &[Type], min: usize, max: usize) -> std::result::Result<(), std::
     }
 }
 
+/// An event listener: a function taking the event or nothing (its result
+/// is ignored, as `addEventListener` ignores it).
+fn listener_fn(t: &Type) -> std::result::Result<(), std::string::String> {
+    match t {
+        Type::Fn(f) if f.params.is_empty() || f.params == [Type::Event] => Ok(()),
+        other => Err(format!(
+            "listener must take the event or nothing, found {}",
+            other.name()
+        )),
+    }
+}
+
 fn expect(t: &Type, want: &Type, what: &str) -> std::result::Result<(), std::string::String> {
     if t == want {
         Ok(())
@@ -864,6 +876,75 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             expect(&args[0], &Event, "event")?;
             expect(&args[1], &s, "interface").map(|_| b)
         }
+        // M6 script DOM, slice 3: listeners added by script to any event
+        // target (an element, a text, comment or fragment node, the
+        // document, the window), of any type known at run time, with the
+        // options `capture`, `once` and `passive` (undefined: Chromium's
+        // default for the type and target); identified by (target, type,
+        // listener, capture).
+        ("target", "listen") => {
+            arity(args, 6, 6)?;
+            expect(&args[0], &Element, "target")?;
+            expect(&args[1], &s, "type")?;
+            listener_fn(&args[2])?;
+            expect(&args[3], &b, "capture")?;
+            expect(&args[4], &b, "once")?;
+            expect(&args[5], &Maybe(Box::new(b.clone())), "passive").map(|_| Void)
+        }
+        ("target", "unlisten") => {
+            arity(args, 4, 4)?;
+            expect(&args[0], &Element, "target")?;
+            expect(&args[1], &s, "type")?;
+            listener_fn(&args[2])?;
+            expect(&args[3], &b, "capture").map(|_| Void)
+        }
+        // `new CustomEvent(type, { bubbles, cancelable, detail })`: the
+        // detail of any type (none: null), read back by `event.custom-detail`
+        // at the type the program gives it.
+        // (With a detail, its type spelled as IR JSON follows, a literal the
+        // validator checks: the interpreter has no static types.)
+        ("event", "custom") => {
+            if args.len() != 3 && args.len() != 5 {
+                return Err(format!(
+                    "expects the type, bubbles, cancelable and optionally a detail with its type, got {} arguments",
+                    args.len()
+                ));
+            }
+            expect(&args[0], &s, "type")?;
+            expect(&args[1], &b, "bubbles")?;
+            if let Some(t) = args.get(4) {
+                expect(t, &s, "detail type")?;
+            }
+            expect(&args[2], &b, "cancelable").map(|_| Event)
+        }
+        // `new Event(type, init)`, `new MouseEvent(type, init)`, …: the
+        // interface (a literal of `runic_js::event::SCRIPT_INTERFACES`), the
+        // type, `bubbles`, `cancelable`, then pairs of an init member's name
+        // (a literal the interface has, `runic_js::event::init_member`) and
+        // its value; the validator checks the literals and the values' types.
+        ("event", "create") => {
+            if args.len() < 4 || args.len() % 2 != 0 {
+                return Err(format!(
+                    "expects the interface, type, bubbles, cancelable and name/value pairs, got {} arguments",
+                    args.len()
+                ));
+            }
+            expect(&args[0], &s, "interface")?;
+            expect(&args[1], &s, "type")?;
+            expect(&args[2], &b, "bubbles")?;
+            expect(&args[3], &b, "cancelable")?;
+            for pair in args[4..].chunks(2) {
+                expect(&pair[0], &s, "init member name")?;
+            }
+            Ok(Event)
+        }
+        // A `CustomEvent`'s detail at the declared type (a TypeError where
+        // it holds a value of another type, or none for a type that is not
+        // nullable).
+        ("event", "custom-detail") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Event, "event").map(|_| declared.clone())
+        }
         // Event objects (docs/design/M5-PLATFORM.md).
         ("event", m) => {
             arity(args, 1, 1)?;
@@ -871,9 +952,9 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             match m {
                 "type" | "key" | "code" | "value" | "pointerType" => Ok(s),
                 "ctrlKey" | "shiftKey" | "altKey" | "metaKey" | "repeat" | "isComposing" | "checked"
-                | "defaultPrevented" | "matches" => Ok(b),
+                | "defaultPrevented" | "matches" | "isTrusted" | "bubbles" | "cancelable" => Ok(b),
                 "clientX" | "clientY" | "button" | "buttons" | "deltaX" | "deltaY" | "detail"
-                | "pointerId" => Ok(n),
+                | "pointerId" | "timeStamp" => Ok(n),
                 "target" => Ok(Element),
                 "relatedTarget" => Ok(Maybe(Box::new(Element))),
                 // Null once the dispatch is over.

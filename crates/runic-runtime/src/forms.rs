@@ -293,6 +293,8 @@ pub(crate) fn begin(
                 listener,
                 event: event.clone(),
                 current: node.as_u64(),
+                delegated: None,
+                joined: false,
             })
     }));
     Some(Submission {

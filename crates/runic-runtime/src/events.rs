@@ -479,6 +479,8 @@ impl<A: App> Native<A> {
                     listener,
                     event: event.clone(),
                     current: Element::VISUAL_VIEWPORT.0,
+                    delegated: None,
+                    joined: false,
                 };
                 handler.dispatch(&mut self.doc, &[delivery]);
             }
@@ -500,6 +502,8 @@ impl<A: App> Native<A> {
                     listener,
                     event: event.clone(),
                     current: 0,
+                    delegated: None,
+                    joined: false,
                 };
                 handler.dispatch(&mut self.doc, &[delivery]);
             }
@@ -1083,25 +1087,33 @@ impl<A: App> Handler<'_, A> {
                 .unwrap_or_default();
         }
         let event = runic_js::Event::new(data);
+        // (A bubbling event reaches every ancestor of its target, also where
+        // the caller passed the target alone: a typed character's `input`.)
+        let full = element_chain(doc, target);
         let path = if kind.bubbles() {
-            &elements[..]
+            &full[..]
         } else {
-            &elements[..1]
+            &full[..1]
         };
         // The elements' capture listeners first, from the root to the
         // target (M6 overlays: along the target's ancestors also for events
         // that do not bubble, such as focus), then the target's and the
         // ancestors'.
         let chain = element_chain(doc, elements[0]);
+        if let Some(why) = self.listeners.order_conflict(&chain, kind) {
+            crate::unsupported(&why);
+        }
         let mut deliveries: Vec<Delivery> = self.listeners.capture_deliveries(&chain, kind, &event);
-        deliveries.extend(path.iter().flat_map(|&n| {
-            let event = &event;
-            self.listeners.all(n, kind).map(move |listener| Delivery {
-                listener,
-                event: event.clone(),
-                current: n.as_u64(),
-            })
-        }));
+        // (The bubbling phase in the framework's order where it declares its
+        // delegation: `Listeners::bubble_stage`.)
+        let mut from = 0;
+        for i in 0..path.len() {
+            let (stage, next) = self
+                .listeners
+                .bubble_stage(doc, path, i, from, kind, &event);
+            deliveries.extend(stage);
+            from = next;
+        }
         // The capture listeners of the window, then the document, first.
         self.capture(doc, kind, &event, true);
         self.dispatch(doc, &deliveries);
@@ -1176,6 +1188,8 @@ impl<A: App> Handler<'_, A> {
                     listener,
                     event: event.clone(),
                     current: current.0,
+                    delegated: None,
+                    joined: false,
                 };
                 self.dispatch(doc, &[delivery]);
             }
@@ -1209,6 +1223,8 @@ impl<A: App> Handler<'_, A> {
                     listener,
                     event: event.clone(),
                     current: current.0,
+                    delegated: None,
+                    joined: false,
                 };
                 self.dispatch(doc, &[delivery]);
             }
@@ -1646,6 +1662,8 @@ impl<A: App> Handler<'_, A> {
                         listener,
                         event: event.clone(),
                         current: n.as_u64(),
+                        delegated: None,
+                        joined: false,
                     });
                 }
             }
@@ -1654,6 +1672,8 @@ impl<A: App> Handler<'_, A> {
                     listener,
                     event: change.clone(),
                     current: id.as_u64(),
+                    delegated: None,
+                    joined: false,
                 });
             }
             self.dispatch(doc, &deliveries);

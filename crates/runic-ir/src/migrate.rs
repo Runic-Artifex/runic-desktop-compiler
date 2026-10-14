@@ -258,6 +258,7 @@ fn node(v: &Json, handlers: &[Json]) -> Result<Node> {
                 attrs,
                 props,
                 listeners,
+                custom_listeners: vec![],
                 reference: None,
                 spread: None,
                 spread_boolean_text: false,

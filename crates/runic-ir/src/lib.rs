@@ -216,6 +216,26 @@ pub struct Schedule {
     /// discrete update before that task renders them at once.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub continuous: Vec<EventKind>,
+    /// How the framework orders its template listeners with listeners script
+    /// adds (M6 script DOM; docs/IR.md "Delegation"). Absent: not declared,
+    /// so where a listener script added could run in another order than the
+    /// framework's, the run is reported. Present: the event kinds whose
+    /// bubbling template listeners the framework runs from a delegation
+    /// root (Svelte's), every other template listener being a native
+    /// listener of its element.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delegation: Option<Vec<EventKind>>,
+    /// The framework's template listeners are native listeners of their
+    /// elements, registered when it creates the element (Vue's invokers;
+    /// M6 script DOM, docs/IR.md "Delegation"): they run at their elements
+    /// in registration order with listeners script adds, so no order is
+    /// reported. Not together with `delegation`.
+    #[serde(
+        default,
+        rename = "elementListeners",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub element_listeners: bool,
 }
 
 /// How cleanups of re-running effects are ordered within a phase.
@@ -1935,6 +1955,18 @@ pub struct Listener {
     pub args: Vec<Expr>,
 }
 
+/// A template listener of a custom event type (M6 script DOM, slice 3): a
+/// type that is not one Chromium dispatches itself
+/// (`runic_js::event::NATIVE_TYPES`), so only script's `dispatchEvent`
+/// reaches it. `listener` (template scope) is evaluated at each dispatch
+/// and called with the event: a function taking the event or nothing, or
+/// a nullable one (nullish: nothing runs).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CustomListener {
+    pub event: String,
+    pub listener: Expr,
+}
+
 /// At an element's mount, after its attributes and spread and before its
 /// live properties: when `when` (boolean, template scope) holds and the
 /// control's value is not empty, `handler` (an `input` handler) runs once
@@ -2019,6 +2051,15 @@ pub enum Node {
         props: Vec<Attr>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         listeners: Vec<Listener>,
+        /// Listeners of custom event types (M6 script DOM, slice 3:
+        /// Svelte's `onemblaInit`), registered when the element is created,
+        /// before any listener script adds; only script dispatches them.
+        #[serde(
+            rename = "customListeners",
+            default,
+            skip_serializing_if = "Vec::is_empty"
+        )]
+        custom_listeners: Vec<CustomListener>,
         /// A cell of type `element | null | undefined` that holds this
         /// element while it is mounted and `null` after removal (bind:this,
         /// React refs, Vue template refs).
