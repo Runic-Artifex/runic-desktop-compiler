@@ -295,20 +295,21 @@ test("Vue's template listeners are its elements' own; nested dispatches check th
     log(steps[3]),
     'soc stc tt st m ti si to soc n< tx sx ts >n ti si to soc r< tf sf >r ti si to',
   );
-  // React declares neither: a listener script adds below its root, of a type
-  // known only at run time, is reported where a nested dispatch reaches it,
-  // in the interpreter and in the generated code alike (the differential
-  // compares the two over nested-order-react).
+  // React declares its root dispatch (schedule.rootDispatch): a listener
+  // script adds below the root, of a type known only at run time, runs
+  // before React's bubbling handlers, which run from the root, also for
+  // nested dispatches (requestSubmit and dispatchEvent from a handler); the
+  // conformance case nested-order-react checks the order against Chromium.
   const react = (await lowered(path.resolve('fixtures/nested-order-react'))).ir;
   assert.equal(react.schedule.elementListeners, undefined);
-  // (requestSubmit: the order check of the nested dispatch; dispatchEvent
-  // of a native type: first the report of one reaching a template listener.)
-  for (const [id, message] of [
-    ['request', /submit listener added with addEventListener on the path of a template listener/],
-    ['dispatch', /dispatchEvent of a native click event reaching a template listener/],
+  assert.ok(react.schedule.rootDispatch.kinds.includes('submit'));
+  for (const [id, expected] of [
+    ['request', 'script submit'],
+    ['dispatch', 'script other'],
   ]) {
     const [, step] = interpret(react, [{ kind: 'click', id }]);
-    assert.match(step.outcome?.rejected?.message ?? '', message, id);
+    assert.ok(!step.outcome?.rejected, JSON.stringify(step.outcome));
+    assert.equal(text(byId(step.state.dom, 'log')), expected, id);
   }
   const rust = generate(react);
   assert.match(rust, /if elements \{ cx\.dom\.check_listener_order\(&path, kind\); \}/);

@@ -764,6 +764,14 @@ struct Inner {
     /// phase): the node and whether it is the capturing one. The stop
     /// propagation flag lets only the rest of this invocation run.
     invocation: Cell<Option<(u64, bool)>>,
+    /// A framework's own event object over this one stopped propagation
+    /// (React's synthetic event: its handlers check their own flag, not the
+    /// native one; reset as each root group starts, `enter_root`).
+    synthetic_stopped: Cell<bool>,
+    /// The native event a framework's event of another type stands on
+    /// (React's `onChange` of a checkbox, from the click): stopping and
+    /// cancelling it act on that event too (`Event::linked`).
+    native: Option<Event>,
     /// The target (an event script created has none until dispatched).
     target: Cell<Option<u64>>,
     /// A passive listener is running: `preventDefault` does nothing.
@@ -792,9 +800,28 @@ impl Event {
             stopped: Cell::new(false),
             stopped_immediately: Cell::new(false),
             invocation: Cell::new(None),
+            synthetic_stopped: Cell::new(false),
+            native: None,
             passive: Cell::new(false),
             detail: None,
         }))
+    }
+    /// A framework's event of another type standing on the native event
+    /// `native`, which the user agent is dispatching (React's `onChange` of
+    /// a checkbox or radio button runs in the click's root group, with an
+    /// event of its own): `stopPropagation` stops it and the native event,
+    /// `preventDefault` cancels both (the toggle is reverted); its own
+    /// propagation flag is its own (the click's handlers stopping does not
+    /// skip it), and whether it can run at the root is the native event's.
+    pub fn linked(data: EventData, native: &Event) -> Self {
+        let mut e = Event::new(data);
+        Rc::get_mut(&mut e.0).expect("a new event").native = Some(native.clone());
+        e
+    }
+    /// Whether this is a framework's event standing on another
+    /// (`Event::linked`).
+    pub fn is_linked(&self) -> bool {
+        self.0.native.is_some()
     }
     /// An event script created (`new Event(…)`, `new CustomEvent(…)`, M6
     /// script DOM slice 3): not being dispatched and without a target until
@@ -812,6 +839,8 @@ impl Event {
             stopped: Cell::new(false),
             stopped_immediately: Cell::new(false),
             invocation: Cell::new(None),
+            synthetic_stopped: Cell::new(false),
+            native: None,
             passive: Cell::new(false),
             detail,
         }))
@@ -895,6 +924,32 @@ impl Event {
         self.0.delegated_current.set(Some(current.0));
         true
     }
+    /// Before a template listener a framework runs from its root's listener
+    /// (React's root, IR `schedule.rootDispatch`) for element `current`, in
+    /// the root's capturing (`capture`) or bubbling invocation: the first of
+    /// the group runs where the root's listener can (the native event's,
+    /// for a linked event), and starts the framework's event afresh (its
+    /// stop flag is its own: a native listener that stopped propagation
+    /// earlier in the root's invocation does not skip it); each further one
+    /// while that framework event was not stopped. `currentTarget` is
+    /// `current` while it runs.
+    pub fn enter_root(&self, root: Element, current: Element, first: bool, capture: bool) -> bool {
+        if first {
+            let native = self.0.native.as_ref().unwrap_or(self);
+            if !native.can_enter(root, capture) {
+                return false;
+            }
+            native.0.current.set(root.0);
+            native.0.invocation.set(Some((root.0, capture)));
+            self.0.current.set(root.0);
+            self.0.invocation.set(Some((root.0, capture)));
+            self.0.synthetic_stopped.set(false);
+        } else if self.0.synthetic_stopped.get() || self.0.stopped_immediately.get() {
+            return false;
+        }
+        self.0.delegated_current.set(Some(current.0));
+        true
+    }
     /// `composedPath()[0]`: the first entry of the event's path, which is
     /// the target where there are no shadow roots (the runtime has none);
     /// none once the dispatch is over (the path is cleared, `[]`).
@@ -933,6 +988,11 @@ impl Event {
         self.0.dispatching.set(false);
     }
     pub fn prevent_default(&self) {
+        if let Some(native) = &self.0.native {
+            native.prevent_default();
+            self.0.prevented.set(true);
+            return;
+        }
         if self.0.data.cancelable && !self.0.passive.get() {
             self.0.prevented.set(true);
         }
@@ -942,10 +1002,18 @@ impl Event {
     }
     pub fn stop_propagation(&self) {
         self.0.stopped.set(true);
+        self.0.synthetic_stopped.set(true);
+        if let Some(native) = &self.0.native {
+            native.stop_propagation();
+        }
     }
     pub fn stop_immediate_propagation(&self) {
         self.0.stopped.set(true);
+        self.0.synthetic_stopped.set(true);
         self.0.stopped_immediately.set(true);
+        if let Some(native) = &self.0.native {
+            native.stop_immediate_propagation();
+        }
     }
     /// Whether listeners on further elements are skipped.
     pub fn propagation_stopped(&self) -> bool {
@@ -1175,5 +1243,60 @@ mod submission_tests {
         assert!(event.begin_dispatch(Element(7)));
         assert!(!event.can_enter(Element(7), true));
         assert!(!event.can_enter(Element(7), false));
+    }
+
+    /// React's root groups (IR `schedule.rootDispatch`), as React 19 runs
+    /// them in Chromium 153: a native stop earlier in the root's invocation
+    /// does not skip the group; a stop in the group ends it and the event's
+    /// propagation after the root's invocation; a linked event (a
+    /// checkbox's `onChange` from the click) has a flag of its own and acts
+    /// on the click when it stops or cancels.
+    #[test]
+    fn root_groups_have_their_own_stop() {
+        let click = Event::new(EventData {
+            kind: JsString::from("click"),
+            target: Element(7),
+            bubbles: true,
+            cancelable: true,
+            ..Default::default()
+        });
+        // A listener at the root, before the root's own, stops.
+        assert!(click.enter(Element(1), false));
+        click.stop_propagation();
+        assert!(click.enter_root(Element(1), Element(7), true, false));
+        assert!(click.enter_root(Element(1), Element(3), false, false));
+        assert_eq!(click.current_target(), Some(Element(3)));
+        // A handler of the group stops: the rest of the group is skipped,
+        // the root's invocation finishes, later ones do not run.
+        click.stop_propagation();
+        assert!(!click.enter_root(Element(1), Element(2), false, false));
+        assert!(click.can_enter(Element(1), false));
+        assert!(!click.can_enter(Element::DOCUMENT, false));
+        // The linked change event runs (its own flag), and its preventDefault
+        // cancels the click.
+        let change = Event::linked(
+            EventData {
+                kind: JsString::from("change"),
+                target: Element(7),
+                ..Default::default()
+            },
+            &click,
+        );
+        assert!(change.enter_root(Element(1), Element(7), true, false));
+        change.prevent_default();
+        assert!(click.default_prevented() && change.default_prevented());
+        // In the capture phase: the group runs in the root's capturing
+        // invocation; a stop there keeps the target's listeners from running.
+        let down = Event::new(EventData {
+            kind: JsString::from("mousedown"),
+            target: Element(7),
+            bubbles: true,
+            ..Default::default()
+        });
+        assert!(down.enter_root(Element(1), Element(3), true, true));
+        down.stop_propagation();
+        assert!(down.can_enter(Element(1), true));
+        assert!(!down.can_enter(Element(7), true));
+        assert!(!down.enter_root(Element(1), Element(7), true, false));
     }
 }

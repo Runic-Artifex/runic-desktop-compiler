@@ -48,7 +48,6 @@ export function App() {
             note('submit');
           }}
         >
-          <input id="field" aria-label="Field" />
         </form>
         <button id="other" ref={other} type="button" onClick={() => note('other')}>
           Other

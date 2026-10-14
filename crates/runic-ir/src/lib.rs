@@ -240,6 +240,42 @@ pub struct Schedule {
         skip_serializing_if = "std::ops::Not::not"
     )]
     pub element_listeners: bool,
+    /// The framework runs its template listeners from listeners of its own
+    /// at the container (React's root; M6 script DOM, docs/IR.md
+    /// "Delegation"). Not together with `delegation` or `element_listeners`.
+    #[serde(
+        default,
+        rename = "rootDispatch",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub root_dispatch: Option<RootDispatch>,
+}
+
+/// `schedule.rootDispatch`: the container listens, at the start of the
+/// mount, once in the capture and once in the bubbling phase for each kind.
+/// When an event of one reaches the root's capture listener, the template's
+/// capture listeners on its path run from the root down to the target; at
+/// the bubbling listener the others, from the target up; each phase's as one
+/// callback, stopping with propagation (a stop there also ends the event's
+/// propagation after the root's invocation). Template listeners of other
+/// kinds are native listeners of their elements.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RootDispatch {
+    pub kinds: Vec<EventKind>,
+    /// Kinds whose template listeners do not run on a disabled `button`,
+    /// `input`, `select` or `textarea` (the target included).
+    #[serde(
+        default,
+        rename = "skipDisabled",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub skip_disabled: Vec<EventKind>,
+    /// Kinds whose listeners script adds are reported unsupported at run time
+    /// (an order the IR does not model; literal types are rejected by the
+    /// adapter).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reported: Vec<EventKind>,
 }
 
 /// How cleanups of re-running effects are ordered within a phase.
@@ -2051,6 +2087,10 @@ pub struct Listener {
     /// Arguments for the handler's params, evaluated in the template scope at dispatch.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub args: Vec<Expr>,
+    /// A listener of the capture phase (M6 script DOM; React's
+    /// `onClickCapture`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub capture: bool,
 }
 
 /// A template listener of a custom event type (M6 script DOM, slice 3): a

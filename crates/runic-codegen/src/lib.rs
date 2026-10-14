@@ -1411,9 +1411,15 @@ impl Gen<'_> {
                         let _ = write!(names, ", a{i}");
                     }
                     let prelude = self.prelude(k, "t");
+                    // (A capture-phase template listener: React's onClickCapture.)
+                    let listen = if l.capture {
+                        "listen_capture"
+                    } else {
+                        "listen"
+                    };
                     let _ = writeln!(
                         o.mount,
-                        "{{ let inst = Rc::clone(inst); let t = Rc::clone(t); let key = cx.listen(Rc::new(move |cx: &mut Cx| -> JsResult<()> {{ {prelude}{args}handler_{k}_{}(cx, &inst{names}) }})); dom.listen(n{key}, {ev}, key); }}",
+                        "{{ let inst = Rc::clone(inst); let t = Rc::clone(t); let key = cx.listen(Rc::new(move |cx: &mut Cx| -> JsResult<()> {{ {prelude}{args}handler_{k}_{}(cx, &inst{names}) }})); dom.{listen}(n{key}, {ev}, key); }}",
                         l.handler
                     );
                 }
@@ -2337,6 +2343,11 @@ fn target_listen(cx: &mut Cx, target: u64, kind: JsString, f: Lst, id: usize, ca
         runic_runtime::unsupported(&format!("a listener of {name} events at a target the runtime does not fire them at (Chromium does)"));
         return;
     }
+    // (Kinds the framework's root uses in an order the IR does not model, IR `rootDispatch.reported`.)
+    if Event::parse(&name).is_some_and(|e| <App as runic_runtime::App>::ROOT_DISPATCH.is_some_and(|(_, _, reported)| reported.contains(&e))) {
+        runic_runtime::unsupported(&format!("a {name} listener added with addEventListener in a program whose framework runs its enter and leave handlers from {name} events at its root, in an order the IR does not model"));
+        return;
+    }
     let passive = passive.unwrap_or_else(|| js::event::passive_by_default(&name, cx.dom.root_target(target)));
     let own: Rc<std::cell::Cell<u32>> = Rc::new(std::cell::Cell::new(u32::MAX));
     let me = Rc::clone(&own);
@@ -2422,12 +2433,20 @@ fn script_dispatch(cx: &mut Cx, target: u64, ev: js::Event) -> JsResult<bool> {
     if ev.data().bubbles { stages.extend(path.iter().skip(1).map(|&n| (n, false))); }
     // (A native type's bubbling phase at nodes runs in the framework's order where it declares its delegation.)
     let bubble: Vec<u64> = stages.iter().filter(|s| !s.1).map(|s| s.0).collect();
+    // (And the capture phase at nodes, from the framework's root where it declares one.)
+    let nodes: Vec<u64> = path.iter().copied().filter(|&n| n != js::Element::WINDOW.0 && n != js::Element::DOCUMENT.0).collect();
     let mut from = 0;
     for (node, capture) in stages {
         if !ev.can_enter(js::Element(node), capture) { break; }
-        if let (Some(kind), false) = (native, capture || node == js::Element::WINDOW.0 || node == js::Element::DOCUMENT.0) {
+        let host = node == js::Element::WINDOW.0 || node == js::Element::DOCUMENT.0;
+        if let (Some(kind), false) = (native, capture || host) {
             let i = bubble.iter().position(|&n| n == node).unwrap_or(0);
             from = run_bubble_stage(cx, &ev, kind, &bubble, i, from);
+            continue;
+        }
+        if let (Some(kind), true, false) = (native, capture, host) {
+            let i = nodes.iter().position(|&n| n == node).unwrap_or(0);
+            run_capture_stage(cx, &ev, kind, &nodes, i);
             continue;
         }
         let calls: Vec<(u32, u64, Lst)> = dispatch_keys(cx, node, &name, native, capture).into_iter().filter_map(|key| Some((key, *cx.listener_generations.get(key as usize)?, cx.listeners.get(key as usize)?.clone()?))).collect();
@@ -3019,7 +3038,7 @@ fn component_effects(p: &Program, k: usize, dynamic_fx: bool, out: &mut String) 
         };
         // A run of the render effect is a re-render (docs/IR.md, `restore`).
         if effect.render {
-            prologue.push_str("inst.borrow_mut().renders += 1; ");
+            prologue.push_str("inst.borrow_mut().renders += 1; runic_runtime::note_render(); ");
         }
         let _ = writeln!(
             run,
@@ -3187,8 +3206,29 @@ pub fn generate(
         ),
         None => "None".into(),
     };
-    let delegated_dispatch = p.schedule.delegation.is_some();
+    let delegated_dispatch = p.schedule.delegation.is_some() || p.schedule.root_dispatch.is_some();
     let element_listeners = p.schedule.element_listeners;
+    // The framework's root listeners (IR `schedule.rootDispatch`, M6 script
+    // DOM): the kinds, those skipping disabled controls, those reported.
+    let kinds = |ks: &[runic_ir::EventKind]| {
+        format!(
+            "&[{}]",
+            ks.iter()
+                .map(|k| format!("Event::{k:?}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
+    let root_dispatch = match &p.schedule.root_dispatch {
+        Some(r) => format!(
+            "Some(({}, {}, {}))",
+            kinds(&r.kinds),
+            kinds(&r.skip_disabled),
+            kinds(&r.reported)
+        ),
+        None => "None".into(),
+    };
+    let root_groups = p.schedule.root_dispatch.is_some();
     let tracked = |t: Tracking| {
         p.components
             .iter()
@@ -3626,7 +3666,7 @@ pub fn generate(
          let calls: Vec<_> = stage.into_iter().filter_map(|(key, current, delegated)| Some((key, *cx.listener_generations.get(key as usize)?, cx.listeners.get(key as usize)?.clone()?, current, delegated))).collect();\n\
          for (key, generation, f, current, delegated) in calls {{\n\
          if !listener_live(cx, key, generation, &f, current, kind, false) {{ continue; }}\n\
-         let enters = match delegated {{ Some((root, first)) => ev.enter_delegated(js::Element(root), js::Element(current), first), None => ev.enter(js::Element(current), false) }};\n\
+         let enters = match delegated {{ Some((root, first)) => enter_group(ev, root, current, first, false), None => ev.enter(js::Element(current), false) }};\n\
          if !enters {{ continue; }}\n\
          let outer = (cx.payload.take(), cx.event.take()); cx.payload = ev.payload(); cx.event = Some(ev.clone());\n\
          let result = f(cx); (cx.payload, cx.event) = outer;\n\
@@ -3637,6 +3677,24 @@ pub fn generate(
          fn run_commit_nested(cx: &mut Cx, events: Vec<(js::Event, Event, Vec<runic_runtime::Delivery>)>) {{ run_nested_inner(cx, events, !COMMIT_EVENTS_IGNORED); }}\n\
          fn run_nested(cx: &mut Cx, events: Vec<(js::Event, Event, Vec<runic_runtime::Delivery>)>) {{ run_nested_inner(cx, events, true); }}\n\
          const COMMIT_EVENTS_IGNORED: bool = {commit_ignored};\n\
+         /// The framework runs its template listeners from its root's listeners in both phases (IR `schedule.rootDispatch`), with an event of its own per group.\n\
+         const ROOT_GROUPS: bool = {root_groups};\n\
+         /// Before a template listener the framework runs from a root (`Event::enter_root`, or a delegation root's `enter_delegated`).\n\
+         fn enter_group(ev: &js::Event, root: u64, current: u64, first: bool, capture: bool) -> bool {{ if ROOT_GROUPS {{ ev.enter_root(js::Element(root), js::Element(current), first, capture) }} else {{ ev.enter_delegated(js::Element(root), js::Element(current), first) }} }}\n\
+         /// The capture phase at `path[i]` of a nested dispatch (`Host::capture_stage`: from the framework's root, where it declares one); a listener removed since is not called.\n\
+         fn run_capture_stage(cx: &mut Cx, ev: &js::Event, kind: Event, path: &[u64], i: usize) {{\n\
+         if kind == Event::Submit && ev.propagation_stopped() {{ return; }}\n\
+         let stage = cx.dom.capture_stage(path, i, kind, ev);\n\
+         let calls: Vec<_> = stage.into_iter().filter_map(|(key, current, delegated)| Some((key, *cx.listener_generations.get(key as usize)?, cx.listeners.get(key as usize)?.clone()?, current, delegated))).collect();\n\
+         for (key, generation, f, current, delegated) in calls {{\n\
+         if !listener_live(cx, key, generation, &f, current, kind, true) {{ continue; }}\n\
+         let enters = match delegated {{ Some((root, first)) => enter_group(ev, root, current, first, true), None => ev.enter(js::Element(current), true) }};\n\
+         if !enters {{ continue; }}\n\
+         let outer = (cx.payload.take(), cx.event.take()); cx.payload = ev.payload(); cx.event = Some(ev.clone());\n\
+         let result = f(cx); (cx.payload, cx.event) = outer;\n\
+         if let Err(e) = result {{ eprintln!(\"runic: uncaught exception in a nested event listener: {{e}}\"); }}\n\
+         }}\n\
+         }}\n\
          fn run_nested_inner(cx: &mut Cx, events: Vec<(js::Event, Event, Vec<runic_runtime::Delivery>)>, elements: bool) {{\n\
          for (ev, kind, deliveries) in events {{\n\
          let path = cx.dom.nested_event_path(ev.data().target.0);\n\
@@ -3648,7 +3706,7 @@ pub fn generate(
          if elements {{\n\
          if path.is_empty() {{ for (key, generation, f, current, capture) in fallback {{ run_nested_call(cx, &ev, key, generation, f, current, capture); }} }}\n\
          else {{\n\
-         for &current in path.iter().rev() {{ run_nested_stage(cx, &ev, kind, current, true); }}\n\
+         for i in (0..path.len()).rev() {{ run_capture_stage(cx, &ev, kind, &path, i); }}\n\
          let bubble: Vec<u64> = path.iter().take(if kind.bubbles() {{ path.len() }} else {{ 1 }}).copied().collect(); let mut from = 0;\n\
          for i in 0..bubble.len() {{ from = run_bubble_stage(cx, &ev, kind, &bubble, i, from); }}\n\
          }}\n\
@@ -3901,6 +3959,7 @@ pub fn generate(
          const CHANGE_WITH_CLICK: bool = {change_with_click};\n\
          const DELEGATION: Option<&'static [Event]> = {delegation};\n\
          const ELEMENT_LISTENERS: bool = {element_listeners};\n\
+         const ROOT_DISPATCH: Option<(&'static [Event], &'static [Event], &'static [Event])> = {root_dispatch};\n\
          fn new() -> Self {{\njs::keep_before_images(KEEP_BEFORE_IMAGES);\nlet mut cx = Cx::new();\n(|| -> JsResult<()> {{ let cx = &mut cx; {init_globals}Ok(()) }})().expect(\"module constants\");\nlet inst = new_i{ri}(&mut cx, None);\ninit_i{ri}(&mut cx, &inst).expect(\"initial state\");\n{root_pre}App {{ cx, inst, t: Rc::new(RefCell::new(T{ri}::default())), root: None }}\n}}\n\
          fn mount(&mut self, dom: &mut Dom, parent: NodeId) {{\n\
          self.cx.dom = runic_runtime::Host::attach(dom);\n\
@@ -3921,15 +3980,31 @@ pub fn generate(
          for (f, ev, current, raw, delegated, joins, capture) in resolved {{ if {delegated_dispatch} {{ match groups.last_mut() {{ Some(g) if joins => g.push((f, ev, current, delegated, capture)), _ => groups.push(vec![(f, ev, current, delegated, capture)]) }} continue; }} let own = {per_listener} || raw; if own || !joined {{ groups.push(vec![(f, ev, current, delegated, capture)]); joined = !own; }} else if let Some(g) = groups.last_mut() {{ g.push((f, ev, current, delegated, capture)); }} }}\n\
          let mut first: Option<String> = None;\n\
          for group in groups {{\n\
+         // (The framework decides whether its change handlers run by its value tracker, which a commit since the input changed the control resets: reported.)\n\
+         if ROOT_GROUPS && group.iter().any(|(_, ev, _, d, _)| d.is_some() && (ev.is_linked() || ev.data().kind.to_rust() == \"input\")) && runic_runtime::rendered_since_event() {{ runic_runtime::unsupported(\"a framework render during the dispatch of an event at a controlled control before its root's change handlers run (the framework re-applies the controlled value at that commit and its value tracker then sees no change)\"); }}\n\
          // Updates from continuous events (schedule.continuous) are not discrete.\n\
          let discrete = !group.first().is_some_and(|(_, ev, _, _, _)| {continuous}.contains(&ev.data().kind.to_rust().as_str()));\n\
-         let r = self.task(dom, discrete, |cx| {{ let mut err = None; for (f, ev, current, delegated, capture) in group {{ let enters = match delegated {{ Some((root, first)) => ev.enter_delegated(js::Element(root), js::Element(current), first), None => ev.enter(js::Element(current), capture) }}; if !enters {{ continue; }} cx.payload = ev.payload(); cx.event = Some(ev); let r = f(cx); cx.event = None; if let Err(e) = r {{ if e.name.to_rust() == \"RunicDomainError\" {{ return Err(e); }} err.get_or_insert(e); }} }} cx.payload = None; err.map_or(Ok(()), Err) }});\n\
+         let r = self.task(dom, discrete, |cx| {{ let mut err = None; for (f, ev, current, delegated, capture) in group {{ let enters = match delegated {{ Some((root, first)) => enter_group(&ev, root, current, first, capture), None => ev.enter(js::Element(current), capture) }}; if !enters {{ continue; }} cx.payload = ev.payload(); cx.event = Some(ev); let r = f(cx); cx.event = None; if let Err(e) = r {{ if e.name.to_rust() == \"RunicDomainError\" {{ return Err(e); }} err.get_or_insert(e); }} }} cx.payload = None; err.map_or(Ok(()), Err) }});\n\
          if let Err(e) = r {{ first.get_or_insert(e.to_string()); }}\n}}\n\
          {restore_controlled}\
          first.map_or(Ok(()), Err)\n}}\n\
          /// Physical form submission keeps the existing task grouping while\n\
          /// selecting each target/phase's registrations only when it is reached.\n\
          fn dispatch_element_path(&mut self, dom: &mut Dom, path: &[u64], kind: Event, event: &js::Event) -> Result<(), String> {{\n\
+         if ROOT_GROUPS {{\n\
+         // (The framework's root listeners: each target and phase's deliveries read when the dispatch reaches it, the root's group one callback, every other listener one, as `dispatch` runs them.)\n\
+         let stages: Vec<(usize, bool)> = (0..path.len()).rev().map(|i| (i, true)).chain((0..if kind.bubbles() {{ path.len() }} else {{ 1.min(path.len()) }}).map(|i| (i, false))).collect();\n\
+         let mut from = 0; let mut first: Option<String> = None;\n\
+         for (i, capture) in stages {{\n\
+         if kind == Event::Submit && event.propagation_stopped() {{ break; }}\n\
+         self.cx.dom = runic_runtime::Host::attach(dom);\n\
+         let calls = if capture {{ self.cx.dom.capture_stage(path, i, kind, event) }} else {{ let (calls, next) = self.cx.dom.bubble_stage(path, i, from, kind, event); from = next; calls }};\n\
+         self.cx.dom = Default::default();\n\
+         let deliveries: Vec<runic_runtime::Delivery> = calls.into_iter().map(|(listener, current, delegated)| runic_runtime::Delivery {{ listener, event: event.clone(), current, delegated, joined: delegated.is_some_and(|(_, first)| !first), capture }}).collect();\n\
+         if let Err(e) = self.dispatch(dom, &deliveries) {{ first.get_or_insert(e); }}\n\
+         }}\n\
+         return first.map_or(Ok(()), Err);\n\
+         }}\n\
          let stages: Vec<_> = path.iter().rev().map(|&current| (current, true)).chain(path.iter().take(if kind.bubbles() {{ path.len() }} else {{ 1 }}).map(|&current| (current, false))).collect();\n\
          let mut first = None;\n\
          if {per_listener} {{\n\
