@@ -62,7 +62,11 @@ test('literal inline declarations a stylesheet would be rejected for are rejecte
       /transition: display 1s allow-discrete/,
     ],
     ['<div id="a" style="color: red; filter: url(#f)">A</div>', /filter: url\(#f\)/],
-    ['<div id="a" style:animation-timeline="scroll()">A</div>', /animation-timeline: scroll\(\)/],
+    ['<div id="a" style:animation-timeline="view()">A</div>', /animation-timeline: view\(\)/],
+    [
+      '<div id="a" style="animation-range: entry 10% exit">A</div>',
+      /named timeline ranges \(entry\)/,
+    ],
     ['<p id="a" style="text-transform: full-width">A</p>', /text-transform: full-width/],
   ])
     await svelte(app, root =>
@@ -148,6 +152,22 @@ test('inline declarations verified equivalent are neither rejected nor reported'
     '<div id="a" style="position: -webkit-sticky; position: sticky; top: 0; -moz-column-gap: 1px; column-gap: 2px; -webkit-tap-highlight-color: transparent; text-shadow: none; p-a-d-d-i-n-g: 2px">A</div><button id="b" onclick={() => {}}>B</button>',
     async root =>
       assert.equal(reported((await lowered(root)).ir, [{ kind: 'click', id: 'b' }]), undefined),
+  );
+  // Scroll-driven animations with a scroll() timeline and a length range
+  // run (case scroll-timeline); a named range set at run time is reported.
+  await svelte(
+    `<script lang="ts">let range = $state('0 96px');</script>
+<div id="a" style="animation: fade 1ms both; animation-timeline: scroll(self y)" style:animation-range={range}>A</div>
+<button id="b" onclick={() => (range = 'calc(100% - 96px) 100%')}>B</button>
+<button id="c" onclick={() => (range = 'contain')}>C</button>`,
+    async root => {
+      const { ir } = await lowered(root);
+      assert.equal(reported(ir, [{ kind: 'click', id: 'b' }]), undefined);
+      assert.match(
+        reported(ir, [{ kind: 'click', id: 'c' }]),
+        /animation-range: contain \(named timeline ranges \(contain\) are not supported/,
+      );
+    },
   );
   // A template building a number past its range (shadcn-svelte's progress
   // indicator with a value above its maximum): `translateX(--25%)`, which
