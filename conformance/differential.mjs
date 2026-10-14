@@ -108,6 +108,7 @@ function layoutBuiltin(v) {
     if (m === 'listen' && v.args[0]?.value === 'scroll') return `${v.name} scroll`;
     // Animation and transition events come from the style engine (CSS slice 3b).
     if (m === 'listen' && ANIMATION_EVENTS.has(v.args[0]?.value)) return `${v.name} ${v.args[0].value}`;
+    if (v.name === 'target.listen' && ANIMATION_EVENTS.has(v.args[1]?.value)) return `${v.name} ${v.args[1].value}`;
   }
   if (v.event === 'scroll' && v.handler !== undefined) return 'scroll listener';
   if (ANIMATION_EVENTS.has(v.event) && v.handler !== undefined) return `${v.event} listener`;

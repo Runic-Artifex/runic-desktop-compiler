@@ -357,6 +357,14 @@ pub const FIRED_TYPES: &[&str] = &[
     "hashchange",
     "load",
     "error",
+    "animationstart",
+    "animationiteration",
+    "animationend",
+    "animationcancel",
+    "transitionrun",
+    "transitionstart",
+    "transitionend",
+    "transitioncancel",
 ];
 
 /// Event types Chromium 153 dispatches itself (its `event_type_names`,

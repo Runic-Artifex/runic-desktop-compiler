@@ -5,7 +5,8 @@
   // start and end, and a reversal (cancel, then a shortened transition);
   // display: none on an ancestor (cancel, bubbling to the ancestor's
   // listener) and shown again (a new animation); a document listener after
-  // the element's. Every line carries the number of the animation frame
+  // the element's; script listeners (capture and bubble) next to the
+  // template's at an element and an ancestor. Every line carries the number of the animation frame
   // callbacks run so far, so the order against the frame's callbacks shows:
   // the `finished` reaction first, then the events, then the callbacks
   // (also those the reaction and a listener request, in the same frame).
@@ -16,6 +17,8 @@
   let on = $state(false);
   let hidden = $state(false);
   let a = $state<HTMLElement | null>(null);
+  let b = $state<HTMLElement | null>(null);
+  let p = $state<HTMLElement | null>(null);
 
   function add(line: string) {
     log = log + frames + ' ' + line + '\n';
@@ -31,7 +34,20 @@
     requestAnimationFrame(() => add('a raf from listener'));
   }
 
+  function captureB(e: AnimationEvent) {
+    anim(e, 'b capture');
+  }
+  function bubbleB(e: AnimationEvent) {
+    anim(e, 'b script');
+  }
+  function captureP(e: AnimationEvent) {
+    anim(e, 'p capture');
+  }
+
   onMount(() => {
+    b!.addEventListener('animationend', captureB, true);
+    b!.addEventListener('animationend', bubbleB);
+    p!.addEventListener('animationcancel', captureP, true);
     let id = 0;
     const tick = () => {
       frames = frames + 1;
@@ -55,11 +71,11 @@
 </div>
 <div class="rows">
   <div class="row"><div id="a" class="box" bind:this={a} onanimationstart={(e) => anim(e, 'a')} onanimationiteration={(e) => anim(e, 'a')} onanimationend={end}></div></div>
-  <div class="row"><div id="b" class="box" onanimationstart={(e) => anim(e, 'b')} onanimationend={(e) => anim(e, 'b')}></div></div>
+  <div class="row"><div id="b" class="box" bind:this={b} onanimationstart={(e) => anim(e, 'b')} onanimationend={(e) => anim(e, 'b')}></div></div>
   <div class="row"><div id="c" class="box" onanimationstart={(e) => anim(e, 'c')} onanimationend={(e) => anim(e, 'c')}></div></div>
   <div class="row"><div id="e" class="box" onanimationstart={(e) => anim(e, 'e')} onanimationend={(e) => anim(e, 'e')}></div></div>
   <div class="row"><div id="t" class={on ? 'box on' : 'box'} ontransitionrun={trans} ontransitionstart={trans} ontransitionend={trans} ontransitioncancel={trans}></div></div>
-  <div class={hidden ? 'row hidden' : 'row'} id="p" onanimationstart={(e) => anim(e, 'p')} onanimationcancel={(e) => anim(e, 'p')}>
+  <div class={hidden ? 'row hidden' : 'row'} id="p" bind:this={p} onanimationstart={(e) => anim(e, 'p')} onanimationcancel={(e) => anim(e, 'p')}>
     <div id="d" class="box"></div>
   </div>
 </div>

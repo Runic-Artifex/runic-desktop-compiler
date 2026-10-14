@@ -36,6 +36,14 @@ export const FIRED_TYPES: readonly string[] = [
   'hashchange',
   'load',
   'error',
+  'animationstart',
+  'animationiteration',
+  'animationend',
+  'animationcancel',
+  'transitionrun',
+  'transitionstart',
+  'transitionend',
+  'transitioncancel',
 ];
 
 /** Event types Chromium 153 dispatches itself; any other type is a custom event's. */
