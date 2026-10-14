@@ -76,3 +76,43 @@ test("EventStore's `(evt: any) => void` handlers are listeners: they receive an 
     /type EventHandlerType = \(evt: Event\) => void/,
   );
 });
+
+test("the pack's pinned declaration override types mergeOptions' result; activate takes the widest options its calls pass", () => {
+  const handler = path.join(components, 'OptionsHandler.d.ts');
+  assert.match(
+    exportAllDeclarations(handler),
+    /mergeOptions: <TypeA extends OptionsType, TypeB extends OptionsType = \{\}>\(optionsA: TypeA, optionsB\?: TypeB\) => TypeA & NonNullable<TypeB>;/,
+  );
+  const modules = new Map([[bundle, annotate(bundle, readFileSync(bundle, 'utf8'))]]);
+  const build = () => {
+    const files = new Map();
+    for (const m of modules.values()) {
+      files.set(m.virtual, m.text);
+      for (const d of m.bundleDts ?? [])
+        files.set(d, exportAllDeclarations(d, bundleOverrides(m.inferred, d)));
+    }
+    return createProgram(files, [], spec =>
+      spec.startsWith(DTS_PREFIX) ? spec.slice(DTS_PREFIX.length) : undefined,
+    );
+  };
+  let program = build();
+  for (let pass = 0; pass < 8 && inferFields(modules, program).length; pass++) program = build();
+  const m = modules.get(bundle);
+  const text = annotate(bundle, readFileSync(bundle, 'utf8'), m.inferred).text;
+  // The generic member, from the override.
+  assert.match(
+    text,
+    /function mergeOptions<TypeA extends __dts\d+\.OptionsType, TypeB extends __dts\d+\.OptionsType = \{\}>\(optionsA: TypeA, optionsB\?: TypeB\): TypeA & NonNullable<TypeB>/,
+  );
+  // `const reInit = reActivate`, returned as `reInit`: typed as the member.
+  assert.match(
+    text,
+    /function reActivate\(withOptions: Parameters<ReturnType<typeof __dts\d+\.EmblaCarousel>\["reInit"\]>\[0\]/,
+  );
+  // Called with `userOptions` and `mergeOptions({ startIndex }, withOptions)`:
+  // the widest, which holds every key of the other.
+  assert.match(
+    text,
+    /function activate\(withOptions: Partial<__dts\d+\.OptionsType> \| undefined, /,
+  );
+});

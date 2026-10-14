@@ -36,7 +36,7 @@ function helpers(edit = s => s) {
 }
 
 /** A Svelte app whose package embla-carousel@`version` exports `merge`. */
-async function withApp(app, run, { version = '8.6.0', edit } = {}) {
+async function withApp(app, run, { version = '8.6.0', edit, editDts = s => s } = {}) {
   await mkdir('.cache/tests', { recursive: true });
   const root = await mkdtemp(path.resolve('.cache/tests/embla-merge-'));
   try {
@@ -61,6 +61,11 @@ async function withApp(app, run, { version = '8.6.0', edit } = {}) {
       'node_modules/embla-carousel/index.d.ts':
         'export declare function merge<A, B>(a: A, b?: B): A & NonNullable<B>;\n',
     };
+    // (The declaration files whose declarations the pack overrides, pinned with it.)
+    for (const dts of ['OptionsHandler.d.ts'])
+      files[`node_modules/embla-carousel/components/${dts}`] = editDts(
+        readFileSync(`node_modules/embla-carousel/esm/components/${dts}`, 'utf8'),
+      );
     for (const [file, t] of Object.entries(files)) {
       await mkdir(path.dirname(path.join(root, file)), { recursive: true });
       await writeFile(path.join(root, file), t);
@@ -131,11 +136,19 @@ test('a merge over an object that may have a key with an undefined value is reje
     );
 });
 
-test('another version or another source of the merge rejects its calls, located', async () => {
+test('another version, another source of the merge or another declaration file rejects its calls, located', async () => {
   const v = committed.vectors[0];
   for (const options of [
-    { version: '8.5.2' },
-    { edit: s => s.replace('isObject(valueA) && isObject(valueB)', 'isObject(valueA)') },
+    { version: '8.5.2', why: /version|8\.5\.2/ },
+    {
+      edit: s => s.replace('isObject(valueA) && isObject(valueB)', 'isObject(valueA)'),
+      why: /source differs/,
+    },
+    // (The declarations the pack overrides: `mergeOptions` declared otherwise.)
+    {
+      editDts: s => s.replace('=> TypeA;', '=> TypeA & TypeB;'),
+      why: /OptionsHandler\.d\.ts differs/,
+    },
   ])
     await withApp(
       program([v]),
@@ -145,6 +158,7 @@ test('another version or another source of the merge rejects its calls, located'
           e =>
             (e instanceof Diagnostic &&
               ['E_PACK', 'E_SOURCE_VERSION'].includes(e.code) &&
+              options.why.test(e.message) &&
               !!e.source) ||
             assert.fail(`expected a located rejection, got ${e.code}: ${e.message}`),
         ),

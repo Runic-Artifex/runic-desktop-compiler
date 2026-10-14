@@ -800,7 +800,8 @@ export class Lowerer {
     const early = new Set<ts.Symbol>();
     /** Nested function declarations, hoisted to their block's start. */
     const declarations = new Map<ts.Symbol, ts.Node>();
-    const visit = (n: ts.Node) => {
+    // (Declarations first: a function may refer to one declared after it.)
+    const declare = (n: ts.Node) => {
       if (ts.isVariableDeclaration(n) || ts.isParameter(n)) {
         const s = ts.isIdentifier(n.name) ? this.checker.getSymbolAtLocation(n.name) : undefined;
         if (s) declaredIn.set(s, fnOf(n) ?? body);
@@ -809,6 +810,10 @@ export class Lowerer {
         const s = this.checker.getSymbolAtLocation(n.name);
         if (s) declarations.set(s, fnOf(n) ?? body);
       }
+      ts.forEachChild(n, declare);
+    };
+    declare(body);
+    const visit = (n: ts.Node) => {
       // A function declaration a closure (or itself) refers to is created
       // with the others of its block, before them all exist: shared by
       // reference (boxed).
@@ -2879,6 +2884,23 @@ export class Lowerer {
       (s): s is ts.FunctionDeclaration => ts.isFunctionDeclaration(s) && !!s.body && !!s.name,
     );
     const symbols = new Map(fns.map(f => [this.checker.getSymbolAtLocation(f.name!)!, f]));
+    // A constant naming one of them (embla's `const reInit = reActivate`) is
+    // that function: binding it neither creates the function early nor
+    // stores a value (a use of the constant is a use of the function).
+    const aliases = new Map<ts.VariableStatement, [ts.Symbol, ts.Symbol]>();
+    for (const s of statements) {
+      if (!ts.isVariableStatement(s) || !(s.declarationList.flags & ts.NodeFlags.Const)) continue;
+      const [d, ...more] = s.declarationList.declarations;
+      const init = d?.initializer && skipParens(d.initializer);
+      if (more.length || !ts.isIdentifier(d.name) || d.type || !init || !ts.isIdentifier(init))
+        continue;
+      const target = this.checker.getSymbolAtLocation(init);
+      const alias = this.checker.getSymbolAtLocation(d.name);
+      if (target && alias && symbols.has(target)) {
+        aliases.set(s, [alias, target]);
+        symbols.set(alias, symbols.get(target)!);
+      }
+    }
     const early = new Set<ts.FunctionDeclaration>();
     const uses = (n: ts.Node, found: (f: ts.FunctionDeclaration) => void) => {
       const visit = (x: ts.Node) => {
@@ -2896,12 +2918,16 @@ export class Lowerer {
       uses(f, hoist);
     };
     for (const s of statements) {
-      if (ts.isFunctionDeclaration(s)) continue;
+      if (ts.isFunctionDeclaration(s) || (ts.isVariableStatement(s) && aliases.has(s))) continue;
       uses(s, f => {
         if (s.pos < f.pos) hoist(f);
       });
     }
     const declared = new Map(fns.map(f => [f, this.declareFunction(f, b)]));
+    for (const [alias, target] of aliases.values()) {
+      const bound = this.bindings.get(target);
+      if (bound) this.bindings.set(alias, bound);
+    }
     for (const d of declared.values()) out.push(...d.lets);
     for (const f of fns) if (early.has(f)) out.push(...declared.get(f)!.create());
     for (const [i, s] of statements.entries()) {
@@ -2909,6 +2935,7 @@ export class Lowerer {
         if (!early.has(s)) out.push(...declared.get(s)!.create());
         continue;
       }
+      if (ts.isVariableStatement(s) && aliases.has(s)) continue;
       out.push(...this.statement(s, b));
       // A test decided at build time whose branch always leaves the block
       // (bits-ui's `if (typeof CSS !== "undefined" && …) return CSS.escape(v)`):
@@ -8121,6 +8148,35 @@ export class Lowerer {
         const m: Type = maybeInner(lt) ? lt : { maybe: lt };
         this.expected.set(r0, m);
       }
+      // `d || {}` of a nullable dictionary object (embla's
+      // `options.breakpoints || {}`, whose `{}` TypeScript types apart): the
+      // empty object is an empty dictionary of the same type.
+      const li = maybeInner(lt);
+      const leftType = this.checker.getNonNullableType(this.checker.getTypeAtLocation(e.left));
+      if (
+        op === K.BarBarToken &&
+        ts.isObjectLiteralExpression(r0) &&
+        r0.properties.length === 0 &&
+        typeof li === 'object' &&
+        'map' in li &&
+        li.map[0] === 'string' &&
+        !!leftType.getStringIndexType() &&
+        !leftType.getCallSignatures().length
+      ) {
+        const tmp = b.local('$logical', lt);
+        const read: Expr = { op: 'local', local: tmp };
+        return {
+          op: 'with',
+          local: tmp,
+          value: left,
+          body: {
+            op: 'cond',
+            test: this.truthy(read, lt),
+            then: { op: 'unwrap', value: read },
+            else: { op: 'builtin', name: 'Map.new', args: [], type: li },
+          },
+        };
+      }
       let right = this.expr(e.right, b);
       const rt = this.irType(right, b);
       // A dynamic operand: a dynamic value, of the operand JavaScript keeps.
@@ -9162,7 +9218,7 @@ export class Lowerer {
           return this.fail(e, 'E_CALL', 'getComputedStyle takes an element (no pseudo-element)');
         return this.coerce(e.arguments[0], b, 'element');
       case 'matchMedia':
-        return builtin('media.query', [args[0]], 'media-query');
+        return this.mediaQuery('media.query', args[0], 'media-query', b);
       case 'setTimeout':
       case 'setInterval':
         if (e.arguments.length > 2)
@@ -9827,14 +9883,14 @@ export class Lowerer {
       this.hostName((skipParens(e.expression) as ts.CallExpression).expression) === 'matchMedia'
     ) {
       const call = skipParens(e.expression) as ts.CallExpression;
-      return {
-        op: 'builtin',
-        name: 'media.matches',
-        args: [this.expr(call.arguments[0], b)],
-        type: 'boolean',
-      };
+      return this.mediaQuery('media.matches', this.expr(call.arguments[0], b), 'boolean', b);
     }
     if (this.hostName(e.expression) === 'window') {
+      // `window.matchMedia` as a function value (embla's
+      // `queries.map(ownerWindow.matchMedia)`): a window method called
+      // without a receiver runs on the window (WebIDL, the global object),
+      // extra arguments ignored.
+      if (name === 'matchMedia') return this.matchMediaValue();
       if (!WINDOW_METRICS.includes(name))
         return this.fail(e, 'E_MEMBER', `window.${name} is unsupported`);
       return { op: 'builtin', name: `window.${name}`, args: [], type: NUMBER };
@@ -16413,6 +16469,57 @@ export class Lowerer {
   }
 
   private readonly comparators = new Map<string, number>();
+
+  private matchMediaFunction: number | undefined;
+
+  /**
+   * `media.query`/`media.matches` of query `q`: a literal query as the
+   * built-in takes it; one computed at run time (embla's breakpoints, the
+   * keys of an options object) is evaluated and then reported unsupported
+   * where it runs: the runtime evaluates queries known at build time only.
+   */
+  private mediaQuery(name: string, q: Expr, type: Type, b: FnBuilder): Expr {
+    if (q.op === 'lit' && typeof q.value === 'string')
+      return { op: 'builtin', name, args: [q], type };
+    const tmp = b.local('$query', this.irType(q, b));
+    return {
+      op: 'with',
+      local: tmp,
+      value: q,
+      body: this.unsupportedValue(
+        'matchMedia$computed',
+        type,
+        'matchMedia of a query computed at run time (the runtime evaluates queries known at build time)',
+      ),
+    };
+  }
+
+  /**
+   * `window.matchMedia` as a function value: `(query) => matchMedia(query)`,
+   * its query computed at run time (`mediaQuery`).
+   */
+  private matchMediaValue(): Expr {
+    if (this.matchMediaFunction === undefined) {
+      this.matchMediaFunction = this.reserve();
+      this.functions[this.matchMediaFunction] = {
+        name: 'matchMedia',
+        params: [{ name: 'query', type: STRING }],
+        locals: [],
+        result: 'media-query',
+        body: [
+          {
+            op: 'return',
+            value: this.unsupportedValue(
+              'matchMedia$computed',
+              'media-query',
+              'matchMedia of a query computed at run time (the runtime evaluates queries known at build time)',
+            ),
+          },
+        ],
+      };
+    }
+    return { op: 'closure', function: this.matchMediaFunction, captures: [], stable: true };
+  }
 
   /** `collator.compare` as a function value (`list.sort(collator.compare)`). */
   private intlComparator(o: NonNullable<ReturnType<Lowerer['intlObject']>>, b: FnBuilder): Expr {

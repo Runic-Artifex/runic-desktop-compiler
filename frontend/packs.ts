@@ -29,6 +29,8 @@ import { floatingUiDomPack } from './packs/floating-ui-dom-1.7.4.ts';
 import { internationalizedDatePack } from './packs/internationalized-date-3.12.4.ts';
 import { tabbablePack } from './packs/tabbable-6.5.0.ts';
 import * as emblaCarousel from './packs/embla-carousel-8.6.0.ts';
+import { overrideMismatch } from './packs/declarations.ts';
+import { packageRoot } from './package-modules.ts';
 
 type Source = { file: string; line: number; column: number };
 
@@ -219,6 +221,7 @@ const helpers = (): HelperPack[] => [
  */
 export function helperBinding(
   pkg: { name: string; version: string },
+  file: string,
   name: string,
   code: string,
   lower: Lowerer,
@@ -251,6 +254,10 @@ export function helperBinding(
           : `its source differs from the one the pack was validated against (SHA-256 ${actual}, the pack's ${entry.sha256})`,
       ),
     };
+  // (The declarations the pack overrides for the package's types, pinned too.)
+  const root = packageRoot(file);
+  const declared = root ? overrideMismatch(pkg, root.dir) : `no package directory holds ${file}`;
+  if (declared) return { kind: 'pack', label, call: reject(declared) };
   usePack(lower, {
     name: `${entry.package}#${entry.name}`,
     version: entry.version,

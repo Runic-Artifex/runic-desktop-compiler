@@ -21,6 +21,7 @@ import path from 'node:path';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { ModuleResolver } from './modules.ts';
+import { overrideEdits } from './packs/declarations.ts';
 
 /**
  * The event interface of each event kind, from the host event maps of
@@ -170,7 +171,7 @@ function qualified(
 }
 
 function declarations(dts: string): Declared {
-  const sf = ts.createSourceFile(dts, readFileSync(dts, 'utf8'), ts.ScriptTarget.Latest, true);
+  const sf = ts.createSourceFile(dts, packedDeclarations(dts), ts.ScriptTarget.Latest, true);
   const out: Declared = {
     functions: new Map(),
     classes: new Map(),
@@ -264,7 +265,9 @@ function declarations(dts: string): Declared {
  *
  * `overrides` (the second pass's `dts:<position>:<path>` entries, `inferFields`)
  * replace `any` keywords at those positions of the file with the types the
- * program gives the properties they declare.
+ * program gives the properties they declare. A pack's pinned declaration
+ * overrides (frontend/packs/declarations.ts) replace the declarations they
+ * name, where the file is the published one.
  */
 export function exportAllDeclarations(dts: string, overrides?: Map<string, string>): string {
   return virtualDeclarations(dts, overrides).text;
@@ -273,6 +276,31 @@ export function exportAllDeclarations(dts: string, overrides?: Map<string, strin
 /** The `dts:<position>:<path>` overrides among a module's inferred types. */
 export function declarationOverrides(inferred: Map<string, string>): Map<string, string> {
   return new Map([...inferred].filter(([key]) => key.startsWith('dts:')));
+}
+
+/** The edits a pack's pinned declaration overrides make to declaration file `dts`. */
+function packEdits(
+  dts: string,
+  sf: ts.SourceFile,
+): { at: number; remove: number; insert: string }[] {
+  const root = packageRoot(dts);
+  const { name, version } = (root?.json ?? {}) as { name?: unknown; version?: unknown };
+  return root && typeof name === 'string' && typeof version === 'string'
+    ? overrideEdits({ name, version }, root.dir, dts, sf)
+    : [];
+}
+
+/** Declaration file `dts` as a pack's overrides state it (its text where none applies). */
+function packedDeclarations(dts: string): string {
+  const text = readFileSync(dts, 'utf8');
+  const edits = packEdits(dts, ts.createSourceFile(dts, text, ts.ScriptTarget.Latest, true));
+  let out = '';
+  let from = 0;
+  for (const e of edits.sort((a, b) => a.at - b.at)) {
+    out += text.slice(from, e.at) + e.insert;
+    from = e.at + e.remove;
+  }
+  return out + text.slice(from);
 }
 
 /**
@@ -290,6 +318,8 @@ function virtualDeclarations(
     const at = Number(key.split(':')[1]);
     if (text.startsWith('any', at)) edits.push({ at, remove: 3, insert: type });
   }
+  // Declarations a pack states more exactly, where the file is the pinned one.
+  edits.push(...packEdits(dts, sf));
   for (const stmt of sf.statements) {
     const declaration =
       ts.isClassDeclaration(stmt) ||
@@ -347,7 +377,9 @@ export function declarationFile(file: string): string | undefined {
  * The package directory holding `file`: the nearest directory above it with
  * a package.json that names a package.
  */
-function packageRoot(file: string): { dir: string; json: Record<string, unknown> } | undefined {
+export function packageRoot(
+  file: string,
+): { dir: string; json: Record<string, unknown> } | undefined {
   for (let dir = path.dirname(file); dir !== path.dirname(dir); dir = path.dirname(dir)) {
     const p = path.join(dir, 'package.json');
     if (!existsSync(p)) continue;
@@ -648,6 +680,15 @@ function returnedFunctions(fn: ts.FunctionDeclaration): [string, ts.FunctionDecl
       )
       .map(s => [s.name!.text, s]),
   );
+  // (A constant naming one of them: embla's `const reInit = reActivate`.)
+  for (const s of body)
+    if (ts.isVariableStatement(s) && s.declarationList.flags & ts.NodeFlags.Const)
+      for (const d of s.declarationList.declarations) {
+        const init = d.initializer && ts.isIdentifier(d.initializer) ? d.initializer : undefined;
+        const target = init && declared.get(init.text);
+        if (ts.isIdentifier(d.name) && target && !declared.has(d.name.text))
+          declared.set(d.name.text, target);
+      }
   const out: [string, ts.FunctionDeclaration][] = [];
   for (const p of literal.properties) {
     const name = p.name && ts.isIdentifier(p.name) ? p.name.text : undefined;
@@ -2135,6 +2176,7 @@ export function inferFields(
           if (!untyped) return;
         }
         const texts = new Set<string>();
+        const typeOf = new Map<string, ts.Type>();
         let open = false;
         // (`outside`: only the calls outside its body, of a recursive
         // function; the lowerer checks the arguments of the others.)
@@ -2166,16 +2208,56 @@ export function inferFields(
             ['HostDocument', 'HostWindow', 'null', 'undefined', '{}'].includes(text)
           )
             open = true;
-          else texts.add(text);
+          else {
+            texts.add(text);
+            if (!typeOf.has(text)) typeOf.set(text, t);
+          }
         }
-        if (open || texts.size !== 1) return;
+        if (open) return;
+        const text = texts.size === 1 ? [...texts][0] : widestObject(typeOf);
+        if (text === undefined) return;
         const end = p.name.end;
         const seg = m.segments.find(g => end >= g.synth && end <= g.synth + g.length);
         if (!seg) return;
         const key = `param:${seg.orig + (end - seg.synth)}`;
-        const text = [...texts][0];
         if (next.get(key) !== text) next.set(key, text);
       });
+    /**
+     * Of the object types the calls pass (by printed text), the one every
+     * other is assignable to and holds no property it lacks (embla's
+     * `activate(withOptions, …)`, called with `EmblaOptionsType | undefined`
+     * and with `mergeOptions({ startIndex }, withOptions)`, whose
+     * `{ startIndex: number } & …` has the same keys): the calls convert
+     * their records to it (`Lowerer.recordView`, which keeps every field).
+     * None where the types are not all plain objects (nullable ones
+     * included; not arrays, functions or class instances), or where a value
+     * would lose a key JavaScript keeps.
+     */
+    const widestObject = (types: Map<string, ts.Type>): string | undefined => {
+      const objects = [...types].map(([text, t]) => ({
+        text,
+        t,
+        o: checker.getNonNullableType(t),
+      }));
+      // (Plain objects: not arrays, tuples, functions or class instances.)
+      const plain = (o: ts.Type) =>
+        !!(o.flags & (ts.TypeFlags.Object | ts.TypeFlags.Intersection)) &&
+        !checker.isArrayType(o) &&
+        !checker.isTupleType(o) &&
+        !o.getCallSignatures().length &&
+        !o.getConstructSignatures().length &&
+        !(o.symbol && o.symbol.flags & ts.SymbolFlags.Class);
+      if (objects.some(({ o }) => !plain(o))) return undefined;
+      const keys = (o: ts.Type) => new Set(checker.getPropertiesOfType(o).map(q => q.name));
+      const wide = objects.filter(w =>
+        objects.every(({ t, o }) => {
+          if (!checker.isTypeAssignableTo(t, w.t)) return false;
+          const held = keys(w.o);
+          return [...keys(o)].every(k => held.has(k));
+        }),
+      );
+      return wide.length === 1 ? wide[0].text : undefined;
+    };
     for (const stmt of sf.statements) {
       if (!ts.isClassDeclaration(stmt)) continue;
       for (const member of stmt.members)
@@ -2431,6 +2513,38 @@ export function inferFields(
         !!ts.forEachChild(x, shorthand);
       return found || (!!sym && shorthand(sf));
     };
+    // (And functions passing an untyped parameter to a generic function:
+    // the generic one's instantiations are read from TypeScript's types of
+    // its calls, `any` there. embla's `activate(withOptions, …)` calls
+    // `mergeOptions(optionsBase, withOptions)`; its calls pass different
+    // types, the widest taken, `widestObject`.)
+    const feedsGeneric = (fn: ts.FunctionDeclaration): boolean => {
+      const params = new Set(
+        fn.parameters
+          .filter(p => !p.type && ts.isIdentifier(p.name))
+          .map(p => checker.getSymbolAtLocation(p.name)),
+      );
+      let found = false;
+      const visit = (x: ts.Node) => {
+        if (found) return;
+        if (ts.isCallExpression(x)) {
+          const decl = checker.getResolvedSignature(x)?.declaration;
+          if (
+            decl &&
+            !ts.isJSDocSignature(decl) &&
+            decl.typeParameters?.length &&
+            x.arguments.some(a => {
+              const v = skipParensOf(a);
+              return ts.isIdentifier(v) && params.has(checker.getSymbolAtLocation(v));
+            })
+          )
+            found = true;
+        }
+        ts.forEachChild(x, visit);
+      };
+      if (params.size) visit(fn.body!);
+      return found;
+    };
     // (And recursive functions, which specialisation cannot type: bits-ui's
     // Command score `computeCommandScoreInner`, typed from its calls
     // outside itself, with a called function giving one of its arguments,
@@ -2456,7 +2570,7 @@ export function inferFields(
                 )
                   untypedParams(callee);
               }
-        } else if (usedAsValue(n)) untypedParams(n);
+        } else if (usedAsValue(n) || feedsGeneric(n)) untypedParams(n);
       }
       ts.forEachChild(n, functions);
     };

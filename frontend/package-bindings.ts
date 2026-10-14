@@ -120,7 +120,8 @@ export function packageBindings(
       // A helper a pack implements natively (embla's options merge).
       const pkg = modules.get(m.file)?.package as { name: string; version: string } | undefined;
       const code = modules.get(m.file)?.code;
-      const helper = pkg && code !== undefined && helperBinding(pkg, decl.name.text, code, lower);
+      const helper =
+        pkg && code !== undefined && helperBinding(pkg, m.file, decl.name.text, code, lower);
       if (helper) {
         lower.bindings.set(symbol, helper);
         return helper;
