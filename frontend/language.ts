@@ -7517,6 +7517,19 @@ export class Lowerer {
       return undefined;
     if (!(sameType(f.result, t.result) || t.result === 'void' || undefinedResult || widened))
       return undefined;
+    // One adapter per conversion, and one converted value per function
+    // (`fn.adapted`): JavaScript passes the same function, so two
+    // conversions of it are `===` (a registry's `off(evt, cb)`, a
+    // listener removed, a Set or Map key).
+    const conversion = JSON.stringify([from, to]);
+    const known = this.adapters.get(conversion);
+    if (known !== undefined)
+      return {
+        op: 'builtin',
+        name: 'fn.adapted',
+        args: [v, { op: 'closure', function: known, captures: [] }],
+        type: to,
+      };
     const call: Expr = {
       op: 'call-value',
       callee: { op: 'local', local: 0 },
@@ -7555,8 +7568,17 @@ export class Lowerer {
       result: to,
       body: [{ op: 'return', value: { op: 'closure', function: adapter, captures: [0] } }],
     };
-    return { op: 'call', function: make, args: [v] };
+    this.adapters.set(conversion, make);
+    return {
+      op: 'builtin',
+      name: 'fn.adapted',
+      args: [v, { op: 'closure', function: make, captures: [] }],
+      type: to,
+    };
   }
+
+  /** The maker function of each function conversion (`adaptFunction`), by its types. */
+  private readonly adapters = new Map<string, number>();
 
   /** Lower `e` and widen it to `target` (T into Maybe<T>, a class instance into a class reference). */
   /**

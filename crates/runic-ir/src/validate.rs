@@ -321,6 +321,16 @@ fn inline_style_check(
 /// - a literal `history.go` delta is a non-zero integer (`go(0)` reloads);
 ///   a computed one is checked when it runs (M6).
 fn check_host_literals(name: &str, args: &[Expr], src: Option<&Source>) -> Result<()> {
+    // (The converted value is cached by the maker's function: a literal.)
+    if name == "fn.adapted"
+        && !matches!(args.get(1), Some(Expr::Closure { captures, .. }) if captures.is_empty())
+    {
+        return err(
+            "E_BUILTIN",
+            "fn.adapted takes a closure literal without captures as its maker",
+            src,
+        );
+    }
     if name.starts_with("console.") && args.len() > 1 {
         let format = match &args[0] {
             Expr::Lit {

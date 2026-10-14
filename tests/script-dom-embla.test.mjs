@@ -218,12 +218,9 @@ const USE = `<script lang="ts">
   import { Registry } from 'svelte-sonner';
   const log = $state<string[]>([]);
   const r = Registry();
-  const a = (evt: string, n: number) => {
-    log.push('a' + evt + n);
-  };
-  const b = (evt: string, n: number) => {
-    log.push('b' + evt + n);
-  };
+  // (Of result \`number\`: converted to the callback type, keeping identity.)
+  const a = (evt: string, n: number) => log.push('a' + evt + n);
+  const b = (evt: string, n: number) => log.push('b' + evt + n);
   r.on('x', a).on('x', b).on('y', a).emit('x', 1).off('x', a).emit('x', 2).emit('y', 3);
   r.clear();
   r.emit('x', 4);

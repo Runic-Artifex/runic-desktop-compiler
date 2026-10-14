@@ -171,6 +171,20 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             Some(v) => format!("js::ToNumber::to_number(&{v})"),
             None => "0.0f64".into(),
         },
+        // A function converted to another function type: one converted value
+        // per function (by pointer) and maker function, held weakly while
+        // it is alive (it holds the function, so the pointer stays its own).
+        ("fn", "adapted") => {
+            let Expr::Closure { function, .. } = &args[1] else {
+                panic!("validated fn.adapted maker")
+            };
+            let weak = rust_type(ty).replacen("Rc<", "std::rc::Weak<", 1);
+            let made = cx.q(&format!("({})(cx, f.clone())", t[1]));
+            format!(
+                "{{ let f = {}; let key = ({function}usize, Rc::as_ptr(&f) as *const () as usize); match cx.adapted.get(&key).and_then(|b| b.downcast_ref::<{weak}>()).and_then(|w| w.upgrade()) {{ Some(v) => v, None => {{ let v = {made}; cx.adapted.insert(key, Box::new(Rc::downgrade(&v))); v }} }} }}",
+                t[0]
+            )
+        }
         ("", "Boolean") => match t.first() {
             Some(v) => format!("js::Truthy::truthy(&{v})"),
             None => "false".into(),

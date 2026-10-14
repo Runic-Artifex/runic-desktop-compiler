@@ -820,6 +820,8 @@ pub struct Machine<'p> {
     /// Element listeners added by script (M6 overlays), after the
     /// template's listeners of their element.
     element_listeners: Vec<(u64, EventKind, Val, u64)>,
+    /// The values `fn.adapted` gave: (maker function, function, converted).
+    adapted: Vec<(usize, Val, Val)>,
     /// Monotonic identity of each script listener registration, even when
     /// the same callback is removed and added again during dispatch.
     listener_registration: u64,
@@ -1403,6 +1405,7 @@ impl<'p> Machine<'p> {
             host_listeners: vec![],
             capture_listeners: vec![],
             element_listeners: vec![],
+            adapted: vec![],
             listener_registration: 0,
             target_listeners: vec![],
             template_custom: HashMap::new(),
@@ -2585,6 +2588,24 @@ impl<'p> Machine<'p> {
     fn builtin(&mut self, name: &str, a: Vec<Val>, types: &[Type], ty: &Type) -> Res<Val> {
         if let Some(m) = name.strip_prefix("dyn.") {
             return self.dyn_builtin(m, a, types, ty);
+        }
+        // A function converted to another function type: one converted
+        // value per function and maker (JavaScript passes the same function).
+        if name == "fn.adapted" {
+            let maker = match &a[1] {
+                Val::Closure(c) => c.function,
+                _ => unreachable!("validated maker"),
+            };
+            if let Some((_, _, v)) = self
+                .adapted
+                .iter()
+                .find(|(m, f, _)| *m == maker && f.same(&a[0]))
+            {
+                return Ok(v.clone());
+            }
+            let v = self.call_value(&a[1], vec![a[0].clone()])?;
+            self.adapted.push((maker, a[0].clone(), v.clone()));
+            return Ok(v);
         }
         // Items inserted into a proxied array become proxies.
         let inserted = match name {

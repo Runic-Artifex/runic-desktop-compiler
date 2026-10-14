@@ -1686,6 +1686,26 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             }
         }
         ("", "Boolean") => arity(args, 0, 1).map(|_| b),
+        // A function value converted to a function type it is compatible
+        // with (fewer parameters, a result discarded or widened):
+        // `maker(f)`, where `maker` is a closure literal without captures
+        // (validate.rs), and the same value again for the same `f` (by
+        // identity) and the same maker function while that value is alive,
+        // as JavaScript passes the same function (frontend `adaptFunction`).
+        ("fn", "adapted") => {
+            arity(args, 2, 2)?;
+            match (&args[0], &args[1], declared) {
+                (Fn(_), Fn(m), Fn(_))
+                    if m.params.len() == 1 && m.params[0] == args[0] && *m.result == *declared =>
+                {
+                    Ok(declared.clone())
+                }
+                _ => Err(format!(
+                    "fn.adapted takes a function and a function converting it to {}",
+                    declared.name()
+                )),
+            }
+        }
         ("", "structuredClone") => {
             arity(args, 1, 1)?;
             if cloneable(&args[0], records, 0) {
