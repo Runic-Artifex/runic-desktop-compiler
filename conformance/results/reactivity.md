@@ -513,3 +513,9 @@ is not a supported built-in (`E_BUILTIN`; the old gap row named it).
   `proxy-lazy`, `proxy-target` and `keyed-replace`.
 - `runic-js` tests pass (array vectors from Node included; a no-op `splice`
   still advances no mutation epoch).
+- Native conformance with pixels, 800x600 and 420x600
+  (`artifacts/reactivity/arrays-1`): `array-methods`, `array-writes`,
+  `equal-writes`, `derived-arrays`, `push-effect`, `collections-vue` and
+  `keyed-replace` 16/16.
+- `npm test` 516/516; `cargo test` of runic-js, runic-ir and runic-codegen
+  (144) pass.
