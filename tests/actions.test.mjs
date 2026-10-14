@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs';
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { collect, Diagnostic } from '../compiler/collect.mjs';
 import { lower } from '../compiler/frontend.mjs';
-import { interpret } from '../compiler/codegen.mjs';
+import { generate, interpret } from '../compiler/codegen.mjs';
 
 const lowered = root => collect(root).then(g => lower(g));
 const byId = (nodes, id) => {
@@ -39,10 +39,14 @@ test('an action runs once, updates on deep changes of proxies it reads, and is d
   assert.equal(at(3, 'holds', 'data-update'), '1: 1');
   // A proxy inside a plain object inside the value: not read.
   assert.equal(at(4, 'plain', 'data-update'), undefined);
-  // A primitive: when it changes, not when the same value is set again.
-  assert.equal(at(5, 'counted', 'data-update'), '1: 1');
-  assert.equal(at(6, 'counted', 'data-update'), '1: 1');
-  assert.equal(at(7, 'counted', 'data-update'), '2: 2');
+  // A primitive: when it changes, not when the same value is set again;
+  // before the component's own bindings update (the old text).
+  assert.equal(at(5, 'counted', 'data-update'), '1: 1 (counted 0)');
+  assert.equal(at(6, 'counted', 'data-update'), '1: 1 (counted 0)');
+  assert.equal(at(7, 'counted', 'data-update'), '2: 2 (counted 1)');
+  // No content before the actions and no bindings before their components:
+  // the order is Svelte's, nothing is reported.
+  assert.ok(steps.every(s => !s.outcome?.rejected));
   // Unrelated state.
   assert.equal(at(8, 'proxy', 'data-update'), '2: 1 1');
   // Destroyed with its component; created again with a new value.
@@ -146,5 +150,63 @@ test('a generic member used as a value is rejected, located', async () => {
             e.source?.file === 'App.svelte') ||
           assert.fail(`expected a located rejection, got ${e.code}: ${e.message}`),
       ),
+  );
+});
+
+test("an action's update in a pass that also updates content Svelte runs before it is reported", async () => {
+  // Svelte runs the update's render effect after the blocks and components
+  // before the action and before the bindings of the templates enclosing
+  // its component (Chromium: it sees the new kid and blk, the old texts of
+  // parent-before, own and parent-after); the IR runs it before its
+  // instance's template update (gap: schedule.bindingsLast).
+  await withApp(
+    {
+      'Kid.svelte': `<script lang="ts">let { count }: { count: number } = $props();</script><b id="kid">{count}</b>`,
+      'Ord.svelte': `<script lang="ts">
+  import Kid from './Kid.svelte';
+  let { count }: { count: number } = $props();
+  function act(node: HTMLElement, v: number) {
+    return { update(n: number) { node.setAttribute('data-seen', node.textContent ?? ''); } };
+  }
+</script>
+<div id="ord" use:act={count}><Kid {count} /><span id="own">{count}</span></div>`,
+      'Plain.svelte': `<script lang="ts">
+  let { count }: { count: number } = $props();
+  function act(node: HTMLElement, v: number) {
+    return { update(n: number) { node.setAttribute('data-seen', node.textContent ?? ''); } };
+  }
+</script>
+<p id="plain" use:act={count}>{count}</p>`,
+      'App.svelte': `<script lang="ts">
+  import Ord from './Ord.svelte';
+  import Plain from './Plain.svelte';
+  let count = $state(0);
+  let other = $state(0);
+</script>
+<Plain count={other} /><p id="before">{count}</p><Ord {count} /><button id="inc" onclick={() => count++}>inc</button><button id="other" onclick={() => other++}>other</button>`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const orders = [];
+      const walk = v => {
+        if (!v || typeof v !== 'object') return;
+        if (v.op === 'builtin' && v.name === 'effect.after-content')
+          orders.push(v.args.map(a => a.value));
+        for (const x of Array.isArray(v) ? v : Object.values(v)) walk(x);
+      };
+      walk(ir.functions);
+      // Ord: a component before its action, a binding before it in App;
+      // Plain: neither.
+      assert.deepEqual(orders.sort(), [
+        [false, false],
+        [true, true],
+      ]);
+      const [, other] = interpret(ir, [{ kind: 'click', id: 'other' }]);
+      assert.ok(!other.outcome?.rejected, JSON.stringify(other.outcome));
+      assert.equal(byId(other.state.dom, 'plain').attrs['data-seen'], '0');
+      const [, inc] = interpret(ir, [{ kind: 'click', id: 'inc' }]);
+      assert.match(inc.outcome?.rejected?.message ?? '', /effect\.after-content/);
+      assert.match(generate(ir), /let a0 = true; let a1 = true; cx\.after_content\(a0, a1\)/);
+    },
   );
 });

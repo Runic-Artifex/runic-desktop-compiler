@@ -310,6 +310,103 @@ function locate(text: string, offset: number, file: string): Source {
 const COMPONENT_EXPORT =
   'declare const __RunicComponent: import("svelte").Component<__RunicProps>;\nexport default __RunicComponent;\n';
 
+/**
+ * Per component, whether an instance of it may be rendered after a binding of
+ * a template fragment enclosing it (`effect.after-content`'s `enclosed`):
+ * Svelte updates a fragment's text, attribute, property, class and style
+ * bindings in one render effect created after the fragment's blocks and
+ * components (`$.template_effect`), so after the render effects inside them,
+ * while the IR updates a template in document order. A fragment is a
+ * component's template, a block's content or slot content; slot content is
+ * rendered inside the slot's component, at its slot node. Spreads are
+ * attribute effects created in template order, as the IR orders them.
+ */
+function enclosedComponents(ir: Program): boolean[] {
+  type Atom = boolean | { enclosed: number } | { slot: number; name: string };
+  const sites: Atom[][] = ir.components.map(() => []);
+  const slots = new Map<string, Atom[]>();
+  const slotAtoms = (c: number, name: string) => {
+    const k = `${c}:${name}`;
+    if (!slots.has(k)) slots.set(k, []);
+    return slots.get(k)!;
+  };
+  const dyn = (e: Expr | undefined) => e !== undefined && e.op !== 'lit';
+  /** `chain`: the atoms of the fragments enclosing the walked content. */
+  const walk = (nodes: Node[], chain: Atom[], own: number, start: boolean): boolean => {
+    let seen = start;
+    for (const x of nodes) {
+      switch (x.kind) {
+        case 'element':
+          if (
+            [
+              ...(x.attrs ?? []),
+              ...(x.props ?? []),
+              ...(x.classes ?? []),
+              ...(x.styles ?? []),
+            ].some(a => dyn(a.value)) ||
+            dyn(x.styleText)
+          )
+            seen = true;
+          seen = walk(x.children ?? [], chain, own, seen);
+          break;
+        case 'text':
+          if (x.parts.some(dyn)) seen = true;
+          break;
+        case 'if':
+          walk(x.then, chain, own, seen);
+          walk(x.else ?? [], chain, own, seen);
+          break;
+        case 'each':
+          walk(x.body, chain, own, seen);
+          walk(x.else ?? [], chain, own, seen);
+          break;
+        case 'slot':
+          slotAtoms(own, x.name).push(seen, ...chain);
+          walk(x.fallback ?? [], chain, own, seen);
+          break;
+        case 'component':
+          sites[x.component].push(seen, ...chain);
+          for (const d of x.slots ?? [])
+            walk(
+              d.body,
+              [{ slot: x.component, name: d.name }, { enclosed: x.component }],
+              own,
+              false,
+            );
+          break;
+      }
+    }
+    return seen;
+  };
+  ir.components.forEach((c, i) => {
+    walk(c.template, [{ enclosed: i }], i, false);
+    // Slot content of components it mounts: inside them, which enclose
+    // nothing more (a mount is a tree of its own).
+    for (const m of c.mounts ?? [])
+      for (const d of m.slots ?? [])
+        walk(d.body, [{ slot: m.component, name: d.name }, { enclosed: m.component }], i, false);
+  });
+  // The least fixed point of the atoms (each only adds truths).
+  const result = ir.components.map(() => false);
+  const holds = (a: Atom, visiting = new Set<string>()): boolean => {
+    if (typeof a === 'boolean') return a;
+    if ('enclosed' in a) return result[a.enclosed];
+    const k = `${a.slot}:${a.name}`;
+    if (visiting.has(k)) return false;
+    visiting.add(k);
+    return (slots.get(k) ?? []).some(b => holds(b, visiting));
+  };
+  for (let changed = true; changed;) {
+    changed = false;
+    for (let c = 0; c < result.length; c++)
+      if (!result[c] && sites[c].some(a => holds(a))) {
+        result[c] = true;
+        changed = true;
+      }
+  }
+  return result;
+}
+
 /** A `.svelte` file and its virtual TypeScript module. */
 /**
  * Svelte's `safe_not_equal(a, b)` of an action's last value `a` and new value
@@ -3215,6 +3312,8 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
   /** The image URLs `<img>` elements can load (pinned by compiler/images.mjs). */
   const imageUrls: ImageUrl[] = [];
   const components: Component[] = [];
+  /** Actions' update order checks (`effect.after-content`), patched below. */
+  const afterContent: { component: number; args: Expr[] }[] = [];
   for (const u of order) {
     lowering = u.index;
     components[u.index] = lowerComponent(u);
@@ -4267,6 +4366,35 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
         return undefined;
       };
       const after = later(u.ast.fragment);
+      // Whether Svelte creates render effects before the action (blocks,
+      // components, spreads' attribute effects: in template order, up to the
+      // element's end), which it runs before the update's render effect
+      // while the IR runs them after it (`effect.after-content`).
+      const earlier = (x: SNode): boolean => {
+        if (!x || typeof x !== 'object') return false;
+        if (Array.isArray(x)) return x.some(earlier);
+        if (typeof x.start === 'number' && x.start >= n.end) return false;
+        if (
+          [
+            'Component',
+            'IfBlock',
+            'EachBlock',
+            'KeyBlock',
+            'AwaitBlock',
+            'RenderTag',
+            'HtmlTag',
+            'SvelteComponent',
+            'SvelteElement',
+            'SvelteSelf',
+            'SvelteBoundary',
+            'SvelteHead',
+          ].includes(x.type) ||
+          (x.attributes ?? []).some((y: SNode) => y.type === 'SpreadAttribute')
+        )
+          return true;
+        return [x.fragment, x.nodes, x.consequent, x.alternate, x.body].some(earlier);
+      };
+      const before = earlier(u.ast.fragment);
       if (after)
         fail(
           'E_TEMPLATE',
@@ -4346,6 +4474,12 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
               "An action's update compares its value as Svelte's safe_not_equal does, which is covered for primitives, objects and functions, not for values of this type",
               loc(a),
             );
+          // (`enclosed` is known once every template is lowered: below.)
+          const order: Expr[] = [
+            { op: 'lit', value: before },
+            { op: 'lit', value: false },
+          ];
+          afterContent.push({ component: COMPONENT, args: order });
           const [inited, first, prev] = [1, 2, 3];
           locals.push(
             { name: 'inited', type: 'boolean', boxed: true },
@@ -4390,6 +4524,19 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
                       right: differs({ op: 'unwrap', value: local(prev) }, v),
                     },
                     then: [
+                      // Reported where the order may be observable: the
+                      // update runs after content before it and before the
+                      // bindings enclosing the component in Svelte, before
+                      // the instance's template update in the IR.
+                      {
+                        op: 'expr',
+                        value: {
+                          op: 'builtin',
+                          name: 'effect.after-content',
+                          args: order,
+                          type: 'void',
+                        },
+                      },
                       {
                         op: 'assign',
                         target: { place: 'local', local: first },
@@ -6498,6 +6645,10 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
     schedule: { cleanupReadsPrevious: true, delegation: SVELTE_DELEGATED },
     ...(fragments.list.length ? { fragments: fragments.list } : {}),
   };
+  if (afterContent.length) {
+    const enclosed = enclosedComponents(ir);
+    for (const c of afterContent) c.args[1] = { op: 'lit', value: enclosed[c.component] };
+  }
   lower.widenRecords(ir);
   lower.checkStyleSpreads(ir);
   lower.checkKeyOrders();

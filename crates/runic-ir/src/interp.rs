@@ -610,6 +610,7 @@ impl std::fmt::Debug for DerivedSlot {
 /// A read of one key (or the size) of a keyed collection tracked as a
 /// whole, while a tracked effect runs: the framework tracks keys one by one,
 /// so the effect would re-run where the framework's does not.
+const AFTER_CONTENT: &str = "an effect the framework runs after its instance's earlier blocks and child instances and before the bindings enclosing the instance (effect.after-content), in a flush pass that may also update them: the program runs it before its instance's template update";
 const KEYED_READ: &str = "a keyed collection read by a tracked effect (the framework tracks one key; the program tracks the whole collection)";
 
 /// An effect root (`effect.root`, Svelte's `$effect.root`, M6): effects
@@ -902,6 +903,9 @@ pub struct Machine<'p> {
     /// While a flush renders: which instances updated (pre effects run as
     /// each instance is rendered, after it received its props).
     render_updates: Option<Vec<bool>>,
+    /// Whether the heap was mutated (deep or through proxies) since the
+    /// flush pass before the running one (`effect.after-content`).
+    pass_mutated: bool,
     /// Function objects of stable closures, by (instance, function).
     stable_fns: HashMap<(Option<usize>, usize), Val>,
     /// While a cleanup runs under `cleanupReadsPrevious`.
@@ -1437,6 +1441,7 @@ impl<'p> Machine<'p> {
             phase: None,
             again: false,
             render_updates: None,
+            pass_mutated: false,
             stable_fns: HashMap::new(),
             reading_previous: false,
             version_clock: 0,
@@ -4473,6 +4478,10 @@ impl<'p> Machine<'p> {
                 deep_read_state(&a[0])?;
                 Val::Undefined
             }
+            ("effect", "after-content") => {
+                self.after_content(a[0].boolean(), a[1].boolean())?;
+                Val::Undefined
+            }
             ("reactive", "untrack-call") => {
                 let outer = self.tracking.take();
                 let heap_outer = js::begin_heap_reads(None);
@@ -7184,6 +7193,7 @@ impl<'p> Machine<'p> {
         // Instances whose state changed, and (React) everything they render.
         let (deep, owned) = self.epochs;
         let mutated = (js::mutation_epoch() != deep, js::owned_epoch() != owned);
+        self.pass_mutated = mutated.0 || mutated.1;
         self.epochs = (js::mutation_epoch(), js::owned_epoch());
         let before: Vec<usize> = self.tree_order();
         let mut updated = vec![false; self.instances.len()];
@@ -7384,6 +7394,53 @@ impl<'p> Machine<'p> {
                 std::borrow::Cow::Owned(self.instances[i].dynamic[e - comp.effects.len()].0.clone())
             }
         }
+    }
+
+    /// `effect.after-content(before, enclosed)` (a Svelte action's update,
+    /// called before `update`): the running pre effect stands for a render
+    /// effect the framework runs after the blocks and child instances before
+    /// it in its instance's template (`before`: there are such) and before
+    /// the bindings of the template fragments enclosing the instance
+    /// (`enclosed`: such bindings precede it). The IR runs it before the
+    /// instance's template update, so the order may be observable where, in
+    /// this flush pass, the instance or a descendant is updated (`before`)
+    /// or its parent is (`enclosed`), or the heap was mutated (bindings and
+    /// effects that read deep state run again whatever instance updated).
+    fn after_content(&mut self, before: bool, enclosed: bool) -> Res<()> {
+        let Some(&(i, _)) = self.running.last() else {
+            return Ok(());
+        };
+        let Some(updated) = self.render_updates.as_ref() else {
+            return Ok(());
+        };
+        let up = |k: usize| updated.get(k).copied().unwrap_or(true);
+        // (A mounted instance is a tree of its own, as natively.)
+        let parent = |k: usize| {
+            if self.mounted.iter().any(|&(_, m)| m == k) {
+                None
+            } else {
+                self.instances[k].parent
+            }
+        };
+        let below = |k: usize| {
+            let mut p = parent(k);
+            while let Some(q) = p {
+                if q == i {
+                    return true;
+                }
+                p = parent(q);
+            }
+            false
+        };
+        let content = before
+            && (self.pass_mutated
+                || up(i)
+                || (0..self.instances.len()).any(|k| self.instances[k].alive && below(k) && up(k)));
+        let around = enclosed && (self.pass_mutated || parent(i).is_some_and(up));
+        if content || around {
+            self.unsupported.get_or_insert(AFTER_CONTENT.to_string());
+        }
+        Ok(())
     }
 
     /// `effect.pre(run)` / `effect.post(run)`: an effect of the instance being

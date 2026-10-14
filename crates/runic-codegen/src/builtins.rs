@@ -177,6 +177,7 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
         },
         ("", "structuredClone") => deep_clone(&types[0], &t[0], cx.p),
         ("heap", "deep-read") => deep_read_state(&types[0], &t[0], cx.p),
+        ("effect", "after-content") => format!("cx.after_content({}, {})", t[0], t[1]),
         ("dyn", m) => {
             let qq = |s: String| cx.q(&s);
             crate::dynamic::emit(m, &t, &types, ty, cx.p, &qq)

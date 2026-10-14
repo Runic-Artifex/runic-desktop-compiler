@@ -1552,6 +1552,15 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
         // everything reachable from a proxy at the top level or held by a
         // plain object's top-level fields that are proxies.
         ("heap", "deep-read") => arity(args, 1, 1).map(|_| Void),
+        // The running pre effect stands for a render effect the framework
+        // runs after the blocks and child instances before it in its
+        // instance's template and before the bindings of the fragments
+        // enclosing the instance (a Svelte action's update): reported where
+        // the IR's order (before the instance's template update) may differ.
+        ("effect", "after-content") => arity(args, 2, 2)
+            .and(expect(&args[0], &Boolean, "before"))
+            .and(expect(&args[1], &Boolean, "enclosed"))
+            .map(|_| Void),
         ("effect", "destroy-root") => arity(args, 1, 1).and(expect(&args[0], &Number, "root")).map(|_| Void),
         // A call whose reads are not dependencies of the running effect or derived value.
         ("reactive", "untrack-call") => {

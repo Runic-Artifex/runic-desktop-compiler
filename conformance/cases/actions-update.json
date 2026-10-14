@@ -1,5 +1,5 @@
 {
-  "description": "Svelte actions (use:, M6 script DOM slice 4) compared with Chromium: the action runs once with the element and its value; update runs again when what the value reads changes: deep inside a proxy value (a nested and a top-level field), inside a proxy a plain object holds at its top level, not for a proxy inside a plain object inside the value (Svelte's deep_read_state), for a primitive prop when it changes and not when the same value is set, and not for unrelated state; destroy runs when the element's component is destroyed",
+  "description": "Svelte actions (use:, M6 script DOM slice 4) compared with Chromium: the action runs once with the element and its value; update runs again when what the value reads changes: deep inside a proxy value (a nested and a top-level field), inside a proxy a plain object holds at its top level, not for a proxy inside a plain object inside the value (Svelte's deep_read_state), for a primitive prop when it changes and not when the same value is set (reading its element's text before the component's own bindings update, as Svelte's render effect order gives), and not for unrelated state; destroy runs when the element's component is destroyed",
   "fixtures": ["actions-update-svelte"],
   "actions": [
     { "kind": "click", "id": "deep" },
