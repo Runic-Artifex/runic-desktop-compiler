@@ -45,6 +45,60 @@ This gives Svelte's observable identity (a new proxy per store of a raw value an
 
 **R9. Frameworks keep their own models; the shared layers keep the mechanisms.** The adapters choose what a cell stores and how it is dirtied (`proxied` overlays for Svelte `$state`, `deep` marking for Vue `ref`, `identity` + `readonly` for React); the backend never branches on frameworks: R2's type fact, R3's overlays (only `proxied` stores create them), R4 and R5 are generic, gated by the program's tracking modes and schedule policies.
 
+**R10. Vue's watcher order.** runtime-core queues the pre jobs of one instance in the order a flush triggers them (`queueJob`, `findInsertionIndex`: jobs of one id keep their queue order), and Runic runs an instance's due watchers in declaration order. Fixture `watch-order-vue` in Chromium (an expected rejection, `tests/reactivity.test.mjs`): `watch(a)` declared before `watch(b)`, both writing `status` and a log; a handler writing `b`, then `a` shows `a2` and logs `b2 | effect 2 | a2`, while the interpreter and native code show `b2` and log `a2 | b2 | effect 2`. The exact model is approved as later work: a schedule policy, a schema change ([ROADMAP](../ROADMAP.md), decisions, 2026-10-14; the [planned model](#planned-vues-queue-order-as-a-schedule-policy) below). Until it lands, the Vue adapter rejects (`E_EFFECT`, `frontend/adapters/vue-watch-order.ts`) a pair of watchers W_i declared before W_j of one component when their effects do not commute (see below) and their order is not proven.
+
+What counts as not commuting:
+- one writes state the other reads or writes;
+- one mutates heap objects (plain logs included) and the other reads or mutates heap;
+- both use host services (timers, microtasks, promises, storage, the DOM);
+- either calls a function the analysis does not resolve.
+
+The order is proven where, for every flush that may trigger both, three conditions hold:
+- **Shared signals.** Every signal of W_j the flush may write is a ref, a prop or a record field reached through one, and W_i reads it unconditionally in every run.
+- **No computed values in W_i.** W_i depends on no computed value.
+- **Settled cleanups.** W_i's cleanups evaluate only settled computed values.
+
+The flushes considered are one per handler. Each listener ends with a microtask checkpoint, so each handler's writes are flushed alone. Every flush may also contain the writes of all watchers and lifecycle hooks, of setup and template code, and Vue's own prop and template-ref updates. Function values are followed through locals, captures, parameters and props to the functions their sites pass.
+
+Why these conditions give Vue's order:
+- **Shared signals.** A ref, a prop or a record field is one signal per write: `RefImpl` triggers one dep, `updateProps` sets each key separately, and an existing key's set triggers that key. W_i subscribed to every shared signal at its creation, before W_j. Reading it in every run keeps the link: Vue drops a link a run did not read again (`cleanupDeps`), and a later read links it again at the tail. So any write that notifies W_j also notifies W_i, from the same list, where W_i comes earlier. A signal only W_i reads may be written in the same flush; that only queues W_i sooner. One batch notifies only one object's signals, and W_j depends on no array, map or iteration signals, so another signal of the batch cannot reach W_i before the shared one.
+- **No computed values in W_i.** A computed's subscribers are notified at the computed's own position in the written signal's list, which is fixed when the computed gains its first subscriber, not at W_i's creation.
+- **Settled cleanups.** Inside an effect's run, a computed evaluated for the first time takes over the active link of the signals it reads (`dep.activeLink`, restored to nothing after its run). W_i then links them again at the tail, behind W_j. A watchEffect's cleanup runs inside its next run. A computed value is settled when its component's template reads it unconditionally at its root, so it was evaluated at the first render, and it reads the same refs and fields in every evaluation.
+
+Fixture `watch-cleanup-computed-vue` in Chromium (an expected rejection) shows the active-link effect. Chromium logs `cleanup 0 d2 | watch 1 | watch 2 | cleanup 1 d4 | watch 3 | cleanup 2 d6`, natively `cleanup 0 d2 | watch 1 | cleanup 1 d4 | watch 2 | …`.
+
+**Across instances.** Vue's scheduler sorts jobs by instance uid, which is creation order. It also runs an instance's queued watchers while its parent's render patches it (`updateComponentPreRender` calls `flushPreFlushCbs`), in document order. Runic runs instances in document order. The two agree for watchers that only prop updates trigger: case `watch-instances` in Chromium, also for an item inserted at the front of a list and a branch shown before existing siblings. They differ for watchers a write triggers directly, here through a reactive object the parent passes. Fixture `watch-instances-deep-vue` in Chromium (an expected rejection): after an item is inserted at the front of the list and a branch shown before it, Chromium logs `row 1 3 | row 2 3 | row 3 3 | row 0 3`, natively `row 0 3 | row 3 3 | row 1 3 | row 2 3`.
+
+The adapter therefore also rejects a pair of instances in one parent's template where one may be created after the other but precedes it in the document. That is a component site inside a branch, list or slot region the later site is not in, or two items of one list. The rejection applies where watchers of their subtrees have effects that do not commute and a flush may trigger both. The exception is two children of that template triggered only through their props: one render of the parent patches both, in document order. Instances further down are patched by their own parents' renders, which run by uid when they re-render for their own state. Two instances never share their own cells.
+
+Coverage:
+- Accepted shapes, each checked in Chromium:
+  - case `watch-declared`: a later watcher's signals are a subset of an earlier one's, in both write orders and through a prop's record field; two watchers no handler triggers together;
+  - case `teardown-vue`: a settled computed read in a cleanup;
+  - case `watch-instances`: instances triggered through their props only.
+- Rejected:
+  - `watch-order-vue`, `watch-cleanup-computed-vue` and `watch-instances-deep-vue`;
+  - `deep-tracking-vue`. This fixture has three watchEffects over deep refs logging into one array; their signals are array elements and lengths, which the analysis does not tell apart, so it moved from accepted to rejected.
+
+### Planned: Vue's queue order as a schedule policy
+
+The approved exact model (later work, a schema change; [ROADMAP](../ROADMAP.md), decisions, 2026-10-14) is a schedule policy, for example `watcherOrder: "triggered"`, that the Vue adapter selects. The interpreter, the runtime and codegen implement it generically. It replaces R10's rejection. Under it, a pass runs an instance's due pre effects as Vue's queue does:
+
+- **Trigger order.** Each write is a batch: Vue's `trigger` wraps the deps one write notifies in `startBatch`/`endBatch`, and an array mutator (`push`, `pop`, `shift`, `unshift`, `splice`) wraps all of its sets. Due effects run in the order of the first batch that notified them since they last ran. An effect notified again before it runs keeps its place. A writing watcher's re-triggered successors run after the jobs already queued.
+- **Ties by link order.** Within one batch, the written signals notify in the order `trigger` (`reactivity.esm-bundler.js`) visits them:
+  - the key's dep;
+  - `ARRAY_ITERATE_KEY` for an array index;
+  - then by type: an added index notifies `length`, an added or deleted key `ITERATE_KEY` (and `MAP_KEY_ITERATE_KEY` for a map), a map's set `ITERATE_KEY`;
+  - an array's `length` write instead notifies, in the order the deps were created, those of `length`, of iteration and of the indices at or above the new length;
+  - `clear` notifies every dep of the collection.
+
+  Each signal walks its subscribers from the most recently linked to the oldest (`dep.subs` is the tail, `notify` follows `prevSub`), skipping those already notified in the batch.
+- **endBatch.** `batch()` prepends, so the subscriber notified last in a batch runs first. For one signal that is link order, oldest first. Across the signals of one batch, a later signal's subscribers run before an earlier signal's.
+- **Links.** An effect links to a signal the first time a run reads it. A run that does not read a linked signal drops the link (`cleanupDeps`), and reading it again links it at the tail. Effects keep per-signal link stamps, renewed on a new link; heap slots need them as well as cells.
+- **Computeds.** A computed subscribes to its signals while it has subscribers (`TRACKING`): it joins their lists at the tail when it gains its first subscriber and leaves them when it loses its last (`addSub`/`removeSub`). Notified, it notifies its own subscribers at once, at its position in the written signal's walk. An effect that runs because a computed was notified still checks that the computed's value changed (`isDirty`, `refreshComputed`); its place in the queue is taken when it is notified.
+- **The activeLink quirk.** Within an effect's run (after `prepareDeps`), a computed evaluated for the first time, or reading a signal it did not read before, creates a new link and sets that signal's `activeLink` to it. After the computed's run, `cleanupDeps` restores the link's `prevActiveLink`, which a new link does not have. The effect's next read of that signal then makes a new link at the tail. The model reproduces this with the link stamps; the alternative is to keep rejecting it statically as R10 does.
+- **Across instances.** Jobs of different instances run in `uid` (creation) order. An instance its parent's render patches runs its queued watchers then, in document order (`updateComponentPreRender`). Instances therefore need creation stamps, and the pass needs Vue's interleaving of the parent's render with its children's pre jobs (fixtures `watch-instances-vue`, `watch-instances-deep-vue`).
+
 ## What the IR expresses
 
 No schema change. The meaning of existing constructs is made precise (docs/IR.md):
@@ -65,6 +119,7 @@ For every template expression of an accepted program: whenever the value it comp
 | An array changed in place after a proxy over it was created, other than through the proxy | run time (`RunicUnsupportedError`) | Svelte's overlay would show new elements under the old length (R3) |
 | Maps and Sets in `$state` mutated, class instances in `$state` mutated in place | `E_REACTIVITY` (unchanged) | Proxies do not wrap them |
 | Teardown reads under Svelte 5.49.2's last-write rule | not modelled yet (5.57.1's rule) | Version policy, added when an example needs it |
+| Two Vue watchers of one component whose effects do not commute and whose order in a flush is not proven to be declaration order | `E_EFFECT` | Vue runs them in trigger order (R10); the exact model is a planned schedule policy |
 
 ## Steps
 
@@ -76,10 +131,22 @@ For every template expression of an accepted program: whenever the value it comp
 6. **R8**: aliases of deep state as proxies (case `alias-writes`). Done ([results](../../conformance/results/reactivity.md#step-6-writes-through-aliases-of-deep-state-r8)).
 7. React and Vue audit (the matrix below). Partly done: a regression case per row the native model already agreed on (`staleness` for React; `collections-vue`, `keyed-replace`, `derived-arrays`, `shared-state`), Vue's raw ref targets rejected (R6), its `watchEffect` writing what it reads and `shallowRef` mutated in place confirmed as rejections, writes through aliases of a ref's contents accepted (R8 for Vue, case `alias-writes-vue`), and Vue refs in plain modules recorded as a gap. The final verification of steps 4–6 found that a proxy taken lazily during an effect's run was not its dependency (case `deep-tracking`; fixed: it counts as created with the proxy that took it, R3).
 
+The React and Vue rows (2026-10-14, [results](../../conformance/results/reactivity.md#step-7-react-and-vue-audit)), each checked in Chromium first:
+- React: effects whose dependencies include the state they set (case `effect-self-react`) and state updates from cleanups at unmount (case `unmount-updates`, with a cleanup reading a ref live) agreed: regression cases. `useRef` values (and module state) mutated while rendering were already located rejections (`E_REF`, `E_REACTIVITY`), now pinned by a test.
+- Vue: cleanups and unmount hooks read live values (case `teardown-vue`) agreed. Writing it found that Vue orders a component's watchers by trigger order and different instances' watchers by creation order: R10, rejected until the planned schedule policy. `deep` watchers, reactive-object sources, `reactive()`, `toRef(s)` and module refs stay located rejections with their gap rows (not lowered: see the resume list).
+
 Remaining plan (resume here; one conformance case per row that differs, checked in Chromium first, a fix or a located rejection with a gap row for each divergence):
-- React: an effect whose dependencies include the state it sets (`useEffect(() => setN(n + 1), [n])` bounded by a condition) re-runs after the next commit, not in the same flush (case `effect-self-react`); `useRef` values mutated during render and read by effects; state updates from a cleanup at unmount.
-- Vue: cleanups (`onWatcherCleanup`, `onUnmounted`) read live values (`cleanupReadsPrevious` off), a case confirming it (`teardown-vue`); `deep` watchers and `watch` of reactive-object sources once lowered (now `E_EFFECT`); `reactive()`, `toRef(s)` once lowered (now `E_CAPABILITY`, FRAMEWORKS); module refs as module state (gap row).
-- Svelte, recorded gaps: per-element writes for `reverse`, `fill` and a reordering `sort` (R4); memoized template call expressions to accept `untrack` in templates (R7); raw props whose value comes from a function's result or parameter (R6); the 5.49.2 teardown rule as a version policy (R5), when an example depends on it.
+- Vue, found by the audit: a write of the value a deep ref's slot already holds (`state.value.count = state.value.count`, an element set to its value, `reverse` of a palindrome) notifies nothing in Vue (`hasChanged`), while natively a watchEffect reading the slot runs again (fixture `equal-writes-vue`: Chromium logs nothing, the interpreter `run 0 1 0`). To fix, a field or element write of an equal value (SameValue for Vue's reactive objects, `===` for Svelte's proxies) records no write; `reverse`, `sort` and `fill` write the elements they change, one by one. This shares the mechanism of the Svelte row below.
+- Svelte, recorded gaps, ordered by what they put at risk (none is the first blocker of a census example; the first two are silent divergences):
+  - per-element writes for `reverse`, `fill` and a reordering `sort` (R4). Svelte's proxy also reads every element and the length in `reverse` and `sort` (the proxy's `get` traps), and the length in `fill`; `fill` with a raw object stores a new proxy at each index, natively one proxy for all;
+  - raw props whose value comes from a function's result or parameter (R6: accepted today);
+  - memoized template call expressions to accept `untrack` in templates (R7);
+  - the 5.49.2 teardown rule as a version policy (R5), when an example depends on it.
+- Vue features still rejected, for when a north-star example needs them:
+  - `reactive()` is exact as a deep cell read without `.value` (its proxy is what a deep ref holds), with nested refs rejected;
+  - `toRef(obj, 'key')` and `toRefs` are refs whose `.value` reads and writes the field;
+  - deep watchers need a traversal dependency, and their pairs fall under R10;
+  - module refs are module state, as Svelte's `.svelte.ts` modules.
 
 Each step runs the node and Rust tests, the differential on the affected fixtures, conformance with pixels on the new and the existing reactivity cases, and the example census where it can reject programs.
 
@@ -93,9 +160,13 @@ What each framework does, what the native model does, and the case that detects 
 | Write through an alias of deep state | reactive (verified) | reactive (verified) | — | R8 (rejected before) | `alias-writes`, `alias-writes-vue` |
 | Raw object after storing it in state | target untouched; per-property snapshot at first read (verified) | proxy writes through to the target; raw writes not tracked, shown at the next render (verified) | state is the object; mutation rejected | R3 (Svelte), in-place marking and R6 (Vue) | `proxy-target`, `proxy-lazy`, `raw-target-vue` |
 | Proxy identity | new proxy per raw store and per lazy path; `proxy(p) === p` | one reactive proxy per raw object (`reactiveMap`) | identity of the object | R3; Vue: shared storage | `ownership`, `ownership-cycles` |
-| Effect writing what it read | re-runs (cells and proxies; verified) | `watchEffect` does not re-run for its own writes (verified); rejected by the adapter | `useEffect` with the value in deps re-runs after the next render | R4 | `effect-self` |
+| Effect writing what it read | re-runs (cells and proxies; verified) | `watchEffect` does not re-run for its own writes (verified); rejected by the adapter | an effect whose dependencies include the state it sets runs again after the next commit: passive in a later task, layout synchronously before the passive effects; an updater that settles commits nothing (verified) | R4 (Svelte); React: dependencies compared per commit | `effect-self`, `effect-self-react` |
 | React state identity and staleness | — | — | equal state commits nothing; effects keep their render's props; a timeout reads its render's state; value updates vs updaters (verified) | snapshots, `identity` cells | `staleness` |
-| Teardown/cleanup reads | values before the flush, proxies included (verified, 5.57.1) | live values (`onWatcherCleanup` runs before the re-run) | the render's closure (snapshot) | R5; `cleanupReadsPrevious` per adapter | `teardown-proxy` |
+| Teardown/cleanup reads | values before the flush, proxies included (verified, 5.57.1) | live values: `onWatcherCleanup`/`onCleanup` run before the re-run and see its writes, through a ref's proxy and computed values; at unmount `onBeforeUnmount`, `onUnmounted` and watcher cleanups read the last render's props, live values through them (verified) | the render's closure (snapshot); refs live (verified) | R5; `cleanupReadsPrevious` per adapter | `teardown-proxy`, `teardown-vue`, `unmount-updates` |
+| State updates from cleanups | — | — | at unmount a passive cleanup's update of the parent renders after the passive flush and its own (unmounted) update does nothing; a layout cleanup's update renders with the passive cleanups' updates, after them; a cleanup run for a changed dependency updates the parent likewise (verified) | React's commit schedule (M4) | `unmount-updates` |
+| Values mutated while rendering | — | — | `useRef` read or written while rendering (also in callbacks a child calls while rendering): `E_REF`; module state mutated while rendering: `E_REACTIVITY` | rejected (React does not re-render for refs; render counts would show) | `tests/reactivity.test.mjs` |
+| Order of one component's watchers in a flush | declaration (effect tree) order | the order the flush triggers them: by write, then by the written signal's link order, with Vue's `endBatch` and `activeLink` effects (verified) | effects of a phase in declaration order | declaration order; Vue pairs not proven in order rejected (R10), the exact model planned | `watch-declared`; `tests/reactivity.test.mjs` (`watch-order-vue`, `watch-cleanup-computed-vue`) |
+| Order of watchers of different instances | tree order | by instance creation (uid), except watchers an instance's patch runs (prop updates), in document order (verified) | — | document order; Vue instances possibly created out of document order rejected unless triggered by props only (R10) | `watch-instances`; `tests/reactivity.test.mjs` (`watch-instances-deep-vue`) |
 | Template granularity | per block, calls memoized (verified) | per component render | per component render (with children) | per binding, validator R7 | `untrack-template`, `prop-raw` |
 | Derived caching | `$derived`: recomputed lazily, `===` (also over arrays changed in place: verified) | `computed`: lazy, `Object.is` | render constants every render; `useMemo` rejected | derived functions | `derived-timing`, `derived-equality`, `derived-arrays` |
 | Deep reactivity through collections | `Map`/`Set` not proxied (`SvelteMap` only); mutation in `$state` rejected | Maps, Sets and arrays a deep ref holds are reactive, nested too (verified) | — | `deep` marking | `collections-vue` |

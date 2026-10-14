@@ -78,6 +78,7 @@ import { lowerModules } from '../modules.ts';
 import { bindPackImport, packMappings, type Edge } from '../packs.ts';
 import { arrayElement, maybeInner, upcastTo } from '../irtype.ts';
 import { checkRadioGroups, checkSelectChildren } from '../controls.ts';
+import { checkWatcherOrder } from './vue-watch-order.ts';
 import { FIELDSET_DISABLED, FIELDSET_TAGS, INERT_TAGS, TABLE_TAGS } from '../elements.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1321,6 +1322,8 @@ export async function lowerVue(graph: Graph): Promise<Lowering> {
   let refReadSites: { cell: number; node: ts.Node }[] = [];
   /** Template-ref cells of each component and their reads. */
   const templateRefsOf: { cells: Set<number>; reads: { cell: number; node: ts.Node }[] }[] = [];
+  /** Plain setup constants of each component (cells that are not Vue signals). */
+  const plainCellsOf = new Map<number, Set<number>>();
   /** The source node of each template-ref read (function bodies are copied when finished). */
   const refReads = new WeakMap<object, ts.Node>();
   /** Template-ref reads Vue does not make while rendering (a component ref passed back to its child). */
@@ -1677,6 +1680,15 @@ export async function lowerVue(graph: Graph): Promise<Lowering> {
   for (const u of order) components[u.index] = lowerComponent(u);
   rejectRenderRefReads();
   components.forEach(rejectWatcherWrites);
+  checkWatcherOrder({
+    components,
+    functions: lower.functions,
+    records: lower.types.records,
+    globals: lower.globals,
+    plain: (k, cell) => plainCellsOf.get(k)?.has(cell) ?? false,
+    runtimeWritten: (k, cell) => templateRefsOf[k]?.cells.has(cell) ?? false,
+    fail,
+  });
   rejectUnmountOrder();
   checkRadioGroups(components, units.get(rootFile!)!.index);
   checkControlModels();
@@ -2401,6 +2413,7 @@ export async function lowerVue(graph: Graph): Promise<Lowering> {
     /** Cells of shallowRef() variables and of plain setup constants. */
     const shallowCells = new Set<number>();
     const plainCells = new Set<number>();
+    plainCellsOf.set(COMPONENT, plainCells);
     /** The first watcher: Vue runs it where it is declared, Runic after the setup state. */
     let firstWatcher: ts.Node | undefined;
     let effectCount = 0;

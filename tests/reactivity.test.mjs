@@ -79,6 +79,75 @@ async function withApp(name, files, run) {
   }
 }
 
+/** A React app whose App.tsx is `app`; `run` gets its root. */
+async function withReactApp(name, app, run) {
+  await mkdir('.cache/tests', { recursive: true });
+  const root = await mkdtemp(path.resolve(`.cache/tests/${name}-`));
+  try {
+    const all = {
+      'index.html':
+        '<!doctype html><html><head></head><body><div id="root"></div><script type="module" src="/main.tsx"></script></body></html>',
+      'main.tsx':
+        "import React from 'react';\nimport { createRoot } from 'react-dom/client';\nimport { App } from './App.tsx';\ncreateRoot(document.getElementById('root')).render(<App />);\n",
+      'App.tsx': app,
+      'runic.json': JSON.stringify({ framework: 'react', entry: 'main.tsx', title: 'T' }),
+    };
+    for (const [file, body] of Object.entries(all)) await writeFile(path.join(root, file), body);
+    await run(root);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+test('React refs and module state mutated while rendering are rejected', async () => {
+  // React does not re-render for refs and renders as often as it decides;
+  // the cross-framework matrix's row of values mutated while rendering.
+  await withReactApp(
+    'ref-render',
+    `import { useEffect, useRef, useState } from 'react';
+const log: string[] = [];
+function Child({ onRender, n }: { onRender: () => number; n: number }) {
+  const seen = onRender();
+  return <p id="child">{n} {seen}</p>;
+}
+export function App() {
+  const [n, setN] = useState(0);
+  const renders = useRef(0);
+  useEffect(() => {
+    log.push(\`effect \${renders.current}\`);
+  });
+  return (
+    <main>
+      <Child n={n} onRender={() => (renders.current += 1)} />
+      <button id="inc" onClick={() => setN(n + 1)}>inc</button>
+    </main>
+  );
+}
+`,
+    root => assert.rejects(lowered(root), failWith('E_REF', 'App.tsx', /may run while rendering/)),
+  );
+  await withReactApp(
+    'module-render',
+    `import { useState } from 'react';
+let renders = 0;
+function bump() {
+  renders += 1;
+  return renders;
+}
+export function App() {
+  const [n, setN] = useState(0);
+  const count = bump();
+  return <button id="inc" onClick={() => setN(n + 1)}>{n} {count}</button>;
+}
+`,
+    root =>
+      assert.rejects(
+        lowered(root),
+        failWith('E_REACTIVITY', 'App.tsx', /mutated and read while rendering/),
+      ),
+  );
+});
+
 test('untrack in a template is rejected (R7)', async () => {
   // Svelte memoizes the expression: `{untrack(() => state.count)}` keeps its
   // first value (case untrack-template in Chromium).
@@ -125,6 +194,94 @@ test('a raw object a Vue ref holds, changed directly, is rejected (R6)', async (
   await assert.rejects(
     lowered('fixtures/raw-target-vue'),
     failWith('E_REACTIVITY', 'App.vue', /r holds an object that raw also holds/),
+  );
+});
+
+test('Vue watchers whose order in a flush may differ from their declaration order are rejected', async () => {
+  // Vue 3.5 in Chromium (case watch-order's fixture): runtime-core queues a
+  // component's watchers in the order the flush triggers them, so a handler
+  // writing b, then a runs watch(b) first (`b2 | effect 2 | a2`, status a2);
+  // Runic runs them in declaration order.
+  await assert.rejects(
+    lowered('fixtures/watch-order-vue'),
+    failWith('E_EFFECT', 'App.vue', /before the one at line 12.*b, which this watcher depends on/),
+  );
+  // A computed value first evaluated in a watchEffect's cleanup takes over
+  // its links: the watchEffect runs after the watch declared below it from
+  // the second flush on (`cleanup 0 d2 | watch 1 | watch 2 | cleanup 1 d4`).
+  await assert.rejects(
+    lowered('fixtures/watch-cleanup-computed-vue'),
+    failWith(
+      'E_EFFECT',
+      'App.vue',
+      /before the one at line 13.*evaluates the computed value doubled/,
+    ),
+  );
+  // Three watchEffects over deep refs logging into one array: their signals
+  // are array elements and lengths, which the analysis does not tell apart.
+  await assert.rejects(
+    lowered('fixtures/deep-tracking-vue'),
+    failWith(
+      'E_EFFECT',
+      'App.vue',
+      /before the one at line 11.*array elements, lengths or iteration/,
+    ),
+  );
+  // Watchers of instances a write triggers directly run in creation order:
+  // a branch shown before a list and an item inserted at its front run last
+  // (`row 1 3 | row 2 3 | row 3 3 | row 0 3` in Chromium; natively document
+  // order, `row 0 3 | row 3 3 | row 1 3 | row 2 3`).
+  await assert.rejects(
+    lowered('fixtures/watch-instances-deep-vue'),
+    failWith(
+      'E_EFFECT',
+      'App.vue',
+      /instance created here after those of instances that follow it/,
+    ),
+  );
+});
+
+test('Vue watchers in a proven order agree with Chromium', async () => {
+  // Case watch-declared in Chromium: a later watcher's signals are a subset
+  // of what an earlier one reads in every run (a ref; a record field through
+  // a prop), in both write orders; two watchers no handler triggers together.
+  const steps = interpret(
+    (await lowered('fixtures/watch-declared-vue')).ir,
+    ['dump', 'list-a', 'a-list', 'dump', 'x', 'y', 'x', 'dump', 'deep-n', 'n-deep', 'dump'].map(
+      click,
+    ),
+    {},
+  );
+  assert.equal(shown(steps[4], 'log'), 'effect 1 1 | watch a 1 | effect 2 2 | watch a 2');
+  assert.equal(shown(steps[8], 'log'), 'watch x 1 | watch y 1 | watch x 2');
+  assert.equal(
+    shown(steps[11], 'log'),
+    'child effect 1 1 | child watch 1 | child effect 2 2 | child watch 2',
+  );
+  // Case watch-instances: watchers of instances a prop update triggers run
+  // while the parent patches them, in document order, also for instances
+  // created after the ones they precede.
+  const instances = interpret(
+    (await lowered('fixtures/watch-instances-vue')).ir,
+    ['bump', 'dump', 'front', 'bump', 'dump', 'show', 'bump', 'dump'].map(click),
+    {},
+  );
+  assert.equal(shown(instances[5], 'log'), 'row 3 2 | row 1 2 | row 2 2');
+  assert.equal(shown(instances[8], 'log'), 'row 0 3 | row 3 3 | row 1 3 | row 2 3');
+  // Case teardown-vue: a computed value read in a cleanup is settled where
+  // the template reads it at its root (cleanups read live values).
+  const teardown = interpret(
+    (await lowered('fixtures/teardown-vue')).ir,
+    ['bump', 'dump', 'twice', 'dump', 'hide', 'dump'].map(click),
+    {},
+  );
+  assert.equal(
+    shown(teardown[4], 'log'),
+    'cleanup 1/3 1/3 d6 | watch cleanup 1/3 3 | child cleanup 1/3 3',
+  );
+  assert.equal(
+    shown(teardown[6], 'log'),
+    'cleanup 3/13 3/13 d26 | watch cleanup 3/13 13 | before unmount 13 3 | child cleanup 3/3 13 | unmounted 13 3',
   );
 });
 

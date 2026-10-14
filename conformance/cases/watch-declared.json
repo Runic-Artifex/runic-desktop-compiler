@@ -1,0 +1,17 @@
+{
+  "description": "Vue watchers of one component whose order in a flush the compiler proves to be declaration order (docs/design/REACTIVITY-ALIASING.md, watcher order), all logging into one array: a later watcher's signals are a subset of what an earlier watcher reads in every run (a ref; a record field through a prop, with another prop the parent's render updates), in both write orders of the flush, the earlier one also reading an array's length; two watchers no handler triggers together",
+  "fixtures": ["watch-declared-vue"],
+  "actions": [
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "list-a" },
+    { "kind": "click", "id": "a-list" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "x" },
+    { "kind": "click", "id": "y" },
+    { "kind": "click", "id": "x" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "deep-n" },
+    { "kind": "click", "id": "n-deep" },
+    { "kind": "click", "id": "dump" }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "description": "Vue cleanups read live values (cleanupReadsPrevious is off for Vue; docs/design/REACTIVITY-ALIASING.md, cross-framework matrix): a watchEffect's onWatcherCleanup and a watch callback's onCleanup run before the next run and read the writes that re-run it, through a deep ref's proxy and a computed value too; at unmount a child's onBeforeUnmount, onUnmounted and watcher cleanup read its last render's props, and live values through them. Svelte reads the values before the flush instead (case teardown-proxy). Vue 3.5.43 in Chromium; the native model agreed before, a regression case",
+  "fixtures": ["teardown-vue"],
+  "actions": [
+    { "kind": "click", "id": "bump" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "twice" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "hide" },
+    { "kind": "click", "id": "dump" }
+  ],
+  "expectedText": [
+    { "step": 2, "id": "log", "text": "cleanup 0/1 0/1 d2 | child cleanup 0/1 1" },
+    { "step": 4, "id": "log", "text": "cleanup 1/3 1/3 d6 | watch cleanup 1/3 3 | child cleanup 1/3 3" },
+    { "step": 6, "id": "log", "text": "cleanup 3/13 3/13 d26 | watch cleanup 3/13 13 | before unmount 13 3 | child cleanup 3/3 13 | unmounted 13 3" }
+  ]
+}
