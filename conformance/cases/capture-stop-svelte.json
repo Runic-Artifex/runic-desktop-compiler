@@ -1,0 +1,108 @@
+{
+  "description": "stopPropagation in a capture-phase listener ends the dispatch at its invocation (DOM standard: one per node and phase), as Chromium does: the node's own bubbling listeners do not run, at the target its non-capture listeners (registered before the capture ones too) do not run, stopImmediatePropagation also skips the rest of the invocation, and a stop at the container (Svelte's delegation root, IR schedule.delegation) keeps every delegated template handler from running; a template `onclickcapture` that stops keeps its element's script bubbling listener and the delegated handlers from running. Physical clicks, a nested click() and a script dispatchEvent of a MouseEvent take the same path",
+  "fixtures": [
+    "capture-stop-svelte"
+  ],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "target"
+    },
+    {
+      "kind": "click",
+      "id": "nested-click"
+    },
+    {
+      "kind": "click",
+      "id": "nested-dispatch"
+    },
+    {
+      "kind": "click",
+      "id": "mode-root-stop"
+    },
+    {
+      "kind": "click",
+      "id": "target"
+    },
+    {
+      "kind": "click",
+      "id": "nested-click"
+    },
+    {
+      "kind": "click",
+      "id": "nested-dispatch"
+    },
+    {
+      "kind": "click",
+      "id": "mode-outer-stop"
+    },
+    {
+      "kind": "click",
+      "id": "target"
+    },
+    {
+      "kind": "click",
+      "id": "nested-click"
+    },
+    {
+      "kind": "click",
+      "id": "nested-dispatch"
+    },
+    {
+      "kind": "click",
+      "id": "mode-outer-immediate"
+    },
+    {
+      "kind": "click",
+      "id": "target"
+    },
+    {
+      "kind": "click",
+      "id": "nested-click"
+    },
+    {
+      "kind": "click",
+      "id": "nested-dispatch"
+    },
+    {
+      "kind": "click",
+      "id": "mode-template-stop"
+    },
+    {
+      "kind": "click",
+      "id": "target"
+    },
+    {
+      "kind": "click",
+      "id": "nested-click"
+    },
+    {
+      "kind": "click",
+      "id": "nested-dispatch"
+    },
+    {
+      "kind": "click",
+      "id": "mode-target-stop"
+    },
+    {
+      "kind": "click",
+      "id": "target"
+    },
+    {
+      "kind": "click",
+      "id": "nested-click"
+    },
+    {
+      "kind": "click",
+      "id": "nested-dispatch"
+    },
+    {
+      "kind": "click",
+      "id": "mode-open"
+    },
+    {
+      "kind": "click",
+      "id": "target"
+    }
+  ]
+}

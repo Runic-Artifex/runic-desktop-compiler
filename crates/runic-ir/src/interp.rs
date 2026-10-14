@@ -1454,10 +1454,11 @@ impl<'p> Machine<'p> {
             let v = m.eval(&g.init, &Frame::new(0)).map_err(throw_diag)?;
             m.globals.push(v);
         }
+        // The container is a delegation root from the start of the mount,
+        // as Svelte's `mount` listens before it creates the component.
+        m.delegation_root(CONTAINER.0);
         m.create(program.root, &[], None).map_err(throw_diag)?;
         m.mount()?;
-        // The container is a delegation root once the app is mounted.
-        m.delegation_root(CONTAINER.0);
         // The document has loaded; then the host's replies run.
         m.host.session.loaded();
         let mut run = Run::default();
@@ -3191,14 +3192,37 @@ impl<'p> Machine<'p> {
                     .iter()
                     .filter_map(|&c| self.script.vnode(c))
                     .collect();
-                match document_query(&self.last_tree, self.root_len, &preceding, &selector)? {
+                match document_query(
+                    &self.last_tree,
+                    self.root_len,
+                    &preceding,
+                    &self.container_attrs(),
+                    &selector,
+                )? {
                     Some(e) => Val::Element(js::Element(e)),
                     None => Val::Null,
                 }
             }
             ("document", "getElementById") => {
+                // (In tree order: script content before the container, the
+                // container, the root's nodes, then content mounted in the
+                // body.)
                 let id = a[0].string().to_rust();
-                match element_by_id(&self.last_tree, &id) {
+                let preceding: Vec<VNode> = self
+                    .script
+                    .preceding
+                    .iter()
+                    .filter_map(|&c| self.script.vnode(c))
+                    .collect();
+                let container = self
+                    .container_attrs()
+                    .iter()
+                    .any(|(n, v)| n == "id" && *v == id)
+                    .then_some(CONTAINER.0);
+                match element_by_id(&preceding, &id)
+                    .or(container)
+                    .or_else(|| element_by_id(&self.last_tree, &id))
+                {
                     Some(e) => Val::Element(js::Element(e)),
                     None => Val::Null,
                 }
@@ -4129,8 +4153,13 @@ impl<'p> Machine<'p> {
                         .filter_map(|&c| self.script.vnode(c))
                         .collect();
                     return Ok(
-                        match document_query(&self.last_tree, self.root_len, &preceding, &selector)?
-                        {
+                        match document_query(
+                            &self.last_tree,
+                            self.root_len,
+                            &preceding,
+                            &self.container_attrs(),
+                            &selector,
+                        )? {
                             Some(n) => Val::Element(js::Element(n)),
                             None => Val::Null,
                         },
@@ -7438,10 +7467,12 @@ impl<'p> Machine<'p> {
                     })
             })
             .collect();
+        // The target is a delegation root from the start of the mount, before
+        // the component is created (Svelte's `mount` listens first).
+        self.delegation_root(js::Element::BODY.0);
         let id = self.create_in(m.component, &args, None, context, &slots)?;
         let handle = Rc::new(std::cell::Cell::new(Some(id)));
         self.mounted.push((Rc::clone(&handle), id));
-        self.delegation_root(js::Element::BODY.0);
         // Rendered (and its effects run) in the running flush's next pass,
         // or in the flush this queues.
         self.queue_flush();
@@ -8201,7 +8232,7 @@ impl<'p> Machine<'p> {
                     .viewport_listeners
                     .iter()
                     .any(|g| g.0 == EventKind::Resize && g.1.same(&f));
-                if !live || !event.enter(js::Element::VISUAL_VIEWPORT) {
+                if !live || !event.enter(js::Element::VISUAL_VIEWPORT, false) {
                     continue;
                 }
                 s.ran = true;
@@ -8970,7 +9001,7 @@ impl<'p> Machine<'p> {
                 &self.host_listeners
             };
             let live = r.script.is_some() || registry.iter().any(|g| g.3 == registration);
-            if !live || !event.enter(current) {
+            if !live || !event.enter(current, capture) {
                 continue;
             }
             let result = match (&r.script, &r.closure) {
@@ -9080,7 +9111,7 @@ impl<'p> Machine<'p> {
         let calls = self.nested_element_listeners(current, kind, capture);
         for (r, registration) in calls {
             let live = self.element_listener_live(current, capture, kind, &r, registration);
-            if !live || !event.enter(js::Element(current)) {
+            if !live || !event.enter(js::Element(current), capture) {
                 continue;
             }
             let result = self.call_element_listener(&r, event);
@@ -9154,7 +9185,7 @@ impl<'p> Machine<'p> {
                         Some((root, first)) => {
                             event.enter_delegated(js::Element(root), js::Element(current), first)
                         }
-                        None => event.enter(js::Element(current)),
+                        None => event.enter(js::Element(current), false),
                     };
                     if !enters {
                         continue;
@@ -9225,14 +9256,14 @@ impl<'p> Machine<'p> {
                 let calls = self.nested_element_listeners(current, kind, capture);
                 for (r, registration) in calls {
                     if !self.element_listener_live(current, capture, kind, &r, registration)
-                        || !event.can_enter(js::Element(current))
+                        || !event.can_enter(js::Element(current), capture)
                     {
                         continue;
                     }
                     let source = self.element_listener_source(&r);
                     let result = self.task(source.as_ref(), true, |m| {
                         if !m.element_listener_live(current, capture, kind, &r, registration)
-                            || !event.enter(js::Element(current))
+                            || !event.enter(js::Element(current), capture)
                         {
                             return Ok(());
                         }
@@ -9253,7 +9284,7 @@ impl<'p> Machine<'p> {
                 .find_map(|(r, _)| self.element_listener_source(&r));
             let has_calls = !event.propagation_stopped()
                 && stages.iter().any(|&(current, capture)| {
-                    event.can_enter(js::Element(current))
+                    event.can_enter(js::Element(current), capture)
                         && !self
                             .nested_element_listeners(current, kind, capture)
                             .is_empty()
@@ -9268,7 +9299,7 @@ impl<'p> Machine<'p> {
                         let calls = m.nested_element_listeners(current, kind, capture);
                         for (r, registration) in calls {
                             if !m.element_listener_live(current, capture, kind, &r, registration)
-                                || !event.enter(js::Element(current))
+                                || !event.enter(js::Element(current), capture)
                             {
                                 continue;
                             }
@@ -9354,18 +9385,26 @@ impl<'p> Machine<'p> {
         // (Each entry: the listener, the event, the current target, the
         // delegation root it runs from and whether it is the first of its
         // group, and whether it joins the previous entry's callback.)
-        type Entry = (ListenerRef, js::Event, u64, Option<(u64, bool)>, bool);
+        // (And whether it is a capture-phase listener.)
+        type Entry = (ListenerRef, js::Event, u64, Option<(u64, bool)>, bool, bool);
         let mut entries: Vec<Entry> = vec![];
         // The elements' capture listeners first, from the root to the target
         // (M6 overlays), those script added after the template's.
         for &id in upward.iter().rev() {
             for &(k, l) in self.capture_elements.get(&id).into_iter().flatten() {
                 if k == kind {
-                    entries.push((self.listeners[l].clone(), event.clone(), id, None, false));
+                    entries.push((
+                        self.listeners[l].clone(),
+                        event.clone(),
+                        id,
+                        None,
+                        false,
+                        true,
+                    ));
                 }
             }
             for r in self.script_refs(id, kind.name(), true) {
-                entries.push((r, event.clone(), id, None, false));
+                entries.push((r, event.clone(), id, None, false, true));
             }
         }
         // The bubbling phase, in the framework's order where it declares its
@@ -9380,7 +9419,7 @@ impl<'p> Machine<'p> {
             let (stage, next) = self.bubble_stage(&bubble, i, from, kind);
             from = next;
             entries.extend(stage.into_iter().map(|(r, current, delegated, joined)| {
-                (r, event.clone(), current, delegated, joined)
+                (r, event.clone(), current, delegated, joined, false)
             }));
         }
         let _ = path;
@@ -9391,7 +9430,14 @@ impl<'p> Machine<'p> {
             if let VNode::Element { listeners, .. } = target_node {
                 for &(k, l) in listeners {
                     if k == k2 {
-                        entries.push((self.listeners[l].clone(), e2.clone(), target, None, false));
+                        entries.push((
+                            self.listeners[l].clone(),
+                            e2.clone(),
+                            target,
+                            None,
+                            false,
+                            false,
+                        ));
                     }
                 }
             }
@@ -9448,12 +9494,12 @@ impl<'p> Machine<'p> {
                 .any(|k| k.name() == kind);
             let result = self.task(source.as_ref(), discrete, |m| {
                 let mut error = None;
-                for (r, event, current, delegated, _) in listeners {
+                for (r, event, current, delegated, _, capture) in listeners {
                     let enters = match delegated {
                         Some((root, first)) => {
                             event.enter_delegated(js::Element(root), js::Element(current), first)
                         }
-                        None => event.enter(js::Element(current)),
+                        None => event.enter(js::Element(current), capture),
                     };
                     if !enters {
                         continue;
@@ -9596,7 +9642,7 @@ impl<'p> Machine<'p> {
                 .host_listeners
                 .iter()
                 .any(|g| g.0 && g.1 == kind && g.2.same(&f));
-            if !live || !event.enter(js::Element::WINDOW) {
+            if !live || !event.enter(js::Element::WINDOW, false) {
                 continue;
             }
             if let Err(t) = self.call_value(&f, vec![Val::Event(event.clone())]) {
@@ -9657,6 +9703,22 @@ impl<'p> Machine<'p> {
     /// A mount's target becomes a delegation root (IR
     /// `schedule.delegation`): the framework listens for its delegated kinds
     /// there once, at the end of the mount.
+    /// The container's attributes: the app's HTML template's (absent:
+    /// `id="root"`), then those the framework sets on it.
+    fn container_attrs(&self) -> Vec<(String, String)> {
+        let mut attrs: Vec<(String, String)> = match &self.program.container {
+            Some(c) => c.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            None => vec![("id".into(), "root".into())],
+        };
+        for (k, v) in &self.program.container_attrs {
+            match attrs.iter_mut().find(|(n, _)| n == k) {
+                Some(a) => a.1 = v.clone(),
+                None => attrs.push((k.clone(), v.clone())),
+            }
+        }
+        attrs
+    }
+
     fn delegation_root(&mut self, node: u64) {
         if self.program.schedule.delegation.is_some()
             && !self.delegation_roots.iter().any(|r| r.0 == node)
@@ -10056,7 +10118,7 @@ impl<'p> Machine<'p> {
         let bubble: Vec<u64> = stages.iter().filter(|s| !s.1).map(|s| s.0).collect();
         let mut from = 0;
         for (node, capture) in stages {
-            if ev.propagation_stopped() && !ev.can_enter(js::Element(node)) {
+            if !ev.can_enter(js::Element(node), capture) {
                 break;
             }
             let host = js::Element(node) == js::Element::WINDOW
@@ -10096,7 +10158,7 @@ impl<'p> Machine<'p> {
                     Some((root, first)) => {
                         ev.enter_delegated(js::Element(root), js::Element(current), first)
                     }
-                    None => ev.enter(js::Element(current)),
+                    None => ev.enter(js::Element(current), capture),
                 };
                 if !enters {
                     continue;
@@ -10224,7 +10286,7 @@ impl<'p> Machine<'p> {
                 &self.host_listeners
             };
             let live = script.is_some() || registry.iter().any(|g| g.3 == registration);
-            if !live || !event.enter(current) {
+            if !live || !event.enter(current, capture) {
                 continue;
             }
             s.ran = true;
@@ -11056,19 +11118,20 @@ fn closest(
 }
 
 /// `document.querySelector` over the interpreter's document: `html`,
-/// `head`, `body`, the container `div#root` with the root's nodes, then
-/// the content mounted in the body (after the first `root_len` nodes). The
-/// html element, the head and the container are not program elements: a
-/// selector matching one of them first is unsupported here.
+/// `head`, `body`, the container (a `div` with `container`'s attributes)
+/// with the root's nodes, then the content mounted in the body (after the
+/// first `root_len` nodes). The html element and the head are not program
+/// elements: a selector matching one of them first is unsupported here.
 fn document_query(
     tree: &[VNode],
     root_len: usize,
     preceding: &[VNode],
+    container: &[(String, String)],
     selector: &js::Selector,
 ) -> std::result::Result<Option<u64>, Throw> {
-    struct Outer(&'static str, Option<(&'static str, &'static str)>);
+    struct Outer<'c>(&'static str, &'c [(String, String)]);
     enum View<'a> {
-        Outer(Outer),
+        Outer(Outer<'a>),
         Node(&'a VNode),
     }
     impl js::SelElement for View<'_> {
@@ -11081,7 +11144,7 @@ fn document_query(
         }
         fn attr(&self, name: &str) -> Option<&str> {
             match self {
-                View::Outer(o) => o.1.filter(|(n, _)| *n == name).map(|(_, v)| v),
+                View::Outer(o) => o.1.iter().find(|(n, _)| n == name).map(|(_, v)| v.as_str()),
                 View::Node(VNode::Element { attrs, .. }) => attrs.get(name).map(String::as_str),
                 View::Node(_) => None,
             }
@@ -11111,14 +11174,14 @@ fn document_query(
             ),
         ))
     };
-    let html = || View::Outer(Outer("html", None));
+    let html = || View::Outer(Outer("html", &[]));
     if selector.matches(&[html()]) {
         return unsupported("html element");
     }
-    if selector.matches(&[html(), View::Outer(Outer("head", None))]) {
+    if selector.matches(&[html(), View::Outer(Outer("head", &[]))]) {
         return unsupported("head element");
     }
-    let body = || View::Outer(Outer("body", None));
+    let body = || View::Outer(Outer("body", &[]));
     if selector.matches(&[html(), body()]) {
         return Ok(Some(js::Element::BODY.0));
     }
@@ -11127,10 +11190,9 @@ fn document_query(
     if let Some(found) = first(preceding, &mut path, selector) {
         return Ok(Some(found));
     }
-    let container = View::Outer(Outer("div", Some(("id", "root"))));
-    let mut path = vec![html(), body(), container];
+    let mut path = vec![html(), body(), View::Outer(Outer("div", container))];
     if selector.matches(&path) {
-        return unsupported("container");
+        return Ok(Some(CONTAINER.0));
     }
     let split = root_len.min(tree.len());
     if let Some(found) = first(&tree[..split], &mut path, selector) {

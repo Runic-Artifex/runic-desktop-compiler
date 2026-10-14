@@ -481,6 +481,7 @@ impl<A: App> Native<A> {
                     current: Element::VISUAL_VIEWPORT.0,
                     delegated: None,
                     joined: false,
+                    capture: false,
                 };
                 handler.dispatch(&mut self.doc, &[delivery]);
             }
@@ -504,6 +505,7 @@ impl<A: App> Native<A> {
                     current: 0,
                     delegated: None,
                     joined: false,
+                    capture: false,
                 };
                 handler.dispatch(&mut self.doc, &[delivery]);
             }
@@ -1180,7 +1182,7 @@ impl<A: App> Handler<'_, A> {
             for (listener, generation) in listeners {
                 if self.app.listener_generation(listener) != generation
                     || !self.app.capture_listeners(window, kind).contains(&listener)
-                    || !event.can_enter(current)
+                    || !event.can_enter(current, true)
                 {
                     continue;
                 }
@@ -1190,6 +1192,7 @@ impl<A: App> Handler<'_, A> {
                     current: current.0,
                     delegated: None,
                     joined: false,
+                    capture: true,
                 };
                 self.dispatch(doc, &[delivery]);
             }
@@ -1215,7 +1218,7 @@ impl<A: App> Handler<'_, A> {
             for (listener, generation) in listeners {
                 if self.app.listener_generation(listener) != generation
                     || !self.app.host_listeners(window, kind).contains(&listener)
-                    || !event.can_enter(current)
+                    || !event.can_enter(current, false)
                 {
                     continue;
                 }
@@ -1225,6 +1228,7 @@ impl<A: App> Handler<'_, A> {
                     current: current.0,
                     delegated: None,
                     joined: false,
+                    capture: false,
                 };
                 self.dispatch(doc, &[delivery]);
             }
@@ -1664,6 +1668,7 @@ impl<A: App> Handler<'_, A> {
                         current: n.as_u64(),
                         delegated: None,
                         joined: false,
+                        capture: false,
                     });
                 }
             }
@@ -1674,6 +1679,7 @@ impl<A: App> Handler<'_, A> {
                     current: id.as_u64(),
                     delegated: None,
                     joined: false,
+                    capture: false,
                 });
             }
             self.dispatch(doc, &deliveries);

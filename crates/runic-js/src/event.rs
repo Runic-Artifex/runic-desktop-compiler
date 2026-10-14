@@ -738,6 +738,10 @@ struct Inner {
     prevented: Cell<bool>,
     stopped: Cell<bool>,
     stopped_immediately: Cell<bool>,
+    /// The invocation running (DOM standard, "invoke": one per node and
+    /// phase): the node and whether it is the capturing one. The stop
+    /// propagation flag lets only the rest of this invocation run.
+    invocation: Cell<Option<(u64, bool)>>,
     /// The target (an event script created has none until dispatched).
     target: Cell<Option<u64>>,
     /// A passive listener is running: `preventDefault` does nothing.
@@ -765,6 +769,7 @@ impl Event {
             prevented: Cell::new(false),
             stopped: Cell::new(false),
             stopped_immediately: Cell::new(false),
+            invocation: Cell::new(None),
             passive: Cell::new(false),
             detail: None,
         }))
@@ -784,6 +789,7 @@ impl Event {
             prevented: Cell::new(false),
             stopped: Cell::new(false),
             stopped_immediately: Cell::new(false),
+            invocation: Cell::new(None),
             passive: Cell::new(false),
             detail,
         }))
@@ -809,6 +815,7 @@ impl Event {
         self.0.dispatching.set(true);
         self.0.target.set(Some(target.0));
         self.0.current.set(target.0);
+        self.0.invocation.set(None);
         true
     }
     /// `dispatchEvent` ends: no current target, and the propagation flags
@@ -818,6 +825,7 @@ impl Event {
         self.0.passive.set(false);
         self.0.stopped.set(false);
         self.0.stopped_immediately.set(false);
+        self.0.invocation.set(None);
     }
     /// A `CustomEvent`'s detail (none: null).
     pub fn detail(&self) -> Option<&Detail> {
@@ -853,10 +861,12 @@ impl Event {
     /// the root.
     pub fn enter_delegated(&self, root: Element, current: Element, first: bool) -> bool {
         if first {
-            if !self.can_enter(root) {
+            // (The root's own listener: its bubbling-phase invocation.)
+            if !self.can_enter(root, false) {
                 return false;
             }
             self.0.current.set(root.0);
+            self.0.invocation.set(Some((root.0, false)));
         } else if self.0.stopped.get() {
             return false;
         }
@@ -872,20 +882,27 @@ impl Event {
         }
         self.target()
     }
-    /// Whether a listener can run, without changing the current target or
-    /// starting a task/checkpoint for a suppressed callback.
-    pub fn can_enter(&self, current: Element) -> bool {
+    /// Whether a listener of `current` in the capturing (`capture`) or the
+    /// bubbling phase can run, without changing the current target or
+    /// starting a task/checkpoint for a suppressed callback. After
+    /// `stopPropagation` only the rest of the running invocation runs (the
+    /// DOM standard checks the flag at each invocation, one per node and
+    /// phase: a capture listener's stop keeps its node's bubbling-phase
+    /// listeners, and at the target its non-capture ones, from running).
+    pub fn can_enter(&self, current: Element, capture: bool) -> bool {
         !self.0.stopped_immediately.get()
-            && (!self.0.stopped.get() || self.0.current.get() == current.0)
+            && (!self.0.stopped.get() || self.0.invocation.get() == Some((current.0, capture)))
     }
-    /// Before a listener on `current` runs: whether it runs (propagation was
-    /// not stopped at an earlier element, nor immediately), making
-    /// `current` the current target.
-    pub fn enter(&self, current: Element) -> bool {
-        if !self.can_enter(current) {
+    /// Before a listener on `current` runs in the capturing (`capture`) or
+    /// the bubbling phase: whether it runs (propagation was not stopped in
+    /// an earlier invocation, nor immediately), making `current` the
+    /// current target.
+    pub fn enter(&self, current: Element, capture: bool) -> bool {
+        if !self.can_enter(current, capture) {
             return false;
         }
         self.0.current.set(current.0);
+        self.0.invocation.set(Some((current.0, capture)));
         self.0.delegated_current.set(None);
         true
     }
@@ -1072,9 +1089,69 @@ mod submission_tests {
             ..Default::default()
         });
         assert_eq!(event.path_target(), Some(Element(7)));
-        assert!(event.enter(Element(3)));
+        assert!(event.enter(Element(3), false));
         assert_eq!(event.path_target(), Some(Element(7)));
         event.finish();
         assert_eq!(event.path_target(), None);
+    }
+
+    /// `stopPropagation` lets only the rest of the running invocation (one
+    /// per node and phase) run, as Chromium 153 does: a capture listener's
+    /// stop keeps its node's bubbling-phase listeners from running, at the
+    /// target too; `stopImmediatePropagation` stops the invocation itself;
+    /// a stop before `dispatchEvent` lets nothing run.
+    #[test]
+    fn a_stop_ends_propagation_at_the_invocation() {
+        let click = |target| {
+            Event::new(EventData {
+                kind: JsString::from("click"),
+                target: Element(target),
+                bubbles: true,
+                ..Default::default()
+            })
+        };
+        // A capture listener at an ancestor stops.
+        let event = click(7);
+        assert!(event.enter(Element(3), true));
+        event.stop_propagation();
+        assert!(event.enter(Element(3), true));
+        assert!(!event.can_enter(Element(7), true));
+        assert!(!event.can_enter(Element(7), false));
+        assert!(!event.can_enter(Element(3), false));
+        // At the target: its capture listeners finish, its others do not run.
+        let event = click(7);
+        assert!(event.enter(Element(7), true));
+        event.stop_propagation();
+        assert!(event.can_enter(Element(7), true));
+        assert!(!event.can_enter(Element(7), false));
+        // A bubbling listener's stop lets the rest of its node's run.
+        let event = click(7);
+        assert!(event.enter(Element(7), false));
+        event.stop_propagation();
+        assert!(event.enter(Element(7), false));
+        assert!(!event.can_enter(Element(3), false));
+        // stopImmediatePropagation.
+        let event = click(7);
+        assert!(event.enter(Element(3), true));
+        event.stop_immediate_propagation();
+        assert!(!event.can_enter(Element(3), true));
+        // A delegation root's group is its bubbling-phase invocation.
+        let event = click(7);
+        assert!(event.enter(Element(1), true));
+        event.stop_propagation();
+        assert!(!event.enter_delegated(Element(1), Element(7), true));
+        // Stopped before dispatchEvent: nothing runs.
+        let event = Event::script(
+            EventData {
+                kind: JsString::from("click"),
+                bubbles: true,
+                ..Default::default()
+            },
+            None,
+        );
+        event.stop_propagation();
+        assert!(event.begin_dispatch(Element(7)));
+        assert!(!event.can_enter(Element(7), true));
+        assert!(!event.can_enter(Element(7), false));
     }
 }

@@ -280,6 +280,9 @@ pub struct Delivery {
     /// Part of the previous delivery's callback (a delegation root's
     /// group, a framework listener starting the delegated propagation).
     pub joined: bool,
+    /// A capture-phase listener (the DOM standard's capturing invocation at
+    /// `current`; a stop lets only the rest of its invocation run).
+    pub capture: bool,
 }
 
 /// A generated application.
