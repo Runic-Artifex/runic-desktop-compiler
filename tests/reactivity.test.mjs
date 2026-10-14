@@ -239,15 +239,44 @@ test('Vue watchers whose order in a flush may differ from their declaration orde
       /instance created here after those of instances that follow it/,
     ),
   );
-  // Items of one list whose watchers prop updates trigger: Vue runs them in
-  // document order (`row 3 2 | row 1 2 | row 2 2` in Chromium), native code
-  // in reverse (`row 2 2 | row 1 2 | row 3 2`: it updates a list's blocks
-  // from the last one; the differential found it, the interpreter agrees
-  // with Chromium).
-  await assert.rejects(
-    lowered('fixtures/watch-list-vue'),
-    failWith('E_EFFECT', 'App.vue', /other items of this list.*in reverse order/),
+});
+
+test('keyed list items create and update in the order of each framework’s keyed diff', async () => {
+  // Case list-order in Chromium. Svelte 5.57.1: new items (their
+  // $effect.pre) first, in array order, then the others in document order.
+  const actions = ['dump', 'bump', 'dump', 'front', 'dump', 'back', 'dump', 'reverse', 'dump'];
+  const svelte = interpret(
+    (await lowered('fixtures/list-order-svelte')).ir,
+    [...actions, 'rotate', 'dump', 'shuffle', 'dump'].map(click),
+    {},
   );
+  assert.equal(
+    shown(svelte[7], 'log'),
+    'row 5 3 | cell 5 3 | cleanup 4 2 | row 4 3 | cell 4 3 | cleanup 1 2 | row 1 3 | cell 1 3 | cleanup 2 2 | row 2 3 | cell 2 3 | cleanup 3 2 | row 3 3 | cell 3 3',
+  );
+  assert.match(shown(svelte[13], 'log'), /^row 6 6 \| cell 6 6 \| row 7 6 \| cell 7 6 \| cleanup 5 5/);
+  // Vue 3.5.43 (patchKeyedChildren): the common suffix backward before a
+  // mount at the front, the middle in its previous order, mounts backward.
+  const vue = interpret(
+    (await lowered('fixtures/list-order-vue')).ir,
+    [...actions, 'rotate', 'dump', 'shuffle', 'dump'].map(click),
+    {},
+  );
+  assert.equal(shown(vue[5], 'log'), 'row 3 2 | row 2 2 | row 1 2 | row 4 2');
+  assert.equal(shown(vue[9], 'log'), 'row 4 4 | row 1 4 | row 2 4 | row 3 4 | row 5 4');
+  assert.equal(
+    shown(vue[13], 'log'),
+    'row 3 6 | row 2 6 | row 1 6 | row 4 6 | row 5 6 | row 7 6 | row 6 6',
+  );
+  // Prop-triggered watchers of list items are no longer rejected (R10):
+  // case watch-list (formerly the expected rejection watch-list-vue).
+  const list = interpret(
+    (await lowered('fixtures/watch-list-vue')).ir,
+    ['bump', 'dump', 'front', 'bump', 'dump', 'show', 'front', 'bump', 'dump'].map(click),
+    {},
+  );
+  assert.equal(shown(list[5], 'log'), 'row 3 2 | row 1 2 | row 2 2');
+  assert.equal(shown(list[9], 'log'), 'row 0 3 | row 4 3 | row 3 3 | row 1 3 | row 2 3');
 });
 
 test('Vue watchers in a proven order agree with Chromium', async () => {

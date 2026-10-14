@@ -5502,8 +5502,6 @@ impl<'p> Machine<'p> {
             } => {
                 let list_id = (self.current, path.clone(), n as *const Node as usize);
                 let previous = self.list_keys.remove(&list_id).unwrap_or_default();
-                let mut keys = vec![];
-                let mut blocks = vec![];
                 let list = self.eval(items, frame)?.array();
                 let values: Vec<Val> = list.borrow().clone();
                 if values.is_empty() {
@@ -5511,9 +5509,11 @@ impl<'p> Machine<'p> {
                         self.render_node(c, frame, path, out, visited)?;
                     }
                 }
+                // Keys first, as generated code takes them.
+                let mut keys = Vec::with_capacity(values.len());
                 let mut seen = HashSet::new();
-                for (i, v) in values.into_iter().enumerate() {
-                    frame.set(*item, v);
+                for (i, v) in values.iter().enumerate() {
+                    frame.set(*item, v.clone());
                     if let Some(x) = index {
                         frame.set(*x, Val::Num(i as f64));
                     }
@@ -5524,31 +5524,53 @@ impl<'p> Machine<'p> {
                     if !seen.insert(k.clone()) {
                         return Err(Throw::new("RunicKeyError", "Duplicate key in a keyed list"));
                     }
-                    path.push(k.clone());
-                    let start = out.len();
-                    for c in body {
-                        self.render_node(c, frame, path, out, visited)?;
-                    }
-                    path.pop();
-                    blocks.push(start..out.len());
                     keys.push(k);
                 }
-                // Blocks the framework's keyed diff moves (detaching them).
-                if key.is_some() && !previous.is_empty() {
-                    let old: Vec<Option<usize>> = keys
-                        .iter()
-                        .map(|k| previous.iter().position(|p| p == k))
-                        .collect();
-                    let strategy = match reorder {
-                        Reorder::Lis => js::reorder::Reorder::Lis,
-                        Reorder::Forward => js::reorder::Reorder::Forward,
-                        Reorder::Stash => js::reorder::Reorder::Stash,
+                let at: HashMap<&MapKey, usize> =
+                    previous.iter().enumerate().map(|(o, k)| (k, o)).collect();
+                let old: Vec<Option<usize>> = keys.iter().map(|k| at.get(k).copied()).collect();
+                let strategy = match reorder {
+                    Reorder::Lis => js::reorder::Reorder::Lis,
+                    Reorder::Forward => js::reorder::Reorder::Forward,
+                    Reorder::Stash => js::reorder::Reorder::Stash,
+                };
+                let (steps, keep) = js::reorder::schedule(strategy, &old, previous.len());
+                // Blocks render in the order the framework's keyed diff creates
+                // and updates them (their components' setup and pre effects
+                // run then); the tree and the instance order stay in
+                // document order.
+                let mut rendered: Vec<Option<(Vec<VNode>, Vec<usize>, Vec<u64>)>> =
+                    (0..keys.len()).map(|_| None).collect();
+                for step in steps {
+                    let j = match step {
+                        js::reorder::Step::Mount(j) | js::reorder::Step::Patch(j) => j,
+                        js::reorder::Step::Move(_) | js::reorder::Step::Remove(_) => continue,
                     };
-                    let keep = js::reorder::keep(strategy, &old, previous.len());
-                    for (j, range) in blocks.into_iter().enumerate() {
-                        if old[j].is_some() && !keep[j] {
-                            element_ids(&out[range], &mut self.moved);
-                        }
+                    frame.set(*item, values[j].clone());
+                    if let Some(x) = index {
+                        frame.set(*x, Val::Num(j as f64));
+                    }
+                    let (order, radios) = (self.order.len(), self.checked_radios.len());
+                    path.push(keys[j].clone());
+                    let mut block = vec![];
+                    let r = body
+                        .iter()
+                        .try_for_each(|c| self.render_node(c, frame, path, &mut block, visited));
+                    path.pop();
+                    r?;
+                    let order = self.order.split_off(order);
+                    let radios = self.checked_radios.split_off(radios);
+                    rendered[j] = Some((block, order, radios));
+                }
+                for (j, r) in rendered.into_iter().enumerate() {
+                    let (block, order, radios) = r.expect("every block is mounted or patched");
+                    let start = out.len();
+                    out.extend(block);
+                    self.order.extend(order);
+                    self.checked_radios.extend(radios);
+                    // Blocks the framework's keyed diff moves (detaching them).
+                    if key.is_some() && old[j].is_some() && !keep[j] {
+                        element_ids(&out[start..], &mut self.moved);
                     }
                 }
                 self.list_keys.insert(list_id, keys);

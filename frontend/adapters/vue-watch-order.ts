@@ -925,14 +925,16 @@ export function checkWatcherOrder(input: WatchOrderInput): void {
 
   // --- Watchers of different instances ---
   // Vue runs the queued watchers of an instance its render patches while it
-  // patches it (updateComponentPreRender), in document order; other queued
+  // patches it (updateComponentPreRender), in patch order: document order,
+  // and for the items of a keyed list the order of its keyed diff, which the
+  // interpreter and native code follow (case list-order); other queued
   // watchers run by instance uid, which is creation order (case
   // watch-instances; fixture watch-instances-deep-vue in Chromium). Runic
-  // runs instances in document order. An instance created after one that
+  // runs instances in patch order. An instance created after one that
   // follows it in the document (in a branch or list region that one is not
   // in, or another item of the same list) may then run its watchers out of
   // order, unless both are children of that template triggered only through
-  // their props: one render of the parent patches both, in document order
+  // their props: one render of the parent patches both, in patch order
   // (descendants further down are patched by their own parents' renders,
   // which run by uid when they re-render for their own state).
   const subtrees = new Map<number, Set<number>>();
@@ -1033,15 +1035,15 @@ export function checkWatcherOrder(input: WatchOrderInput): void {
                 const ta = triggered(wa.src, w);
                 const tb =
                   a === b && handler ? ownTriggered(wb.src, w, b, handler) : triggered(wb.src, w);
-                // (Not two items of one list: native code updates a list's
-                // blocks from the last one, running their children's watchers
-                // in reverse document order; docs/gaps/FRAMEWORKS.md.)
-                const children = a === early.component && b === late.component && early !== late;
+                // Two items of one list too: the interpreter and native code
+                // patch a list's blocks in the order of Vue's keyed diff
+                // (`reorder: lis`, case list-order).
+                const children = a === early.component && b === late.component;
                 if (!ta.length || !tb.length || (children && propsOnly(ta) && propsOnly(tb)))
                   continue;
                 fail(
                   'E_EFFECT',
-                  `Vue may run the watcher at ${components[a].name} line ${wa.e.source?.line} of an instance created here after those of instances that follow it in the document${early === late ? ' (other items of this list)' : ` (${components[late.component].name}, line ${late.source?.line})`}, such as the watcher at ${components[b].name} line ${wb.e.source?.line}: it runs watchers a write triggers by instance creation order (those a prop update triggers while it patches the instance), Runic in document order${early === late ? ' (and the items of a list in reverse order, as it updates their blocks from the last one)' : ''}, and both ${why}`,
+                  `Vue may run the watcher at ${components[a].name} line ${wa.e.source?.line} of an instance created here after those of instances that follow it in the document${early === late ? ' (other items of this list)' : ` (${components[late.component].name}, line ${late.source?.line})`}, such as the watcher at ${components[b].name} line ${wb.e.source?.line}: it runs watchers a write triggers by instance creation order (those a prop update triggers while it patches the instance), Runic in document order${early === late ? ' (the items of a list in the order of the keyed diff)' : ''}, and both ${why}`,
                   early.source,
                 );
               }

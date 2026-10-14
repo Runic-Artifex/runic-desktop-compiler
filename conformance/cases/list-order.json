@@ -1,0 +1,19 @@
+{
+  "description": "Keyed list items whose components run effects when created and when the parent's update changes their props, logged into one plain array: Svelte $effect.pre (with its cleanup and a nested component's) runs in new items first, in array order, then in the others in document order; Vue watchers (a watchEffect's run at setup and at prop updates) in its keyed diff's order (common prefix forward, common suffix backward, the rest in previous order, mounts as the diff takes them); React layout and passive effects in the commit, in document order. A prop update alone, then an insert at the front and at the back, a reversal, a rotation and a shuffle that inserts two items, each with the prop update in the same handler",
+  "fixtures": ["list-order-svelte", "list-order-vue", "list-order-react"],
+  "actions": [
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "bump" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "front" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "back" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "reverse" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "rotate" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "shuffle" },
+    { "kind": "click", "id": "dump" }
+  ]
+}

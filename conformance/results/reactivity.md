@@ -39,7 +39,9 @@ Adversarial fixtures, first run in Chromium and the reference interpreter
 | `watch-instances-deep-vue` | watchers a write triggers run by instance creation: `row 1 3 \| row 2 3 \| row 3 3 \| row 0 3` | document order: `row 0 3 \| row 3 3 \| row 1 3 \| row 2 3` | rejected (R10) |
 | `watch-declared`, `watch-instances` (Vue) | the shapes R10 accepts run in declaration and document order | interpreter agrees | regression cases |
 | `watch-list-vue` | prop-triggered watchers of list items run in document order: `row 3 2 \| row 1 2 \| row 2 2` | interpreter agrees; native code reverses them (`row 2 2 \| row 1 2 \| row 3 2`: it updates a list's blocks from the last one) | rejected (R10), backend gap row |
-| `equal-writes-vue` | a write of the value a deep ref's slot holds notifies nothing | the watchEffect reading it runs again (`run 0 1 0`) | open (step 7 resume list) |
+| `equal-writes-vue` | a write of the value a deep ref's slot holds notifies nothing | the watchEffect reading it runs again (`run 0 1 0`) | fixed (R4) |
+| `list-order` (Svelte, Vue, React) | Svelte creates new list items (their `$effect.pre`) first, in array order, then runs the others' in document order; Vue patches items in its keyed diff's order (an insert at the front: `row 3 2 \| row 2 2 \| row 1 2 \| row 4 2`); React's effects run in the commit in document order | the interpreter used document order (`… \| row 3 3 \| row 5 3` after an append, Svelte), native code the reverse | fixed (list order) |
+| `list-order`'s first version (Svelte, Vue) | a removed block's teardowns run where the walk removes it, before later components' pre effects | Runic runs every teardown after the DOM update (Vue: rejected by `rejectUnmountOrder`; Svelte: silent) | open (teardown policy, approved 2026-10-14) |
 
 ## Step 1: reads through aliases (R1/R2)
 
@@ -405,3 +407,42 @@ Rebased onto main 8246eb9 (CSS slice 2b):
 - `npm test` 513/513 and `cargo test --workspace` (185) pass; the example
   census lowers the same 280 of 404 examples before and after, with no
   first-diagnostic change (`artifacts/census-before`, `census-after`).
+
+## List order (2026-10-14)
+
+Each framework creates and updates a keyed list's blocks in the order of
+its own keyed diff, named by the list's `reorder` strategy;
+`runic_js::reorder::schedule` gives the steps (create, update, move,
+remove), which the interpreter and generated code now follow (before:
+document order in the interpreter, reverse order natively). Checked in
+Chromium first with case `list-order` (an insert at the front and at the
+back, a reversal, a rotation and a shuffle that inserts two items, each
+with a prop update in the same handler):
+
+- Svelte 5.57.1 (`stash`): new items first, in array order (`row 5 3 |
+  cell 5 3` before `cleanup 4 2 | row 4 3 | …` after an append), then the
+  others' pre effects in document order.
+- Vue 3.5.43 (`lis`, `patchKeyedChildren`): prefix forward, suffix backward
+  (`row 3 2 | row 2 2 | row 1 2 | row 4 2` after an insert at the front),
+  the middle in its previous order (`row 4 4 | row 1 4 | row 2 4 | row 3 4 |
+  row 5 4` after a reversal), mounts backward (`… | row 7 6 | row 6 6`).
+- React 19.3.0 (`forward`): layout and passive effects in the commit in
+  document order (unchanged; a regression case).
+
+R10's list exception is lifted: prop-triggered watchers of two items of one
+list are accepted (case `watch-list`, formerly the expected rejection
+`watch-list-vue`). Generated code inserts each block before the first node
+of the nearest following block already in its final place, so the steps'
+order does not change the DOM.
+
+- Interpreter vs Chromium (`conformance/interp-vs-browser.mjs`):
+  `list-order` (3 fixtures, 14 steps each) and `watch-list` agree.
+- Native conformance with pixels, 800x600 and 420x600
+  (`artifacts/reactivity/list-order-1`, `-2`): `list-order` 6/6;
+  `watch-list`, `watch-instances`, `components`, `effects`, `slots`,
+  `keyed-replace`, `reorder` (all three frameworks where they have them)
+  30/30.
+- `npm test` 514/514; `runic-js` reorder unit tests (the schedules of the
+  Chromium observations).
+- Found with the first version of `list-order`: a removed block's
+  teardowns run where the walk removes it (Svelte and Vue); the next step.

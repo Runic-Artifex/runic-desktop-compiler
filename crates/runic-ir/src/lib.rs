@@ -1949,16 +1949,22 @@ pub struct Adopt {
     pub args: Vec<Expr>,
 }
 
-/// Keyed reorder strategy of an `each` node (see runic-runtime's `reorder`).
+/// The keyed diff of an `each` node: which blocks move, and the order in
+/// which blocks are created, updated and removed (`runic_js::reorder`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Reorder {
-    /// Prefix/suffix sync, then a longest increasing subsequence stays.
+    /// Prefix/suffix sync, then a longest increasing subsequence stays
+    /// (Vue): prefix updated forward, suffix backward, the middle's old
+    /// blocks updated or removed in their order, new ones created backward.
     #[default]
     Lis,
-    /// Blocks whose previous position is below the highest placed one move.
+    /// Blocks whose previous position is below the highest placed one move
+    /// (React): created and updated in the new order.
     Forward,
-    /// Stashed and matched runs; the shorter run moves.
+    /// Stashed and matched runs; the shorter run moves (Svelte): new blocks
+    /// created first in array order, the old ones removed, then the others
+    /// updated in the new order.
     Stash,
 }
 

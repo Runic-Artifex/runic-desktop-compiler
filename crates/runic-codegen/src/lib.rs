@@ -1707,29 +1707,38 @@ impl Gen<'_> {
                      for (i, x) in values.into_iter().enumerate() {{\n{block}\nfresh.push((bk, t2));\n}}\n\
                      let old_len = s.e{key}.len();\n\
                      let mut old: std::collections::HashMap<js::MapKey, (usize, Rc<RefCell<T{k}>>, Box<S{bd}>)> = s.e{key}.drain(..).enumerate().map(|(i, (k, t, b))| (k, (i, t, b))).collect();\n\
-                     let mut next: Vec<(js::MapKey, Rc<RefCell<T{k}>>, Option<Box<S{bd}>>, Option<usize>)> = Vec::new();\n\
+                     let n = fresh.len();\n\
+                     let (mut keys, mut locals, mut blocks, mut prev) = (Vec::with_capacity(n), Vec::with_capacity(n), Vec::<Option<Box<S{bd}>>>::with_capacity(n), Vec::with_capacity(n));\n\
                      for (bk, t2) in fresh {{\n\
-                     match old.remove(&bk) {{ Some((oi, ot, ob)) => {{ let v = t2.borrow().clone(); *ot.borrow_mut() = v; next.push((bk, ot, Some(ob), Some(oi))); }} None => next.push((bk, t2, None, None)) }}\n\
+                     match old.remove(&bk) {{ Some((oi, ot, ob)) => {{ let v = t2.borrow().clone(); *ot.borrow_mut() = v; locals.push(ot); blocks.push(Some(ob)); prev.push(Some(oi)); }} None => {{ locals.push(t2); blocks.push(None); prev.push(None); }} }}\n\
+                     keys.push(bk);\n\
                      }}\n\
-                     let mut gone: Vec<_> = old.into_values().collect(); gone.sort_by_key(|g| g.0);\n\
-                     for (_, _, ob) in gone {{ remove_s{bd}(&ob, cx, dom); }}\n\
-                     let keep = runic_runtime::reorder::keep(runic_runtime::reorder::Reorder::{reorder:?}, &next.iter().map(|e| e.3).collect::<Vec<_>>(), old_len);\n\
-                     let mut anchor = after_list;\n\
-                     let mut out = Vec::with_capacity(next.len());\n\
-                     // Every block is placed even if one throws (no block is lost with its DOM); the first error is returned after.\n\
+                     let mut gone: Vec<Option<Box<S{bd}>>> = (0..old_len).map(|_| None).collect();\n\
+                     for (_, (oi, _, ob)) in old {{ gone[oi] = Some(ob); }}\n\
+                     // The framework's keyed diff orders the steps (its components' setup and pre effects run as blocks are created and updated).\n\
+                     let (steps, keep) = runic_runtime::reorder::schedule(runic_runtime::reorder::Reorder::{reorder:?}, &prev, old_len);\n\
+                     // Blocks in their final place: reused ones that stay, and those mounted or moved since. A block goes before the first node of the nearest following one, which keeps the DOM order whatever the steps' order.\n\
+                     let mut fixed = keep;\n\
+                     // Every step runs even if one throws (no block is lost with its DOM); the first error is returned after.\n\
                      let mut err = None;\n\
-                     for (j, (bk, tt, b, _)) in next.into_iter().enumerate().rev() {{\n\
-                     let b = match b {{\n\
-                     Some(mut b) => {{ if !keep[j] {{ let mut ns = Vec::new(); nodes_s{bd}(&b, &mut ns); let events = dom.focus_loss(&ns); if !events.is_empty() {{ run_commit_nested(cx, events); }} dom.insert_all({up}, &ns, anchor); }} if let Err(e) = update_s{bd}(&mut b, cx, dom, inst, &tt, true, {up}, anchor) {{ err.get_or_insert(e); }} Some(b) }}\n\
-                     None => match mount_s{bd}(cx, dom, inst, &tt, {up}, anchor) {{ Ok(b) => Some(b), Err(e) => {{ err.get_or_insert(e); None }} }},\n\
-                     }};\n\
-                     if let Some(b) = b {{ if let Some(f) = first_s{bd}(&b) {{ anchor = Some(f); }} out.push((bk, tt, b)); }}\n\
+                     for step in steps {{\n\
+                     let j = match step {{ runic_runtime::reorder::Step::Remove(o) => {{ if let Some(ob) = gone[o].take() {{ remove_s{bd}(&ob, cx, dom); }} continue; }} runic_runtime::reorder::Step::Mount(j) | runic_runtime::reorder::Step::Patch(j) | runic_runtime::reorder::Step::Move(j) => j }};\n\
+                     let anchor = (j + 1..n).find_map(|i| if fixed[i] {{ blocks[i].as_deref().and_then(first_s{bd}) }} else {{ None }}).or(after_list);\n\
+                     match step {{\n\
+                     runic_runtime::reorder::Step::Mount(_) => match mount_s{bd}(cx, dom, inst, &locals[j], {up}, anchor) {{ Ok(b) => blocks[j] = Some(b), Err(e) => {{ err.get_or_insert(e); }} }},\n\
+                     runic_runtime::reorder::Step::Patch(_) => if let Some(b) = blocks[j].as_mut() {{ if let Err(e) = update_s{bd}(b, cx, dom, inst, &locals[j], true, {up}, anchor) {{ err.get_or_insert(e); }} }},\n\
+                     _ => if let Some(b) = blocks[j].as_deref() {{ let mut ns = Vec::new(); nodes_s{bd}(b, &mut ns); let events = dom.focus_loss(&ns); if !events.is_empty() {{ run_commit_nested(cx, events); }} dom.insert_all({up}, &ns, anchor); }},\n\
                      }}\n\
-                     out.reverse(); s.e{key} = out;\n\
+                     fixed[j] = true;\n\
+                     }}\n\
+                     s.e{key} = keys.into_iter().zip(locals).zip(blocks).filter_map(|((k, t), b)| b.map(|b| (k, t, b))).collect();\n\
                      if let Some(e) = err {{ return Err(e); }}\n\
                      }} else {{\n\
-                     let mut anchor = after_list;\n\
-                     for (_, tt, b) in s.e{key}.iter_mut().rev() {{ update_s{bd}(b, cx, dom, inst, tt, tl, {up}, anchor)?; if let Some(f) = first_s{bd}(b) {{ anchor = Some(f); }} }}\n\
+                     // Document order (every framework updates unchanged lists so); a block's anchor is the first node of the nearest following one, taken before the blocks update.\n\
+                     let mut anchors = vec![after_list; s.e{key}.len()];\n\
+                     let mut a = after_list;\n\
+                     for (j, (_, _, b)) in s.e{key}.iter().enumerate().rev() {{ anchors[j] = a; if let Some(f) = first_s{bd}(b) {{ a = Some(f); }} }}\n\
+                     for (j, (_, tt, b)) in s.e{key}.iter_mut().enumerate() {{ update_s{bd}(b, cx, dom, inst, tt, tl, {up}, anchors[j])?; }}\n\
                      }}\n\
                      if s.e{key}.is_empty() {{\n\
                      match s.else{key}.as_mut() {{ Some(b) => update_s{el}(b, cx, dom, inst, t, tl, {up}, after_list)?, None => s.else{key} = Some(mount_s{el}(cx, dom, inst, t, {up}, after_list)?) }}\n\

@@ -32,6 +32,152 @@ pub fn keep(strategy: Reorder, old: &[Option<usize>], old_len: usize) -> Vec<boo
     }
 }
 
+/// One step of a keyed list update. `j` is a position in the new order,
+/// `o` one in the previous order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Step {
+    /// Create the new block at `j`: its components are set up and their
+    /// pre effects run.
+    Mount(usize),
+    /// Update the reused block at `j`: its components' pre effects run.
+    Patch(usize),
+    /// Detach the reused block at `j` (one `keep` leaves `false`) and insert
+    /// it at its final place.
+    Move(usize),
+    /// Remove the previous block at `o`, whose key the new list lacks.
+    Remove(usize),
+}
+
+/// The steps of a keyed list update in the order the framework's keyed diff
+/// takes them, with `keep` (the reused blocks that do not move). Creating and
+/// updating blocks runs their components' setup and pre effects, so this
+/// order is observable (case `list-order`):
+///
+/// - `Stash` (Svelte 5's `each`): the block effect creates the new items in
+///   array order, then `reconcile` moves blocks and destroys the removed ones
+///   (previous order); the remaining items' effects run afterwards, as the
+///   flush walks the effect tree, in the new order.
+/// - `Lis` (Vue 3's `patchKeyedChildren`): the common prefix is patched
+///   forward, the common suffix backward; then the remaining new blocks are
+///   mounted in order (previous list exhausted) or the remaining previous
+///   ones unmounted in order (new list exhausted); otherwise the previous
+///   blocks of the middle are patched or unmounted in their previous order,
+///   and the middle is walked backward, mounting new blocks and moving those
+///   off the longest increasing subsequence.
+/// - `Forward` (React's `reconcileChildrenArray`): rendering takes the new
+///   order; the commit removes, then places. React runs nothing observable
+///   while rendering (no pre effects), so only the result matters.
+///
+/// Any order of these steps yields the same DOM when every block is inserted
+/// before the first node of the nearest following block that is in its final
+/// place (reused blocks `keep` leaves `true`, and blocks mounted or moved
+/// before); see `runic-codegen`'s keyed list update.
+pub fn schedule(strategy: Reorder, old: &[Option<usize>], old_len: usize) -> (Vec<Step>, Vec<bool>) {
+    let keep = keep(strategy, old, old_len);
+    let steps = match strategy {
+        Reorder::Lis => schedule_lis(old, old_len, &keep),
+        Reorder::Stash => schedule_stash(old, old_len, &keep),
+        Reorder::Forward => schedule_forward(old, old_len, &keep),
+    };
+    (steps, keep)
+}
+
+/// Previous positions whose block the new list does not reuse, in order.
+fn removed(old: &[Option<usize>], old_len: usize) -> impl Iterator<Item = usize> {
+    let mut present = vec![false; old_len];
+    for &o in old.iter().flatten() {
+        present[o] = true;
+    }
+    (0..old_len).filter(move |&o| !present[o])
+}
+
+fn schedule_stash(old: &[Option<usize>], old_len: usize, keep: &[bool]) -> Vec<Step> {
+    let mut steps: Vec<Step> = (0..old.len())
+        .filter(|&j| old[j].is_none())
+        .map(Step::Mount)
+        .collect();
+    steps.extend(
+        (0..old.len())
+            .rev()
+            .filter(|&j| old[j].is_some() && !keep[j])
+            .map(Step::Move),
+    );
+    steps.extend(removed(old, old_len).map(Step::Remove));
+    steps.extend((0..old.len()).filter(|&j| old[j].is_some()).map(Step::Patch));
+    steps
+}
+
+fn schedule_forward(old: &[Option<usize>], old_len: usize, keep: &[bool]) -> Vec<Step> {
+    let mut steps: Vec<Step> = (0..old.len())
+        .map(|j| match old[j] {
+            Some(_) => Step::Patch(j),
+            None => Step::Mount(j),
+        })
+        .collect();
+    steps.extend(removed(old, old_len).map(Step::Remove));
+    steps.extend(
+        (0..old.len())
+            .rev()
+            .filter(|&j| old[j].is_some() && !keep[j])
+            .map(Step::Move),
+    );
+    steps
+}
+
+fn schedule_lis(old: &[Option<usize>], old_len: usize, keep: &[bool]) -> Vec<Step> {
+    let new_len = old.len();
+    let mut steps = vec![];
+    let mut i = 0usize;
+    // 1. Sync from the start.
+    while i < old_len && i < new_len && old[i] == Some(i) {
+        steps.push(Step::Patch(i));
+        i += 1;
+    }
+    // 2. Sync from the end.
+    let (mut e1, mut e2) = (old_len as isize - 1, new_len as isize - 1);
+    while i as isize <= e1 && i as isize <= e2 && old[e2 as usize] == Some(e1 as usize) {
+        steps.push(Step::Patch(e2 as usize));
+        e1 -= 1;
+        e2 -= 1;
+    }
+    if i as isize > e1 {
+        // 3. Common sequence and mount.
+        steps.extend((i as isize..=e2).map(|j| Step::Mount(j as usize)));
+    } else if i as isize > e2 {
+        // 4. Common sequence and unmount.
+        steps.extend((i as isize..=e1).map(|o| Step::Remove(o as usize)));
+    } else {
+        // 5. Unknown sequence: patch or unmount the previous blocks in their
+        // order, then mount and move backward.
+        let (s1, s2, e1, e2) = (i, i, e1 as usize, e2 as usize);
+        let to_be_patched = e2 - s2 + 1;
+        let mut new_index_of = vec![None; old_len];
+        for (j, o) in old.iter().enumerate().take(e2 + 1).skip(s2) {
+            if let Some(o) = o {
+                new_index_of[*o] = Some(j);
+            }
+        }
+        let mut patched = 0;
+        for (o, new_index) in new_index_of.iter().enumerate().take(e1 + 1).skip(s1) {
+            match *new_index {
+                Some(j) if patched < to_be_patched => {
+                    steps.push(Step::Patch(j));
+                    patched += 1;
+                }
+                _ => steps.push(Step::Remove(o)),
+            }
+        }
+        for j in (s2..=e2).rev() {
+            match old[j] {
+                None => steps.push(Step::Mount(j)),
+                Some(_) if !keep[j] => steps.push(Step::Move(j)),
+                Some(_) => {}
+            }
+        }
+    }
+    steps
+}
+
 fn keep_forward(old: &[Option<usize>]) -> Vec<bool> {
     let mut last_placed = 0;
     old.iter()
@@ -369,6 +515,77 @@ mod tests {
             assert!(moved(s, &[1, 2, 3], &[0, 1, 2, 3]).is_empty());
             assert!(moved(s, &[1, 2, 3], &[1, 3]).is_empty());
         }
+    }
+
+    /// The steps of `old` → `new` with keys: `+k` mount, `k` patch, `>k`
+    /// move, `-k` remove.
+    fn steps(strategy: Reorder, old: &[usize], new: &[usize]) -> Vec<String> {
+        let olds: Vec<Option<usize>> = new
+            .iter()
+            .map(|k| old.iter().position(|o| o == k))
+            .collect();
+        schedule(strategy, &olds, old.len())
+            .0
+            .into_iter()
+            .map(|s| match s {
+                Step::Mount(j) => format!("+{}", new[j]),
+                Step::Patch(j) => format!("{}", new[j]),
+                Step::Move(j) => format!(">{}", new[j]),
+                Step::Remove(o) => format!("-{}", old[o]),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn svelte_creates_first_then_updates_in_order() {
+        // Case list-order in Chromium (Svelte 5.57.1).
+        assert_eq!(steps(Reorder::Stash, &[1, 2, 3], &[4, 1, 2, 3]), ["+4", "1", "2", "3"]);
+        assert_eq!(
+            steps(Reorder::Stash, &[4, 1, 2, 3], &[4, 1, 2, 3, 5]),
+            ["+5", "4", "1", "2", "3"]
+        );
+        assert_eq!(
+            steps(Reorder::Stash, &[5, 3, 2, 1, 4], &[5, 2, 1, 4]),
+            ["-3", "5", "2", "1", "4"]
+        );
+        assert_eq!(
+            steps(Reorder::Stash, &[2, 1, 4, 5], &[6, 1, 7, 2]),
+            ["+6", "+7", ">2", "-4", "-5", "1", "2"]
+        );
+    }
+
+    #[test]
+    fn vue_patches_as_its_keyed_diff() {
+        // Case list-order in Chromium (Vue 3.5.43).
+        assert_eq!(steps(Reorder::Lis, &[1, 2, 3], &[4, 1, 2, 3]), ["3", "2", "1", "+4"]);
+        assert_eq!(
+            steps(Reorder::Lis, &[4, 1, 2, 3], &[4, 1, 2, 3, 5]),
+            ["4", "1", "2", "3", "+5"]
+        );
+        assert_eq!(
+            steps(Reorder::Lis, &[4, 1, 2, 3, 5], &[5, 3, 2, 1, 4]),
+            ["4", "1", "2", "3", "5", ">1", ">2", ">3", ">5"]
+        );
+        assert_eq!(
+            steps(Reorder::Lis, &[5, 3, 2, 1, 4], &[5, 2, 1, 4]),
+            ["5", "4", "1", "2", "-3"]
+        );
+        assert_eq!(
+            steps(Reorder::Lis, &[5, 2, 1, 4], &[2, 1, 4, 5]),
+            ["5", "2", "1", "4", ">5"]
+        );
+        assert_eq!(
+            steps(Reorder::Lis, &[2, 1, 4, 5], &[6, 1, 7, 2]),
+            ["2", "1", "-4", "-5", "+7", ">1", "+6"]
+        );
+    }
+
+    #[test]
+    fn react_renders_in_the_new_order() {
+        assert_eq!(
+            steps(Reorder::Forward, &[2, 1, 4, 5], &[6, 1, 7, 2]),
+            ["+6", "1", "+7", "2", "-4", "-5", ">2"]
+        );
     }
 
     #[test]
