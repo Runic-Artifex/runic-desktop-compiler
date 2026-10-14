@@ -1935,6 +1935,18 @@ pub struct Listener {
     pub args: Vec<Expr>,
 }
 
+/// A template listener of a custom event type (M6 script DOM, slice 3): a
+/// type that is not one Chromium dispatches itself
+/// (`runic_js::event::NATIVE_TYPES`), so only script's `dispatchEvent`
+/// reaches it. `listener` (template scope) is evaluated at each dispatch
+/// and called with the event: a function taking the event or nothing, or
+/// a nullable one (nullish: nothing runs).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CustomListener {
+    pub event: String,
+    pub listener: Expr,
+}
+
 /// At an element's mount, after its attributes and spread and before its
 /// live properties: when `when` (boolean, template scope) holds and the
 /// control's value is not empty, `handler` (an `input` handler) runs once
@@ -2019,6 +2031,15 @@ pub enum Node {
         props: Vec<Attr>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         listeners: Vec<Listener>,
+        /// Listeners of custom event types (M6 script DOM, slice 3:
+        /// Svelte's `onemblaInit`), registered when the element is created,
+        /// before any listener script adds; only script dispatches them.
+        #[serde(
+            rename = "customListeners",
+            default,
+            skip_serializing_if = "Vec::is_empty"
+        )]
+        custom_listeners: Vec<CustomListener>,
         /// A cell of type `element | null | undefined` that holds this
         /// element while it is mounted and `null` after removal (bind:this,
         /// React refs, Vue template refs).

@@ -7,6 +7,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
+import { listenableType } from '../frontend/event-types.ts';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const boundaryEvents = ['pointerover', 'pointerout', 'mouseover', 'mouseout'];
@@ -57,8 +58,10 @@ test('boundary names are typed for window/document and forwarded event bags', ()
     })
     .join('\n');
   assert.deepEqual(typeDiagnostics(source), []);
+  // (Since script DOM slice 3 any type checks, typed by its own overload;
+  // a native type the runtime does not fire is rejected where it is lowered.)
   assert.ok(
-    typeDiagnostics("window.addEventListener('pointercancel', () => {});").length > 0,
+    !listenableType('pointercancel'),
     'adding boundary events must not admit unsupported event names',
   );
   assert.ok(

@@ -837,6 +837,14 @@ export async function createBrowserHarness() {
             m.text().startsWith('Failed to load resource:')
           )
             browserDiagnostics.push({ type: m.type(), text: m.text(), location: m.location() });
+          // Chromium's intervention for `preventDefault` in a passive
+          // listener (M6 script DOM, slice 3), located at the listener: an
+          // engine message, not an app console call.
+          else if (
+            m.type() === 'error' &&
+            m.text() === 'Unable to preventDefault inside passive event listener invocation.'
+          )
+            browserDiagnostics.push({ type: m.type(), text: m.text(), location: m.location() });
           else if (appSource(m.location().url, origin))
             lines.push({ level: LEVELS[m.type()] ?? m.type(), text: textJson(m.text()) });
           else if (m.type() === 'error') errors.push({ kind: 'console', message: m.text() });

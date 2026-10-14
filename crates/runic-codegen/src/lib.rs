@@ -1055,6 +1055,7 @@ impl Gen<'_> {
                     attrs,
                     props,
                     listeners,
+                    custom_listeners,
                     reference,
                     spread,
                     spread_boolean_text,
@@ -1371,6 +1372,31 @@ impl Gen<'_> {
                         o.mount,
                         "{{ let inst = Rc::clone(inst); let t = Rc::clone(t); let key = cx.listen(Rc::new(move |cx: &mut Cx| -> JsResult<()> {{ {prelude}{args}handler_{k}_{}(cx, &inst{names}) }})); dom.listen(n{key}, {ev}, key); }}",
                         l.handler
+                    );
+                }
+                // Listeners of custom event types (M6 script DOM, slice 3):
+                // the listener value, evaluated in the template scope at each
+                // dispatch, is called with the event (nothing when nullish).
+                for l in custom_listeners {
+                    let mut cx = self.ctx(k);
+                    let ty = cx.ty(&l.listener);
+                    let v = cx.expr(&l.listener);
+                    let (unwrap, f) = match &ty {
+                        Type::Maybe(inner) => (
+                            "let f = match f { Maybe::Some(f) => f, _ => return Ok(()) }; ",
+                            inner.as_ref(),
+                        ),
+                        other => ("", other),
+                    };
+                    let call = match f {
+                        Type::Fn(f) if f.params.is_empty() => "f(cx)",
+                        _ => "f(cx, cx.event.clone().expect(\"event context\"))",
+                    };
+                    let prelude = self.prelude(k, "t");
+                    let _ = writeln!(
+                        o.mount,
+                        "{{ let inst = Rc::clone(inst); let t = Rc::clone(t); let key = cx.listen(Rc::new(move |cx: &mut Cx| -> JsResult<()> {{ let inst = &inst; {prelude}let f = {v}; {unwrap}let _ = {call}?; Ok(()) }})); dom.listen_custom(n{key}, key); cx.custom_host.push((n{key}.as_u64(), JsString::from({}), usize::MAX, key)); }}",
+                        rust_str(&l.event)
                     );
                 }
                 for (i, c) in children.iter().enumerate() {
@@ -2191,6 +2217,128 @@ fn component_state(p: &Program, k: usize, out: &mut String) {
 
 /// Whether only reads through proxies make heap dependencies (programs with
 /// proxied state; otherwise every heap read counts).
+/// Listeners script adds with `addEventListener` and events script
+/// dispatches (M6 script DOM, slice 3, docs/design/M6-SCRIPT-DOM.md); the
+/// reference interpreter implements the same model (`runic_ir::interp`,
+/// `script_dispatch`).
+const SCRIPT_EVENTS: &str = r#"/// The registration of a listener script added with `addEventListener`: its index in `cx.targets`.
+fn target_find(cx: &Cx, target: u64, kind: &JsString, id: usize, capture: bool) -> Option<usize> {
+    cx.targets.iter().position(|h| h.0 == target && &h.1 == kind && h.2 == id && h.3 == capture)
+}
+/// The key of the same listener the window or the document holds through their own built-ins (`window.listen`).
+fn host_find(cx: &Cx, target: u64, kind: &JsString, id: usize, capture: bool) -> Option<u32> {
+    let window = target == js::Element::WINDOW.0;
+    if !window && target != js::Element::DOCUMENT.0 { return None; }
+    let kind = Event::parse(&kind.to_rust())?;
+    let registry = if capture { &cx.capture_host } else { &cx.host };
+    registry.iter().find(|h| h.0 == window && h.1 == kind && h.2 == id).map(|h| h.3)
+}
+/// `addEventListener(kind, f, { capture, once, passive })` at any target: identified by (target, type, listener, capture); a native type the runtime does not fire there is reported; others are kept for the events script dispatches.
+fn target_listen(cx: &mut Cx, target: u64, kind: JsString, f: Lst, id: usize, capture: bool, once: bool, passive: Option<bool>) {
+    if target_find(cx, target, &kind, id, capture).is_some() || host_find(cx, target, &kind, id, capture).is_some() { return; }
+    let name = kind.to_rust();
+    let listening = js::event::listening(cx.dom.target_kind(target), &name);
+    if listening == js::Listening::Unsupported {
+        runic_runtime::unsupported(&format!("a listener of {name} events at a target the runtime does not fire them at (Chromium does)"));
+        return;
+    }
+    let passive = passive.unwrap_or_else(|| js::event::passive_by_default(&name, cx.dom.root_target(target)));
+    let own: Rc<std::cell::Cell<u32>> = Rc::new(std::cell::Cell::new(u32::MAX));
+    let me = Rc::clone(&own);
+    // (One registered `once` is removed before it runs; a passive one cannot cancel the event.)
+    let g: Lst = Rc::new(move |cx: &mut Cx| {
+        if once { target_remove_key(cx, me.get()); }
+        let ev = cx.event.clone();
+        let was = ev.as_ref().map(|e| e.set_passive(passive));
+        let result = f(cx);
+        if let (Some(e), Some(w)) = (ev, was) { e.set_passive(w); }
+        result
+    });
+    let key = cx.listen(g);
+    own.set(key);
+    let window = target == js::Element::WINDOW.0;
+    match Event::parse(&name).filter(|_| listening == js::Listening::Fired) {
+        Some(event) if window || target == js::Element::DOCUMENT.0 => {
+            if capture { cx.capture_host.push((window, event, id, key)); } else { cx.host.push((window, event, id, key)); }
+        }
+        Some(event) => cx.dom.listen_raw(target, event, key, capture),
+        None => cx.dom.listen_custom(target, key),
+    }
+    cx.targets.push((target, kind, id, capture, key));
+}
+/// Remove the registration `key` of a listener script added (its key is released).
+fn target_remove_key(cx: &mut Cx, key: u32) {
+    let Some(i) = cx.targets.iter().position(|h| h.4 == key) else { return; };
+    let target = cx.targets.remove(i).0;
+    let (host, capture) = (cx.host.len(), cx.capture_host.len());
+    cx.host.retain(|h| h.3 != key);
+    cx.capture_host.retain(|h| h.3 != key);
+    if cx.host.len() != host || cx.capture_host.len() != capture {
+        cx.listeners[key as usize] = None;
+        cx.free.push(key);
+    } else {
+        cx.dom.unlisten_element(target, key);
+        cx.dom.unlisten_custom(target, key);
+    }
+}
+/// `removeEventListener(kind, f, { capture })`.
+fn target_unlisten(cx: &mut Cx, target: u64, kind: &JsString, id: usize, capture: bool) {
+    if let Some(i) = target_find(cx, target, kind, id, capture) {
+        let key = cx.targets[i].4;
+        target_remove_key(cx, key);
+    } else if let Some(key) = host_find(cx, target, kind, id, capture) {
+        cx.host.retain(|h| h.3 != key);
+        cx.capture_host.retain(|h| h.3 != key);
+        cx.listeners[key as usize] = None;
+        cx.free.push(key);
+    }
+}
+/// The listener keys a script's dispatch of type `name` reaches at `node` in one phase: for native types those of the runtime's tables (the template's are reported before), for custom types the template's, then those script added, in registration order.
+fn dispatch_keys(cx: &Cx, node: u64, name: &str, native: Option<Event>, capture: bool) -> Vec<u32> {
+    match native {
+        Some(kind) => nested_keys(cx, node, kind, capture),
+        None => {
+            let mut keys: Vec<u32> = if capture { Vec::new() } else { cx.custom_host.iter().filter(|h| h.0 == node && h.1.to_rust() == name).map(|h| h.3).collect() };
+            keys.extend(cx.targets.iter().filter(|h| h.0 == node && h.3 == capture && h.1.to_rust() == name).map(|h| h.4));
+            keys
+        }
+    }
+}
+/// `target.dispatchEvent(event)` of an event script created (DOM standard, dispatch): the capture phase from the window down, the target's capture then other listeners, the bubbling phase where it bubbles; listeners run nested in the script (no microtask checkpoint), a throwing one is reported and the others run; no default actions. Whether the event was not cancelled.
+fn script_dispatch(cx: &mut Cx, target: u64, ev: js::Event) -> JsResult<bool> {
+    if ev.dispatching() {
+        return Err(js::Throw::new("InvalidStateError", "Failed to execute 'dispatchEvent' on 'EventTarget': The event is already being dispatched."));
+    }
+    if !ev.data().synthetic {
+        runic_runtime::unsupported("dispatchEvent of an event the user agent dispatched");
+        return Ok(true);
+    }
+    let name = ev.data().kind.to_rust();
+    let path = cx.dom.event_path(target);
+    let native = Event::parse(&name).filter(|_| js::event::FIRED_TYPES.contains(&name.as_str()));
+    if let Some(kind) = native {
+        if cx.dom.template_on_path(&path, kind) {
+            runic_runtime::unsupported(&format!("dispatchEvent of a native {name} event reaching a template listener (frameworks decide whether and when theirs run)"));
+        }
+    }
+    ev.begin_dispatch(js::Element(target));
+    let mut stages: Vec<(u64, bool)> = path.iter().rev().map(|&n| (n, true)).collect();
+    stages.push((target, false));
+    if ev.data().bubbles { stages.extend(path.iter().skip(1).map(|&n| (n, false))); }
+    for (node, capture) in stages {
+        if !ev.can_enter(js::Element(node)) { break; }
+        let calls: Vec<(u32, u64, Lst)> = dispatch_keys(cx, node, &name, native, capture).into_iter().filter_map(|key| Some((key, *cx.listener_generations.get(key as usize)?, cx.listeners.get(key as usize)?.clone()?))).collect();
+        for (key, generation, f) in calls {
+            // (One removed since the dispatch reached the node is not called.)
+            if !dispatch_keys(cx, node, &name, native, capture).contains(&key) || cx.listener_generations.get(key as usize) != Some(&generation) { continue; }
+            if let Err(e) = call_event_listener(cx, &ev, &f, node) { eprintln!("runic: uncaught exception in a listener: {e}"); }
+        }
+    }
+    ev.end_dispatch();
+    Ok(!ev.default_prevented())
+}
+"#;
+
 /// Host services of every generated app (docs/design/M5-PLATFORM.md): the
 /// host's work queued between tasks and the operations that queue it. The
 /// reference interpreter implements the same model (`runic_ir::interp`).
@@ -3261,6 +3409,7 @@ pub fn generate(
     let cleanup_previous_v = p.schedule.cleanup_reads_previous;
     // Teardowns read deep state as before the flush too (R5).
     let before_images = cleanup_previous_v && owned_only(p);
+    out.push_str(SCRIPT_EVENTS);
     let _ = writeln!(
         out,
         "pub type Lst = Rc<dyn Fn(&mut Cx) -> JsResult<()>>;\n\
@@ -3327,13 +3476,13 @@ pub fn generate(
          }}\n\
          /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
          #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
-         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub body: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub element_host: Vec<(u64, Event, usize, u32)>, pub custom_host: Vec<(u64, JsString, usize, u32)>, pub viewport_host: Vec<(Event, usize, u32)>, pub capture_host: Vec<(bool, Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub listener_generations: Vec<u64>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub defer: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, pub uids: u64, pub creating: Vec<Rc<dyn Inst>>, pub via: Vec<Rc<Contexts>>, pub attach_queue: Vec<(usize, NodeId, Rc<dyn std::any::Any>, Rc<RefCell<AttState>>)>, pub detached: Vec<Lst>, pub mounted: Vec<Rc<RefCell<MountState>>>, pub roots: Vec<RootFx>, pub root_stack: Vec<usize>, pub in_effect: bool, pub running_fx: Vec<(Rc<dyn Inst>, usize)>, {resize_fields}{io_fields}{mo_fields}{anim_fields}{img_fields}{live}{globals}}}\n\
+         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub body: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub element_host: Vec<(u64, Event, usize, u32)>, pub custom_host: Vec<(u64, JsString, usize, u32)>, pub targets: Vec<(u64, JsString, usize, bool, u32)>, pub viewport_host: Vec<(Event, usize, u32)>, pub capture_host: Vec<(bool, Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub listener_generations: Vec<u64>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub defer: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, pub uids: u64, pub creating: Vec<Rc<dyn Inst>>, pub via: Vec<Rc<Contexts>>, pub attach_queue: Vec<(usize, NodeId, Rc<dyn std::any::Any>, Rc<RefCell<AttState>>)>, pub detached: Vec<Lst>, pub mounted: Vec<Rc<RefCell<MountState>>>, pub roots: Vec<RootFx>, pub root_stack: Vec<usize>, pub in_effect: bool, pub running_fx: Vec<(Rc<dyn Inst>, usize)>, {resize_fields}{io_fields}{mo_fields}{anim_fields}{img_fields}{live}{globals}}}\n\
          impl runic_runtime::Microtasks for Cx {{ fn queue_microtask(&mut self, job: Lst) {{ self.jobs.queue(job); }} }}\n\
          /// Effects track the heap objects they read only where references are owned (proxied state, signal fields).\nconst OWNED_ONLY: bool = {owned_only_v};\n\
          /// Cleanups read the values before the writes that re-run their effects (`schedule.cleanupReadsPrevious`).\nconst CLEANUP_READS_PREVIOUS: bool = {cleanup_previous_v};\n\
          /// Proxies keep their values before the flush for teardowns (R5).\nconst KEEP_BEFORE_IMAGES: bool = {before_images};\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), body: runic_runtime::css::Root::with_attrs([{body_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), element_host: Vec::new(), custom_host: Vec::new(), viewport_host: Vec::new(), capture_host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), listener_generations: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, defer: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), mounted: Vec::new(), roots: Vec::new(), root_stack: Vec::new(), in_effect: false, running_fx: Vec::new(), {resize_init}{io_init}{mo_init}{anim_init}{img_init}{live_init}{globals_init}}} }}\n\
+         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), body: runic_runtime::css::Root::with_attrs([{body_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), element_host: Vec::new(), custom_host: Vec::new(), targets: Vec::new(), viewport_host: Vec::new(), capture_host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), listener_generations: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, defer: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), mounted: Vec::new(), roots: Vec::new(), root_stack: Vec::new(), in_effect: false, running_fx: Vec::new(), {resize_init}{io_init}{mo_init}{anim_init}{img_init}{live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); self.listener_generations[k as usize] += 1; k }} None => {{ self.listeners.push(Some(f)); self.listener_generations.push(0); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );
@@ -3469,7 +3618,7 @@ pub fn generate(
         out,
         "pub struct App {{ cx: Cx, inst: I{ri}, t: Rc<RefCell<T{ri}>>, root: Option<(NodeId, Box<S{root}>)> }}\n\
          impl App {{\n\
-         fn free(&mut self, dom: &mut Dom) {{ for k in dom.take_freed() {{ self.cx.listeners[k as usize] = None; self.cx.free.push(k); self.cx.element_host.retain(|h| h.3 != k); self.cx.custom_host.retain(|h| h.3 != k); }} }}\n\
+         fn free(&mut self, dom: &mut Dom) {{ for k in dom.take_freed() {{ self.cx.listeners[k as usize] = None; self.cx.free.push(k); self.cx.element_host.retain(|h| h.3 != k); self.cx.custom_host.retain(|h| h.3 != k); self.cx.targets.retain(|h| h.4 != k); }} }}\n\
          {mo_step}\
          /// Run a task (event listeners or a timer callback), its microtask checkpoint and the default tasks it queued.\n\
          fn task(&mut self, dom: &mut Dom, event: bool, f: impl FnOnce(&mut Cx) -> JsResult<()>) -> JsResult<()> {{\n\
@@ -3580,8 +3729,10 @@ pub fn generate(
          runic_runtime::late_rejection_handlers(); runic_runtime::heap_reports();\n}}\n\
          fn dispatch(&mut self, dom: &mut Dom, deliveries: &[runic_runtime::Delivery]) -> Result<(), String> {{\n\
          // Listeners are resolved before any runs (a flush may free and reuse their slots).\n\
-         let resolved: Vec<(Lst, js::Event, u64)> = deliveries.iter().filter_map(|d| self.cx.listeners.get(d.listener as usize).cloned().flatten().map(|f| (f, d.event.clone(), d.current))).collect();\n\
-         let groups: Vec<Vec<(Lst, js::Event, u64)>> = if {per_listener} {{ resolved.into_iter().map(|l| vec![l]).collect() }} else {{ vec![resolved] }};\n\
+         let resolved: Vec<(Lst, js::Event, u64, bool)> = deliveries.iter().filter_map(|d| self.cx.listeners.get(d.listener as usize).cloned().flatten().map(|f| (f, d.event.clone(), d.current, dom.raw_listener(d.listener)))).collect();\n\
+         // (A listener script added with addEventListener is a callback of its own: a checkpoint follows it.)\n\
+         let mut groups: Vec<Vec<(Lst, js::Event, u64)>> = if {per_listener} || !resolved.is_empty() {{ Vec::new() }} else {{ vec![Vec::new()] }}; let mut joined = false;\n\
+         for (f, ev, current, raw) in resolved {{ let own = {per_listener} || raw; if own || !joined {{ groups.push(vec![(f, ev, current)]); joined = !own; }} else if let Some(g) = groups.last_mut() {{ g.push((f, ev, current)); }} }}\n\
          let mut first: Option<String> = None;\n\
          for group in groups {{\n\
          // Updates from continuous events (schedule.continuous) are not discrete.\n\
@@ -3651,7 +3802,7 @@ pub fn generate(
          self.cx.timers.during_tick = false;\n\
          if let Err(e) = result {{ eprintln!(\"runic: uncaught exception in a timer: {{e}}\"); }}\n\
          }}\n\
-         if self.cx.timers.now < to {{ self.cx.timers.now = to; }}\n\
+         if self.cx.timers.now < to {{ self.cx.timers.now = to; }} js::event::set_clock(self.cx.timers.now);\n\
          }}\n\
          fn host_task(&mut self, dom: &mut Dom) -> Option<Option<Event>> {{\n\
          let task = self.cx.host_tasks.pop_front()?;\n\

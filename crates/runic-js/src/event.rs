@@ -56,6 +56,33 @@ pub struct EventData {
     /// A synthetic `KeyboardEvent` initialised from another event (bits-ui's
     /// `new KeyboardEvent(e.type, e)`): its key members are covered too.
     pub keyboard: bool,
+    /// The interface script constructed the event with (M6 script DOM,
+    /// slice 3: `new MouseEvent(type, init)`); its members are those of the
+    /// interface, from the init dictionary or their defaults. None for an
+    /// old-style `CustomEvent` without a detail and for native events.
+    pub interface: Option<&'static str>,
+    /// An event the user agent dispatches for a script call
+    /// (`element.click()`): `isTrusted` is false, as for script's events.
+    pub untrusted: bool,
+    /// `timeStamp`: the clock (milliseconds since the time origin) when the
+    /// event was created.
+    pub time_stamp: f64,
+}
+
+thread_local! {
+    /// The clock events are stamped with (`timeStamp`): the runtime and the
+    /// interpreter set it when their clock moves.
+    static CLOCK: Cell<f64> = const { Cell::new(0.0) };
+}
+
+/// Set the clock events created from now on are stamped with.
+pub fn set_clock(now: f64) {
+    CLOCK.with(|c| c.set(now));
+}
+
+/// The event clock (`timeStamp` of an event created now).
+pub fn clock() -> f64 {
+    CLOCK.with(Cell::get)
 }
 
 /// The event interfaces `instanceof` tests (M6 overlays), each with its
@@ -78,6 +105,9 @@ impl EventData {
     /// script's `CustomEvent`, a keyboard copy a `KeyboardEvent`); None
     /// for types whose interface the runtime does not know.
     pub fn interface(&self) -> Option<&'static str> {
+        if let Some(i) = self.interface {
+            return Some(i);
+        }
         if self.synthetic {
             return Some(if self.keyboard {
                 "KeyboardEvent"
@@ -122,6 +152,115 @@ impl EventData {
         Some(false)
     }
 
+    /// Set a number member of an init dictionary (`init_member`).
+    pub fn init_number(&mut self, name: &str, v: f64) {
+        match name {
+            "detail" => self.detail = v,
+            "clientX" => self.client_x = v,
+            "clientY" => self.client_y = v,
+            "button" => self.button = v,
+            "buttons" => self.buttons = v,
+            "deltaX" => self.delta_x = v,
+            "deltaY" => self.delta_y = v,
+            _ => unreachable!("validated init member {name}"),
+        }
+    }
+    /// Set a string member of an init dictionary.
+    pub fn init_string(&mut self, name: &str, v: JsString) {
+        match name {
+            "key" => self.key = v,
+            "code" => self.code = v,
+            _ => unreachable!("validated init member {name}"),
+        }
+    }
+    /// Set a boolean member of an init dictionary.
+    pub fn init_bool(&mut self, name: &str, v: bool) {
+        match name {
+            "ctrlKey" => self.ctrl = v,
+            "shiftKey" => self.shift = v,
+            "altKey" => self.alt = v,
+            "metaKey" => self.meta = v,
+            "repeat" => self.repeat = v,
+            "isComposing" => self.composing = v,
+            _ => unreachable!("validated init member {name}"),
+        }
+    }
+
+    /// Why member `m` (an `event.*` built-in's name) is not covered for this
+    /// event; None where it is. Every event has its type, cancellation,
+    /// propagation, `isTrusted`, `timeStamp` and targets; an event script
+    /// created has the members of the interface it was constructed with
+    /// (from its init dictionary or their defaults; another interface's
+    /// member is `undefined` in JavaScript, which the typed read cannot
+    /// hold), and a keyboard copy its key members.
+    pub fn member_unsupported(&self, m: &str) -> Option<String> {
+        if matches!(
+            m,
+            "type"
+                | "defaultPrevented"
+                | "preventDefault"
+                | "stopPropagation"
+                | "stopImmediatePropagation"
+                | "isTrusted"
+                | "timeStamp"
+                | "cancelable"
+                | "currentTarget"
+                | "path-target"
+                | "target"
+        ) {
+            return None;
+        }
+        if !self.synthetic {
+            return (m == "bubbles")
+                .then(|| "bubbles of an event the user agent dispatches".into());
+        }
+        if m == "bubbles" {
+            return None;
+        }
+        let keys = matches!(
+            m,
+            "key"
+                | "code"
+                | "ctrlKey"
+                | "shiftKey"
+                | "altKey"
+                | "metaKey"
+                | "repeat"
+                | "isComposing"
+        );
+        if self.keyboard && self.interface.is_none() && keys {
+            return None;
+        }
+        if self.interface.is_some() {
+            let owners: &[&str] = match m {
+                "detail" => &["UIEvent"],
+                "clientX" | "clientY" | "button" | "buttons" => &["MouseEvent"],
+                "relatedTarget" => &["MouseEvent", "FocusEvent"],
+                "ctrlKey" | "shiftKey" | "altKey" | "metaKey" => &["MouseEvent", "KeyboardEvent"],
+                "key" | "code" | "repeat" => &["KeyboardEvent"],
+                "isComposing" => &["KeyboardEvent", "InputEvent"],
+                "deltaX" | "deltaY" => &["WheelEvent"],
+                _ => &[],
+            };
+            if owners.iter().any(|o| self.instance_of(o).unwrap_or(false)) {
+                return None;
+            }
+            return Some(format!(
+                "{m} of a{} {} created by script",
+                if self
+                    .interface()
+                    .is_some_and(|i| i.starts_with(['A', 'E', 'I', 'O', 'U']))
+                {
+                    "n"
+                } else {
+                    ""
+                },
+                self.interface().unwrap_or("Event")
+            ));
+        }
+        Some(format!("{m} of an event created by script"))
+    }
+
     /// `pointerType` (M6, bits-ui's `isTouch`): pointer events, and the
     /// `click`, `auxclick` and `contextmenu` events Chromium dispatches as
     /// pointer events, come from the mouse (the only pointer device the
@@ -148,6 +287,447 @@ impl EventData {
     }
 }
 
+/// A `CustomEvent`'s detail (M6 script DOM, slice 3): the value and a tag
+/// naming its static type, so that a read at another type throws (only an
+/// unsound cast reaches one).
+pub struct Detail {
+    pub value: Rc<dyn std::any::Any>,
+    pub tag: String,
+}
+
+impl std::fmt::Debug for Detail {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Detail({})", self.tag)
+    }
+}
+
+/// The TypeError of reading a `CustomEvent`'s detail at a type it does not
+/// have (an unsound cast in the source).
+pub fn detail_type_error(have: &str, want: &str) -> crate::Throw {
+    crate::Throw::type_error(format!("an event's detail of type {have} read as {want}"))
+}
+
+/// The event types the runtime and the interpreter dispatch themselves
+/// (the IR's event kinds, `runic_ir::EventKind`).
+pub const FIRED_TYPES: &[&str] = &[
+    "click",
+    "submit",
+    "input",
+    "change",
+    "keydown",
+    "keyup",
+    "dblclick",
+    "contextmenu",
+    "pointerdown",
+    "pointerup",
+    "pointermove",
+    "pointerenter",
+    "pointerleave",
+    "mousedown",
+    "mouseup",
+    "mousemove",
+    "mouseenter",
+    "mouseleave",
+    "pointerover",
+    "pointerout",
+    "mouseover",
+    "mouseout",
+    "wheel",
+    "focus",
+    "blur",
+    "focusin",
+    "focusout",
+    "scroll",
+    "resize",
+    "popstate",
+    "hashchange",
+    "load",
+    "error",
+];
+
+/// Event types Chromium 153 dispatches itself (its `event_type_names`,
+/// those reachable from a page): a listener of one of them is a listener of
+/// native events, which the runtime must fire where Chromium does. Any other
+/// type is a custom event's, which only script dispatches.
+pub const NATIVE_TYPES: &[&str] = &[
+    "abort",
+    "activate",
+    "addsourcebuffer",
+    "addtrack",
+    "afterprint",
+    "animationcancel",
+    "animationend",
+    "animationiteration",
+    "animationstart",
+    "appinstalled",
+    "audioend",
+    "audioprocess",
+    "audiostart",
+    "auxclick",
+    "beforecopy",
+    "beforecut",
+    "beforeinput",
+    "beforeinstallprompt",
+    "beforematch",
+    "beforepaste",
+    "beforeprint",
+    "beforetoggle",
+    "beforeunload",
+    "beforexrselect",
+    "blocked",
+    "blur",
+    "boundary",
+    "bufferedamountlow",
+    "cancel",
+    "canplay",
+    "canplaythrough",
+    "change",
+    "characterboundsupdate",
+    "chargingchange",
+    "chargingtimechange",
+    "click",
+    "close",
+    "command",
+    "complete",
+    "compositionend",
+    "compositionstart",
+    "compositionupdate",
+    "connect",
+    "connectionstatechange",
+    "contentvisibilityautostatechange",
+    "contextlost",
+    "contextmenu",
+    "contextrestored",
+    "controllerchange",
+    "copy",
+    "cuechange",
+    "currententrychange",
+    "currentscreenchange",
+    "cut",
+    "datachannel",
+    "dblclick",
+    "devicechange",
+    "devicemotion",
+    "deviceorientation",
+    "deviceorientationabsolute",
+    "dischargingtimechange",
+    "disconnect",
+    "dispose",
+    "DOMContentLoaded",
+    "drag",
+    "dragend",
+    "dragenter",
+    "dragleave",
+    "dragover",
+    "dragstart",
+    "drop",
+    "durationchange",
+    "emptied",
+    "encrypted",
+    "end",
+    "ended",
+    "enter",
+    "error",
+    "exit",
+    "focus",
+    "focusin",
+    "focusout",
+    "formdata",
+    "fullscreenchange",
+    "fullscreenerror",
+    "gamepadconnected",
+    "gamepaddisconnected",
+    "gotpointercapture",
+    "hashchange",
+    "icecandidate",
+    "icecandidateerror",
+    "iceconnectionstatechange",
+    "icegatheringstatechange",
+    "inactive",
+    "input",
+    "inputsourceschange",
+    "install",
+    "invalid",
+    "keydown",
+    "keypress",
+    "keyup",
+    "keystatuseschange",
+    "languagechange",
+    "levelchange",
+    "load",
+    "loadeddata",
+    "loadedmetadata",
+    "loadend",
+    "loading",
+    "loadingdone",
+    "loadingerror",
+    "loadstart",
+    "lostpointercapture",
+    "mark",
+    "message",
+    "messageerror",
+    "midimessage",
+    "mousedown",
+    "mouseenter",
+    "mouseleave",
+    "mousemove",
+    "mouseout",
+    "mouseover",
+    "mouseup",
+    "mousewheel",
+    "mute",
+    "navigate",
+    "navigateerror",
+    "navigatesuccess",
+    "negotiationneeded",
+    "nomatch",
+    "offline",
+    "online",
+    "open",
+    "orientationchange",
+    "overscroll",
+    "pagehide",
+    "pagereveal",
+    "pageshow",
+    "pageswap",
+    "paste",
+    "pause",
+    "play",
+    "playing",
+    "pointercancel",
+    "pointerdown",
+    "pointerenter",
+    "pointerleave",
+    "pointermove",
+    "pointerout",
+    "pointerover",
+    "pointerrawupdate",
+    "pointerup",
+    "popstate",
+    "prerenderingchange",
+    "processorerror",
+    "progress",
+    "ratechange",
+    "readystatechange",
+    "rejectionhandled",
+    "release",
+    "removesourcebuffer",
+    "removetrack",
+    "reset",
+    "resize",
+    "resourcetimingbufferfull",
+    "result",
+    "resume",
+    "screenschange",
+    "scroll",
+    "scrollend",
+    "scrollsnapchange",
+    "scrollsnapchanging",
+    "search",
+    "securitypolicyviolation",
+    "seeked",
+    "seeking",
+    "select",
+    "selectedcandidatechange",
+    "selectionchange",
+    "selectstart",
+    "shippingaddresschange",
+    "shippingoptionchange",
+    "show",
+    "signalingstatechange",
+    "slotchange",
+    "soundend",
+    "soundstart",
+    "sourceclose",
+    "sourceended",
+    "sourceopen",
+    "speechend",
+    "speechstart",
+    "squeeze",
+    "squeezeend",
+    "squeezestart",
+    "stalled",
+    "start",
+    "statechange",
+    "storage",
+    "submit",
+    "success",
+    "suspend",
+    "textInput",
+    "timeout",
+    "timeupdate",
+    "toggle",
+    "tonechange",
+    "touchcancel",
+    "touchend",
+    "touchmove",
+    "touchstart",
+    "track",
+    "transitioncancel",
+    "transitionend",
+    "transitionrun",
+    "transitionstart",
+    "uncapturederror",
+    "unhandledrejection",
+    "unload",
+    "unmute",
+    "update",
+    "updateend",
+    "updatefound",
+    "updatestart",
+    "upgradeneeded",
+    "versionchange",
+    "visibilitychange",
+    "voiceschanged",
+    "volumechange",
+    "waiting",
+    "waitingforkey",
+    "webglcontextcreationerror",
+    "webglcontextlost",
+    "webglcontextrestored",
+    "webkitAnimationEnd",
+    "webkitAnimationIteration",
+    "webkitAnimationStart",
+    "webkitTransitionEnd",
+    "webkitfullscreenchange",
+    "webkitfullscreenerror",
+    "wheel",
+    "zoomlevelchange",
+];
+
+/// Native event types Chromium never dispatches where the runtime and the
+/// harness run: touch events (no touch device), drag and drop (no
+/// draggable content is dragged: the runtime has no drag and drop, a gap
+/// of its own), `beforematch` (no find-in-page), and `visibilitychange`
+/// (the document stays visible while the window is shown). Their listeners
+/// are kept and run when script dispatches such an event.
+pub const NEVER_FIRED_TYPES: &[&str] = &[
+    "touchstart",
+    "touchmove",
+    "touchend",
+    "touchcancel",
+    "dragstart",
+    "drag",
+    "dragend",
+    "dragenter",
+    "dragleave",
+    "dragover",
+    "drop",
+    "beforematch",
+    "visibilitychange",
+];
+
+/// Whether a listener registered without `passive` is passive: Chromium's
+/// intervention makes `touchstart`, `touchmove`, `wheel` and `mousewheel`
+/// listeners of the window, the document, the document element and the
+/// body passive by default.
+pub fn passive_by_default(name: &str, root_target: bool) -> bool {
+    root_target && matches!(name, "touchstart" | "touchmove" | "wheel" | "mousewheel")
+}
+
+/// The interfaces script constructs events with (M6 script DOM, slice 3;
+/// `CustomEvent` has its own built-in, `event.custom`).
+pub const SCRIPT_INTERFACES: &[&str] = &[
+    "Event",
+    "UIEvent",
+    "MouseEvent",
+    "WheelEvent",
+    "KeyboardEvent",
+    "FocusEvent",
+    "InputEvent",
+];
+
+/// The type of an init dictionary member script may give (`new
+/// MouseEvent(type, { clientX })`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InitType {
+    Number,
+    String,
+    Boolean,
+    /// `relatedTarget`: a node or null.
+    Target,
+}
+
+/// The covered init member `name` of `interface` (or of an interface it
+/// derives from), with its type.
+pub fn init_member(interface: &str, name: &str) -> Option<InitType> {
+    let derives = |base: &str| {
+        EventData {
+            interface: SCRIPT_INTERFACES.iter().copied().find(|i| *i == interface),
+            synthetic: true,
+            ..Default::default()
+        }
+        .instance_of(base)
+        .unwrap_or(false)
+    };
+    let (owners, t): (&[&str], InitType) = match name {
+        "detail" => (&["UIEvent"], InitType::Number),
+        "clientX" | "clientY" | "button" | "buttons" => (&["MouseEvent"], InitType::Number),
+        "deltaX" | "deltaY" => (&["WheelEvent"], InitType::Number),
+        "ctrlKey" | "shiftKey" | "altKey" | "metaKey" => {
+            (&["MouseEvent", "KeyboardEvent"], InitType::Boolean)
+        }
+        "key" | "code" => (&["KeyboardEvent"], InitType::String),
+        "repeat" => (&["KeyboardEvent"], InitType::Boolean),
+        "isComposing" => (&["KeyboardEvent", "InputEvent"], InitType::Boolean),
+        "relatedTarget" => (&["MouseEvent", "FocusEvent"], InitType::Target),
+        _ => return None,
+    };
+    owners.iter().any(|o| derives(o)).then_some(t)
+}
+
+/// The kind of an event target (M6 script DOM, slice 3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TargetKind {
+    Element,
+    /// A text, comment or fragment node: native events never target it.
+    Node,
+    Document,
+    Window,
+}
+
+/// What listening to an event type at a target means.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Listening {
+    /// The runtime fires such events there (its event kinds).
+    Fired,
+    /// No native event of the type reaches the target where the runtime
+    /// runs, or the type is a custom one: only script dispatches it.
+    Script,
+    /// Chromium fires such events there and the runtime does not: the
+    /// listener is reported unsupported.
+    Unsupported,
+}
+
+/// Whether events of type `name` reach a listener at a target of `kind`
+/// natively (DOM standard event paths: an element's events bubble to the
+/// document and the window, focus events reach their capture listeners).
+pub fn listening(kind: TargetKind, name: &str) -> Listening {
+    let native = NATIVE_TYPES.contains(&name);
+    if !native {
+        return Listening::Script;
+    }
+    if NEVER_FIRED_TYPES.contains(&name) {
+        return Listening::Script;
+    }
+    if !FIRED_TYPES.contains(&name) {
+        return Listening::Unsupported;
+    }
+    match (kind, name) {
+        // Text, comment and fragment nodes are never an event's target or
+        // on an element's path.
+        (TargetKind::Node, _) => Listening::Script,
+        // An image's outcome reaches only the image (and the window's
+        // `error` is an uncaught exception's, `load` the page's).
+        (_, "load" | "error") => Listening::Unsupported,
+        // Window-only events never reach elements or the document.
+        (TargetKind::Element | TargetKind::Document, "resize" | "popstate" | "hashchange") => {
+            Listening::Script
+        }
+        _ => Listening::Fired,
+    }
+}
+
 #[derive(Debug)]
 struct Inner {
     data: EventData,
@@ -156,6 +736,11 @@ struct Inner {
     prevented: Cell<bool>,
     stopped: Cell<bool>,
     stopped_immediately: Cell<bool>,
+    /// The target (an event script created has none until dispatched).
+    target: Cell<Option<u64>>,
+    /// A passive listener is running: `preventDefault` does nothing.
+    passive: Cell<bool>,
+    detail: Option<Detail>,
 }
 
 /// An event object.
@@ -163,18 +748,85 @@ struct Inner {
 pub struct Event(Rc<Inner>);
 
 impl Event {
-    pub fn new(data: EventData) -> Self {
+    /// An event the user agent dispatches (stamped with the event clock
+    /// unless its data has a time), being dispatched at `data.target`.
+    pub fn new(mut data: EventData) -> Self {
+        if data.time_stamp == 0.0 {
+            data.time_stamp = clock();
+        }
         Event(Rc::new(Inner {
             current: Cell::new(data.target.0),
             dispatching: Cell::new(true),
+            target: Cell::new(Some(data.target.0)),
             data,
             prevented: Cell::new(false),
             stopped: Cell::new(false),
             stopped_immediately: Cell::new(false),
+            passive: Cell::new(false),
+            detail: None,
+        }))
+    }
+    /// An event script created (`new Event(…)`, `new CustomEvent(…)`, M6
+    /// script DOM slice 3): not being dispatched and without a target until
+    /// it is; with a `CustomEvent`'s detail.
+    pub fn script(mut data: EventData, detail: Option<Detail>) -> Self {
+        data.synthetic = true;
+        data.time_stamp = clock();
+        Event(Rc::new(Inner {
+            current: Cell::new(0),
+            dispatching: Cell::new(false),
+            target: Cell::new(None),
+            data,
+            prevented: Cell::new(false),
+            stopped: Cell::new(false),
+            stopped_immediately: Cell::new(false),
+            passive: Cell::new(false),
+            detail,
         }))
     }
     pub fn data(&self) -> &EventData {
         &self.0.data
+    }
+    /// `target`: none for an event script created and never dispatched.
+    pub fn target(&self) -> Option<Element> {
+        self.0.target.get().map(Element)
+    }
+    /// Whether the event is being dispatched.
+    pub fn dispatching(&self) -> bool {
+        self.0.dispatching.get()
+    }
+    /// `dispatchEvent` starts (DOM standard, dispatch): the event is being
+    /// dispatched at `target`. False where it already is (the caller
+    /// throws `InvalidStateError`).
+    pub fn begin_dispatch(&self, target: Element) -> bool {
+        if self.0.dispatching.get() {
+            return false;
+        }
+        self.0.dispatching.set(true);
+        self.0.target.set(Some(target.0));
+        self.0.current.set(target.0);
+        true
+    }
+    /// `dispatchEvent` ends: no current target, and the propagation flags
+    /// are cleared (cancellation stays), so that it can be dispatched again.
+    pub fn end_dispatch(&self) {
+        self.0.dispatching.set(false);
+        self.0.passive.set(false);
+        self.0.stopped.set(false);
+        self.0.stopped_immediately.set(false);
+    }
+    /// A `CustomEvent`'s detail (none: null).
+    pub fn detail(&self) -> Option<&Detail> {
+        self.0.detail.as_ref()
+    }
+    /// Whether a passive listener is running (its `preventDefault` does
+    /// nothing, as in Chromium); returns the previous state.
+    pub fn set_passive(&self, on: bool) -> bool {
+        self.0.passive.replace(on)
+    }
+    /// `isTrusted`: dispatched by the user agent for input, not for script.
+    pub fn is_trusted(&self) -> bool {
+        !self.0.data.synthetic && !self.0.data.untrusted
     }
     /// `currentTarget`: the element whose listener is running (none
     /// after the dispatch).
@@ -188,7 +840,10 @@ impl Event {
     /// the target where there are no shadow roots (the runtime has none);
     /// none once the dispatch is over (the path is cleared, `[]`).
     pub fn path_target(&self) -> Option<Element> {
-        self.0.dispatching.get().then_some(self.0.data.target)
+        if !self.0.dispatching.get() {
+            return None;
+        }
+        self.target()
     }
     /// Whether a listener can run, without changing the current target or
     /// starting a task/checkpoint for a suppressed callback.
@@ -211,7 +866,7 @@ impl Event {
         self.0.dispatching.set(false);
     }
     pub fn prevent_default(&self) {
-        if self.0.data.cancelable {
+        if self.0.data.cancelable && !self.0.passive.get() {
             self.0.prevented.set(true);
         }
     }
@@ -306,6 +961,77 @@ mod submission_tests {
         event.finish();
         assert!(held.default_prevented());
         assert_eq!(held.current_target(), None);
+    }
+
+    /// Listeners of types the runtime fires, never sees or does not fire
+    /// (M6 script DOM, slice 3).
+    #[test]
+    fn listening_by_type_and_target() {
+        assert_eq!(listening(TargetKind::Element, "click"), Listening::Fired);
+        assert_eq!(listening(TargetKind::Window, "popstate"), Listening::Fired);
+        assert_eq!(
+            listening(TargetKind::Document, "popstate"),
+            Listening::Script
+        );
+        assert_eq!(
+            listening(TargetKind::Element, "touchstart"),
+            Listening::Script
+        );
+        assert_eq!(
+            listening(TargetKind::Element, "emblaInit"),
+            Listening::Script
+        );
+        assert_eq!(listening(TargetKind::Node, "click"), Listening::Script);
+        assert_eq!(
+            listening(TargetKind::Element, "keypress"),
+            Listening::Unsupported
+        );
+        assert_eq!(
+            listening(TargetKind::Window, "load"),
+            Listening::Unsupported
+        );
+        assert!(passive_by_default("wheel", true));
+        assert!(!passive_by_default("wheel", false));
+        assert!(!passive_by_default("click", true));
+        assert_eq!(init_member("WheelEvent", "clientX"), Some(InitType::Number));
+        assert_eq!(init_member("KeyboardEvent", "clientX"), None);
+        assert_eq!(
+            init_member("FocusEvent", "relatedTarget"),
+            Some(InitType::Target)
+        );
+    }
+
+    /// An event script creates: not dispatched until `begin_dispatch`, no
+    /// target before; propagation flags cleared at the end, cancellation
+    /// kept; a passive listener cannot cancel it.
+    #[test]
+    fn script_events_dispatch_once_at_a_time() {
+        let event = Event::script(
+            EventData {
+                kind: JsString::from("tick"),
+                cancelable: true,
+                interface: Some("MouseEvent"),
+                ..Default::default()
+            },
+            None,
+        );
+        assert!(!event.is_trusted());
+        assert_eq!(event.target(), None);
+        assert!(event.begin_dispatch(Element(4)));
+        assert!(!event.begin_dispatch(Element(4)));
+        let was = event.set_passive(true);
+        event.prevent_default();
+        event.set_passive(was);
+        assert!(!event.default_prevented());
+        event.stop_propagation();
+        event.prevent_default();
+        event.end_dispatch();
+        assert!(event.default_prevented());
+        assert!(!event.propagation_stopped());
+        assert_eq!(event.target(), Some(Element(4)));
+        assert_eq!(event.data().member_unsupported("clientX"), None);
+        assert!(event.data().member_unsupported("key").is_some());
+        assert!(event.begin_dispatch(Element(5)));
     }
 
     /// `composedPath()[0]`: the target during the dispatch, also while a

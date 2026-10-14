@@ -598,7 +598,7 @@ export async function lowerReact(graph: Graph): Promise<Lowering> {
   const registersElementSubmit = (value: Expr): boolean => {
     if (value.op === 'builtin')
       return (
-        value.name === 'element.listen' &&
+        (value.name === 'element.listen' || value.name === 'target.listen') &&
         value.args[1]?.op === 'lit' &&
         value.args[1].value === 'submit'
       );

@@ -404,6 +404,12 @@ export type Node =
        */
       props?: Attr[];
       listeners?: Listener[];
+      /**
+       * Listeners of custom event types (M6 script DOM, slice 3): a type
+       * Chromium never dispatches itself, and a listener value (template
+       * scope, evaluated at each dispatch; nullish: nothing runs).
+       */
+      customListeners?: { event: string; listener: Expr }[];
       /** A cell holding this element while mounted (null after removal). */
       ref?: number;
       /** An attribute bag applied after `attrs` (whose names it never holds). */

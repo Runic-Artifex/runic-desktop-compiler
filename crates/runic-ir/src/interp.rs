@@ -689,6 +689,22 @@ struct ListenerRef {
     args: Vec<Val>,
     /// A listener from an attribute bag: a function value called with the event.
     closure: Option<Val>,
+    /// A listener script added with `addEventListener` (slice 3): called
+    /// with its options instead of `closure`.
+    script: Option<TargetListener>,
+}
+
+/// A listener script added with `addEventListener` (M6 script DOM, slice
+/// 3), identified by (target, type, listener, capture).
+#[derive(Clone)]
+struct TargetListener {
+    target: u64,
+    kind: JsString,
+    f: Val,
+    capture: bool,
+    once: bool,
+    passive: bool,
+    registration: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -802,9 +818,13 @@ pub struct Machine<'p> {
     /// Monotonic identity of each script listener registration, even when
     /// the same callback is removed and added again during dispatch.
     listener_registration: u64,
-    /// Listeners of events of non-native types added by script (M6
-    /// overlays), by element and type, in registration order.
-    custom_listeners: Vec<(u64, JsString, Val)>,
+    /// Listeners script added with `addEventListener` (M6 script DOM,
+    /// slice 3): any target, any type, with their options, in registration
+    /// order (registrations numbered with the other script listeners').
+    target_listeners: Vec<TargetListener>,
+    /// Template listeners of custom event types by element (last render):
+    /// the type and the listener value.
+    template_custom: HashMap<u64, Vec<(JsString, Val)>>,
     /// The visual viewport's listeners (M6 overlays).
     viewport_listeners: Vec<(EventKind, Val)>,
     /// MediaQueryList change listeners: each list (in creation order) with
@@ -1308,6 +1328,7 @@ impl<'p> Machine<'p> {
     pub fn with_env(program: &'p Program, env: Env) -> Result<Self> {
         // Rejections of an earlier run are not this one's.
         js::clear_rejections();
+        js::event::set_clock(CLOCK_START);
         // Teardowns read deep state as before the flush too (R5).
         js::keep_before_images(
             program.schedule.cleanup_reads_previous
@@ -1360,7 +1381,8 @@ impl<'p> Machine<'p> {
             capture_listeners: vec![],
             element_listeners: vec![],
             listener_registration: 0,
-            custom_listeners: vec![],
+            target_listeners: vec![],
+            template_custom: HashMap::new(),
             viewport_listeners: vec![],
             media_lists: vec![],
             root: runic_css::Root::with_attrs(
@@ -4044,7 +4066,10 @@ impl<'p> Machine<'p> {
                         let _ = self.dispatch_nested(
                             e.0,
                             EventKind::Click,
-                            js::EventData::default(),
+                            js::EventData {
+                                untrusted: true,
+                                ..Default::default()
+                            },
                             true,
                         );
                     }
@@ -4686,90 +4711,128 @@ impl<'p> Machine<'p> {
                 }
                 Val::Undefined
             }
-            ("event", "new") => Val::Event(js::Event::new(js::EventData {
-                kind: a[0].string(),
-                cancelable: matches!(a[1], Val::Bool(true)),
-                bubbles: matches!(a.get(2), Some(Val::Bool(true))),
-                synthetic: true,
-                ..Default::default()
-            })),
-            ("custom", m @ ("listen" | "unlisten")) => {
-                let Val::Element(e) = &a[0] else {
-                    panic!("validated element")
+            ("event", "new") => Val::Event(js::Event::script(
+                js::EventData {
+                    kind: a[0].string(),
+                    cancelable: matches!(a[1], Val::Bool(true)),
+                    bubbles: matches!(a.get(2), Some(Val::Bool(true))),
+                    ..Default::default()
+                },
+                None,
+            )),
+            // M6 script DOM, slice 3: listeners script adds to any target
+            // (`addEventListener`; since then also svelte/events' `on()` of
+            // custom types, `custom.listen`).
+            ("target" | "custom", m @ ("listen" | "unlisten")) => {
+                let Val::Element(t) = &a[0] else {
+                    panic!("validated target")
                 };
-                let name = a[1].string();
-                if EventKind::parse(&name.to_rust()).is_some() {
-                    return Err(Throw::new(
-                        "RunicUnsupportedError",
-                        format!(
-                            "a listener of native {} events added with a type known at run time",
-                            name.to_rust()
-                        ),
-                    ));
-                }
-                let f = a[2].clone();
-                let at = self
-                    .custom_listeners
-                    .iter()
-                    .position(|g| g.0 == e.0 && g.1 == name && g.2.same(&f));
-                match (m, at) {
-                    ("listen", None) => self.custom_listeners.push((e.0, name, f)),
-                    ("unlisten", Some(i)) => {
-                        self.custom_listeners.remove(i);
-                    }
-                    _ => {}
+                let kind = a[1].string();
+                let custom = name.starts_with("custom.");
+                let capture = !custom && a[3].is_true();
+                if m == "unlisten" {
+                    self.target_unlisten(t.0, &kind, &a[2], capture);
+                } else {
+                    let once = !custom && a[4].is_true();
+                    let passive = match a.get(5) {
+                        Some(Val::Bool(p)) if !custom => Some(*p),
+                        _ => None,
+                    };
+                    self.target_listen(t.0, kind, a[2].clone(), capture, once, passive)?;
                 }
                 Val::Undefined
             }
-            // An event created by script dispatched at an element: its
-            // listeners run at once (the target's, then its ancestors' where
-            // it bubbles); a throwing listener is reported, the others run.
+            // An event created by script dispatched at a target (DOM
+            // standard, dispatch): the capture phase from the window down,
+            // the target's capture then other listeners, then the bubbling
+            // phase where it bubbles; listeners run at once, a throwing one
+            // is reported and the others run.
             ("element", "dispatchEvent") => {
                 let (Val::Element(e), Val::Event(ev)) = (&a[0], &a[1]) else {
                     panic!("validated element and event")
                 };
-                let name = ev.data().kind.clone();
-                if !ev.data().synthetic || EventKind::parse(&name.to_rust()).is_some() {
-                    return Err(Throw::new(
-                        "RunicUnsupportedError",
-                        format!("dispatchEvent of a {} event", name.to_rust()),
-                    ));
-                }
-                let mut path: Vec<u64> = match chain_nodes(&self.last_tree, e.0) {
-                    Some(nodes) => nodes
-                        .iter()
-                        .filter_map(|n| match n {
-                            VNode::Element { id, .. } => Some(*id),
-                            VNode::Text(_) => None,
+                return self.script_dispatch(e.0, ev).map(Val::Bool);
+            }
+            // `new CustomEvent(type, { bubbles, cancelable, detail })`.
+            ("event", "custom") => {
+                // (The detail's type is the literal after it.)
+                let detail = match (a.get(3), a.get(4)) {
+                    (None | Some(Val::Undefined | Val::Null), _) => None,
+                    (Some(v), Some(t)) => {
+                        let t: Type = serde_json::from_str(&t.string().to_rust())
+                            .expect("validated detail type");
+                        Some(js::Detail {
+                            value: Rc::new(v.clone()),
+                            tag: type_tag(match &t {
+                                Type::Maybe(inner) => inner,
+                                t => t,
+                            }),
                         })
-                        .collect(),
-                    None => vec![e.0],
+                    }
+                    (Some(_), None) => panic!("validated detail"),
                 };
-                path.reverse();
-                if !ev.data().bubbles {
-                    path.truncate(1);
-                }
-                for node in path {
-                    let fs: Vec<Val> = self
-                        .custom_listeners
-                        .iter()
-                        .filter(|g| g.0 == node && g.1 == name)
-                        .map(|g| g.2.clone())
-                        .collect();
-                    for f in fs {
-                        if !ev.enter(js::Element(node)) {
-                            break;
-                        }
-                        if let Err(t) = self.call_value(&f, vec![Val::Event(ev.clone())]) {
-                            self.uncaught.push(t);
-                        }
+                Val::Event(js::Event::script(
+                    js::EventData {
+                        kind: a[0].string(),
+                        bubbles: a[1].is_true(),
+                        cancelable: a[2].is_true(),
+                        interface: Some("CustomEvent"),
+                        ..Default::default()
+                    },
+                    detail,
+                ))
+            }
+            // `new MouseEvent(type, init)` and the other interfaces.
+            ("event", "create") => {
+                let interface = js::event::SCRIPT_INTERFACES
+                    .iter()
+                    .copied()
+                    .find(|i| a[0].string().to_rust() == *i)
+                    .expect("validated interface");
+                let mut d = js::EventData {
+                    kind: a[1].string(),
+                    bubbles: a[2].is_true(),
+                    cancelable: a[3].is_true(),
+                    interface: Some(interface),
+                    ..Default::default()
+                };
+                for pair in a[4..].chunks(2) {
+                    let name = pair[0].string().to_rust();
+                    match &pair[1] {
+                        Val::Num(n) => d.init_number(&name, *n),
+                        Val::Str(s) => d.init_string(&name, s.clone()),
+                        Val::Bool(b) => d.init_bool(&name, *b),
+                        Val::Element(e) => d.related = Some(*e),
+                        _ => d.related = None,
                     }
-                    if ev.propagation_stopped() {
-                        break;
+                }
+                Val::Event(js::Event::script(d, None))
+            }
+            // A `CustomEvent`'s detail at the type the program reads it.
+            ("event", "custom-detail") => {
+                let Val::Event(e) = &a[0] else {
+                    panic!("validated event")
+                };
+                let want = type_tag(ty);
+                let nullable = matches!(ty, Type::Maybe(_));
+                let inner = match ty {
+                    Type::Maybe(i) => type_tag(i),
+                    _ => want.clone(),
+                };
+                match e.detail() {
+                    None if nullable => Val::Null,
+                    None => {
+                        return Err(js::event::detail_type_error("null", &ty.name()));
+                    }
+                    Some(d) if d.tag == want || d.tag == inner => d
+                        .value
+                        .downcast_ref::<Val>()
+                        .expect("an interpreter value")
+                        .clone(),
+                    Some(d) => {
+                        return Err(js::event::detail_type_error(&d.tag, &want));
                     }
                 }
-                ev.finish();
-                Val::Bool(!ev.default_prevented())
             }
             ("event", "instance-of") => {
                 let Val::Event(e) = &a[0] else {
@@ -4812,34 +4875,14 @@ impl<'p> Machine<'p> {
                     panic!("validated event")
                 };
                 let d = e.data();
-                if d.synthetic
-                    && !(d.keyboard
-                        && matches!(
-                            m,
-                            "key"
-                                | "code"
-                                | "ctrlKey"
-                                | "shiftKey"
-                                | "altKey"
-                                | "metaKey"
-                                | "repeat"
-                                | "isComposing"
-                        ))
-                    && !matches!(
-                        m,
-                        "type"
-                            | "defaultPrevented"
-                            | "preventDefault"
-                            | "stopPropagation"
-                            | "stopImmediatePropagation"
-                    )
-                {
-                    return Err(Throw::new(
-                        "RunicUnsupportedError",
-                        format!("{m} of an event created by script"),
-                    ));
+                if let Some(why) = d.member_unsupported(m) {
+                    return Err(Throw::new("RunicUnsupportedError", why));
                 }
                 match m {
+                    "isTrusted" => Val::Bool(e.is_trusted()),
+                    "timeStamp" => Val::Num(d.time_stamp),
+                    "bubbles" => Val::Bool(d.bubbles),
+                    "cancelable" => Val::Bool(d.cancelable),
                     "type" => Val::Str(d.kind.clone()),
                     "key" => Val::Str(d.key.clone()),
                     "code" => Val::Str(d.code.clone()),
@@ -4878,7 +4921,17 @@ impl<'p> Machine<'p> {
                     },
                     "deltaX" => Val::Num(d.delta_x),
                     "deltaY" => Val::Num(d.delta_y),
-                    "target" => Val::Element(d.target),
+                    // (An event script created has no target until it is
+                    // dispatched: null, which the typed read cannot hold.)
+                    "target" => match e.target() {
+                        Some(t) => Val::Element(t),
+                        None => {
+                            return Err(Throw::new(
+                                "RunicUnsupportedError",
+                                "target of an event never dispatched (null)",
+                            ));
+                        }
+                    },
                     "relatedTarget" => d.related.map_or(Val::Null, Val::Element),
                     "currentTarget" => e.current_target().map_or(Val::Null, Val::Element),
                     "path-target" => {
@@ -5216,6 +5269,7 @@ impl<'p> Machine<'p> {
         // that the update removes gets its blur events on that tree).
         let previous_listeners = std::mem::take(&mut self.listeners);
         let previous_capture = std::mem::take(&mut self.capture_elements);
+        self.template_custom.clear();
         self.moved.clear();
         self.order.clear();
         let mut visited = HashSet::new();
@@ -5687,6 +5741,7 @@ impl<'p> Machine<'p> {
                 attrs,
                 props,
                 listeners,
+                custom_listeners,
                 children,
                 reference,
                 spread,
@@ -5979,6 +6034,7 @@ impl<'p> Machine<'p> {
                                     handler: usize::MAX,
                                     args: vec![],
                                     closure: Some(v.clone()),
+                                    script: None,
                                 });
                             }
                             // HTML lowercases attribute names.
@@ -6160,7 +6216,19 @@ impl<'p> Machine<'p> {
                         handler: l.handler,
                         args,
                         closure: None,
+                        script: None,
                     });
+                }
+                // Listeners of custom event types (M6 script DOM, slice 3).
+                if !custom_listeners.is_empty() {
+                    let mut list = vec![];
+                    for l in custom_listeners {
+                        let f = self.eval(&l.listener, frame)?;
+                        if !matches!(f, Val::Undefined | Val::Null) {
+                            list.push((JsString::from(l.event.as_str()), f));
+                        }
+                    }
+                    self.template_custom.insert(id, list);
                 }
                 let mut kids = vec![];
                 for c in children {
@@ -7883,6 +7951,7 @@ impl<'p> Machine<'p> {
             }
             let t = &mut self.timers[i];
             self.now = self.now.max(t.call_at);
+            js::event::set_clock(self.now);
             let (callback, kind) = (t.callback.clone(), t.kind);
             match kind {
                 TimerKind::Interval => t.call_at += t.delay,
@@ -7900,6 +7969,7 @@ impl<'p> Machine<'p> {
             r?;
         }
         self.now = self.now.max(to);
+        js::event::set_clock(self.now);
         // The host's work queued by the timers runs after them (as the
         // browser's after Playwright's fake clock ran them).
         let mut run = Run::default();
@@ -8861,27 +8931,47 @@ impl<'p> Machine<'p> {
         } else {
             &self.host_listeners
         };
-        let calls: Vec<_> = registry
+        let current = if window {
+            js::Element::WINDOW
+        } else {
+            js::Element::DOCUMENT
+        };
+        // (With the listeners script added with `addEventListener`, in
+        // registration order.)
+        let mut calls: Vec<(u64, ListenerRef)> = registry
             .iter()
             .filter(|g| g.0 == window && g.1 == kind)
-            .map(|g| (g.2.clone(), g.3))
+            .map(|g| {
+                (
+                    g.3,
+                    ListenerRef {
+                        instance: 0,
+                        handler: 0,
+                        args: vec![],
+                        closure: Some(g.2.clone()),
+                        script: None,
+                    },
+                )
+            })
             .collect();
-        for (f, registration) in calls {
+        calls.extend(self.script_registrations(current.0, kind.name(), capture));
+        calls.sort_by_key(|(r, _)| *r);
+        for (registration, r) in calls {
             let registry = if capture {
                 &self.capture_listeners
             } else {
                 &self.host_listeners
             };
-            let live = registry.iter().any(|g| g.3 == registration);
-            let current = if window {
-                js::Element::WINDOW
-            } else {
-                js::Element::DOCUMENT
-            };
+            let live = r.script.is_some() || registry.iter().any(|g| g.3 == registration);
             if !live || !event.enter(current) {
                 continue;
             }
-            if let Err(t) = self.call_nested_listener(&f, event) {
+            let result = match (&r.script, &r.closure) {
+                (Some(l), _) => self.call_target(l, event),
+                (None, Some(f)) => self.call_nested_listener(f, event),
+                (None, None) => Ok(()),
+            };
+            if let Err(t) = result {
                 self.uncaught.push(t);
             }
         }
@@ -8912,21 +9002,10 @@ impl<'p> Machine<'p> {
                     }
                 }
             }
-            for (_, _, f, registration) in self
-                .element_listeners
-                .iter()
-                .filter(|g| g.0 == current && g.1 == kind)
-            {
-                calls.push((
-                    ListenerRef {
-                        instance: 0,
-                        handler: 0,
-                        args: vec![],
-                        closure: Some(f.clone()),
-                    },
-                    Some(*registration),
-                ));
-            }
+        }
+        // The listeners script added (`on()`, `addEventListener`).
+        for (registration, r) in self.script_registrations(current, kind.name(), capture) {
+            calls.push((r, Some(registration)));
         }
         calls
     }
@@ -8941,6 +9020,10 @@ impl<'p> Machine<'p> {
     ) -> bool {
         if let Some(registration) = registration {
             self.element_listeners.iter().any(|g| g.3 == registration)
+                || self
+                    .target_listeners
+                    .iter()
+                    .any(|l| l.registration == registration)
         } else {
             self.nested_element_listeners(current, kind, capture)
                 .iter()
@@ -8960,6 +9043,9 @@ impl<'p> Machine<'p> {
     }
 
     fn call_element_listener(&mut self, r: &ListenerRef, event: &js::Event) -> Res<()> {
+        if let Some(l) = &r.script {
+            return self.call_target(l, event);
+        }
         match &r.closure {
             Some(f) => self.call_nested_listener(f, event),
             None => self.run(r.instance, r.handler, r.args.clone(), Some(event.clone())),
@@ -9011,6 +9097,26 @@ impl<'p> Machine<'p> {
             .iter()
             .filter_map(|n| element_id(n))
             .collect();
+        // (The container, the body and the html element above the rendered
+        // elements: listeners script added there, M6 script DOM.)
+        let tops: Vec<u64> = self
+            .event_path(target)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|&n| {
+                matches!(
+                    js::Element(n),
+                    CONTAINER | js::Element::BODY | js::Element::HTML
+                )
+            })
+            .collect();
+        let upward: Vec<u64> = path.iter().rev().chain(&tops).copied().collect();
+        if elements {
+            if let Err(t) = self.check_listener_order(&upward, kind) {
+                self.uncaught.push(t);
+                return None;
+            }
+        }
         data.kind = JsString::from(kind.name());
         data.target = js::Element(target);
         data.cancelable = kind.cancelable();
@@ -9019,13 +9125,12 @@ impl<'p> Machine<'p> {
             self.dispatch_host_nested_stage(window, true, kind, &event);
         }
         if elements {
-            for &current in &path {
+            for &current in upward.iter().rev() {
                 self.dispatch_element_nested_stage(current, true, kind, &event);
             }
-            for &current in path
+            for &current in upward
                 .iter()
-                .rev()
-                .take(if kind.bubbles() { path.len() } else { 1 })
+                .take(if kind.bubbles() { upward.len() } else { 1 })
             {
                 self.dispatch_element_nested_stage(current, false, kind, &event);
             }
@@ -9195,16 +9300,39 @@ impl<'p> Machine<'p> {
         } else {
             vec![target_node]
         };
+        // The container, the body and the html element (listeners script
+        // added there, M6 script DOM slice 3), below the document.
+        let tops: Vec<u64> = self
+            .event_path(target)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|&n| {
+                matches!(
+                    js::Element(n),
+                    CONTAINER | js::Element::BODY | js::Element::HTML
+                )
+            })
+            .collect();
+        let upward: Vec<u64> = nodes
+            .iter()
+            .rev()
+            .filter_map(|n| element_id(n))
+            .chain(tops.iter().copied())
+            .collect();
+        self.check_listener_order(&upward, kind)
+            .map_err(throw_diag)?;
         let mut entries: Vec<(usize, js::Event, u64)> = vec![];
         // The elements' capture listeners first, from the root to the target
-        // (M6 overlays).
-        for n in &nodes {
-            if let VNode::Element { id, .. } = n {
-                for &(k, l) in self.capture_elements.get(id).into_iter().flatten() {
-                    if k == kind {
-                        entries.push((l, event.clone(), *id));
-                    }
+        // (M6 overlays), those script added after the template's.
+        for &id in upward.iter().rev() {
+            for &(k, l) in self.capture_elements.get(&id).into_iter().flatten() {
+                if k == kind {
+                    entries.push((l, event.clone(), id));
                 }
+            }
+            for r in self.script_refs(id, kind.name(), true) {
+                self.listeners.push(r);
+                entries.push((self.listeners.len() - 1, event.clone(), id));
             }
         }
         for n in path {
@@ -9216,6 +9344,13 @@ impl<'p> Machine<'p> {
                 }
                 for f in self.script_listeners(*id, kind) {
                     entries.push((f, event.clone(), *id));
+                }
+            }
+        }
+        if kind.bubbles() {
+            for &id in &tops {
+                for f in self.script_listeners(id, kind) {
+                    entries.push((f, event.clone(), id));
                 }
             }
         }
@@ -9242,14 +9377,20 @@ impl<'p> Machine<'p> {
         self.dispatch_capture(kind, &event, true, s);
         // One task per event, or per listener where each listener ends with a
         // microtask checkpoint; an exception does not stop later listeners.
-        let tasks: Vec<Vec<(ListenerRef, js::Event, u64)>> =
-            if self.program.schedule.checkpoint == Checkpoint::Listener {
-                refs.into_iter().map(|r| vec![r]).collect()
-            } else if refs.is_empty() {
-                vec![]
+        // A listener script added with `addEventListener` is a callback of
+        // its own (M6 script DOM, slice 3): a checkpoint follows it.
+        let per_listener = self.program.schedule.checkpoint == Checkpoint::Listener;
+        let mut tasks: Vec<Vec<(ListenerRef, js::Event, u64)>> = vec![];
+        let mut joined = false;
+        for r in refs {
+            let own = per_listener || r.0.script.is_some();
+            if own || !joined {
+                tasks.push(vec![r]);
+                joined = !own;
             } else {
-                vec![refs]
-            };
+                tasks.last_mut().expect("a task").push(r);
+            }
+        }
         for listeners in tasks {
             let source = {
                 let (r, ..) = &listeners[0];
@@ -9274,9 +9415,10 @@ impl<'p> Machine<'p> {
                     if !event.enter(js::Element(current)) {
                         continue;
                     }
-                    let result = match &r.closure {
-                        Some(f) => m.call_value(f, vec![Val::Event(event)]).map(|_| ()),
-                        None => m.run(r.instance, r.handler, r.args, Some(event)),
+                    let result = match (&r.script, &r.closure) {
+                        (Some(l), _) => m.call_target(l, &event),
+                        (None, Some(f)) => m.call_value(f, vec![Val::Event(event)]).map(|_| ()),
+                        (None, None) => m.run(r.instance, r.handler, r.args, Some(event)),
                     };
                     if let Err(t) = result {
                         if t.name.to_rust() == "RunicDomainError" {
@@ -9428,23 +9570,412 @@ impl<'p> Machine<'p> {
     /// Listener table entries (until the next render) for the listeners
     /// script added to element `id` for `kind`, in registration order.
     fn script_listeners(&mut self, id: u64, kind: EventKind) -> Vec<usize> {
-        let fs: Vec<Val> = self
-            .element_listeners
-            .iter()
-            .filter(|g| g.0 == id && g.1 == kind)
-            .map(|g| g.2.clone())
-            .collect();
-        fs.into_iter()
-            .map(|f| {
-                self.listeners.push(ListenerRef {
-                    instance: 0,
-                    handler: 0,
-                    args: vec![],
-                    closure: Some(f),
-                });
+        self.script_refs(id, kind.name(), false)
+            .into_iter()
+            .map(|r| {
+                self.listeners.push(r);
                 self.listeners.len() - 1
             })
             .collect()
+    }
+
+    /// The listeners script added to node `id` for events of type `kind` in
+    /// one phase, in registration order: those added with
+    /// `addEventListener` (slice 3) and, outside the capture phase, the
+    /// element listeners of `on()` (M6 overlays).
+    fn script_refs(&self, id: u64, kind: &str, capture: bool) -> Vec<ListenerRef> {
+        self.script_registrations(id, kind, capture)
+            .into_iter()
+            .map(|(_, r)| r)
+            .collect()
+    }
+
+    /// `script_refs` with each registration number.
+    fn script_registrations(&self, id: u64, kind: &str, capture: bool) -> Vec<(u64, ListenerRef)> {
+        let mut out: Vec<(u64, ListenerRef)> = vec![];
+        if !capture {
+            for g in &self.element_listeners {
+                if g.0 == id && g.1.name() == kind {
+                    out.push((
+                        g.3,
+                        ListenerRef {
+                            instance: 0,
+                            handler: 0,
+                            args: vec![],
+                            closure: Some(g.2.clone()),
+                            script: None,
+                        },
+                    ));
+                }
+            }
+        }
+        for l in &self.target_listeners {
+            if l.target == id && l.capture == capture && l.kind.to_rust() == kind {
+                out.push((
+                    l.registration,
+                    ListenerRef {
+                        instance: 0,
+                        handler: 0,
+                        args: vec![],
+                        closure: Some(l.f.clone()),
+                        script: Some(l.clone()),
+                    },
+                ));
+            }
+        }
+        out.sort_by_key(|(r, _)| *r);
+        out
+    }
+
+    /// The kind of event target node `t` is (M6 script DOM, slice 3).
+    fn target_kind(&self, t: u64) -> js::TargetKind {
+        match js::Element(t) {
+            js::Element::WINDOW => js::TargetKind::Window,
+            js::Element::DOCUMENT => js::TargetKind::Document,
+            _ => match self.script.nodes.get(&t).map(|n| &n.kind) {
+                Some(ScriptKind::Text(_) | ScriptKind::Comment(_) | ScriptKind::Fragment) => {
+                    js::TargetKind::Node
+                }
+                _ => js::TargetKind::Element,
+            },
+        }
+    }
+
+    /// The registration of listener `f` of `target` for `kind` in the
+    /// `capture` phase that script added with `addEventListener`.
+    fn find_target_listener(
+        &self,
+        target: u64,
+        kind: &JsString,
+        f: &Val,
+        capture: bool,
+    ) -> Option<usize> {
+        self.target_listeners.iter().position(|l| {
+            l.target == target && &l.kind == kind && l.capture == capture && l.f.same(f)
+        })
+    }
+
+    /// The registration of the same listener the window or the document
+    /// holds through their own built-ins (`window.listen`): its registry
+    /// (capture or not) and index.
+    fn host_find(&self, target: u64, kind: &JsString, f: &Val, capture: bool) -> Option<usize> {
+        let window = target == js::Element::WINDOW.0;
+        if !window && target != js::Element::DOCUMENT.0 {
+            return None;
+        }
+        let kind = EventKind::parse(&kind.to_rust())?;
+        let registry = if capture {
+            &self.capture_listeners
+        } else {
+            &self.host_listeners
+        };
+        registry
+            .iter()
+            .position(|g| g.0 == window && g.1 == kind && g.2.same(f))
+    }
+
+    /// `addEventListener(kind, f, { capture, once, passive })` at any
+    /// target: identified by (target, type, listener, capture); a native
+    /// type the runtime does not fire there is reported unsupported.
+    fn target_listen(
+        &mut self,
+        target: u64,
+        kind: JsString,
+        f: Val,
+        capture: bool,
+        once: bool,
+        passive: Option<bool>,
+    ) -> Res<()> {
+        if self
+            .find_target_listener(target, &kind, &f, capture)
+            .is_some()
+            || self.host_find(target, &kind, &f, capture).is_some()
+        {
+            return Ok(());
+        }
+        let name = kind.to_rust();
+        if js::event::listening(self.target_kind(target), &name) == js::Listening::Unsupported {
+            return Err(Throw::new(
+                "RunicUnsupportedError",
+                format!(
+                    "a listener of {name} events at a target the runtime does not fire them at (Chromium does)"
+                ),
+            ));
+        }
+        let passive =
+            passive.unwrap_or_else(|| js::event::passive_by_default(&name, root_target(target)));
+        let registration = self.next_listener_registration();
+        self.target_listeners.push(TargetListener {
+            target,
+            kind,
+            f,
+            capture,
+            once,
+            passive,
+            registration,
+        });
+        Ok(())
+    }
+
+    /// `removeEventListener(kind, f, { capture })`.
+    fn target_unlisten(&mut self, target: u64, kind: &JsString, f: &Val, capture: bool) {
+        if let Some(i) = self.find_target_listener(target, kind, f, capture) {
+            self.target_listeners.remove(i);
+        } else if let Some(i) = self.host_find(target, kind, f, capture) {
+            if capture {
+                self.capture_listeners.remove(i);
+            } else {
+                self.host_listeners.remove(i);
+            }
+        }
+    }
+
+    /// Call a listener script added: one registered `once` is removed
+    /// first, a passive one cannot cancel the event; one removed since the
+    /// dispatch reached its target is not called.
+    fn call_target(&mut self, l: &TargetListener, event: &js::Event) -> Res<()> {
+        if !self
+            .target_listeners
+            .iter()
+            .any(|x| x.registration == l.registration)
+        {
+            return Ok(());
+        }
+        if l.once {
+            self.target_listeners
+                .retain(|x| x.registration != l.registration);
+        }
+        let was = event.set_passive(l.passive);
+        let result = self.call_nested_listener(&l.f, event);
+        event.set_passive(was);
+        result
+    }
+
+    /// The event path of `target` (DOM standard: the target, its ancestors,
+    /// and the document and the window where it is connected); None for an
+    /// element the framework removed, which the interpreter no longer holds.
+    fn event_path(&self, target: u64) -> Option<Vec<u64>> {
+        use js::Element as E;
+        let top = |from: E| -> Vec<u64> {
+            let all = [CONTAINER, E::BODY, E::HTML, E::DOCUMENT, E::WINDOW];
+            let at = all.iter().position(|e| *e == from).unwrap_or(0);
+            all[at..].iter().map(|e| e.0).collect()
+        };
+        match E(target) {
+            E::WINDOW | E::DOCUMENT | E::HTML | E::BODY | CONTAINER => {
+                return Some(top(E(target)));
+            }
+            _ => {}
+        }
+        let mut path = vec![];
+        let mut at = target;
+        while let Some(n) = self.script.nodes.get(&at) {
+            path.push(at);
+            match n.parent {
+                Some(ScriptParent::Node(p)) => at = p,
+                Some(ScriptParent::Host(h)) => {
+                    at = h;
+                    break;
+                }
+                Some(ScriptParent::Body) => {
+                    path.extend(top(E::BODY));
+                    return Some(path);
+                }
+                None => return Some(path),
+            }
+        }
+        let nodes = chain_nodes(&self.last_tree, at)?;
+        path.extend(nodes.iter().rev().filter_map(|n| element_id(n)));
+        let in_root = self
+            .last_tree
+            .iter()
+            .position(|n| std::ptr::eq(n, nodes[0]))
+            .is_some_and(|i| i < self.root_len);
+        path.extend(top(if in_root { CONTAINER } else { E::BODY }));
+        Some(path)
+    }
+
+    /// The listeners the template rendered on element `id` for native
+    /// events of `kind` (capture or not).
+    fn template_listens(&self, id: u64, kind: EventKind, capture: bool) -> bool {
+        if capture {
+            return self
+                .capture_elements
+                .get(&id)
+                .is_some_and(|l| l.iter().any(|(k, _)| *k == kind));
+        }
+        matches!(
+            chain_nodes(&self.last_tree, id).and_then(|n| n.last().copied()),
+            Some(VNode::Element { listeners, .. }) if listeners.iter().any(|(k, _)| *k == kind)
+        )
+    }
+
+    /// Frameworks run some template listeners from their root (Svelte
+    /// delegates, React dispatches every event from its root), which the
+    /// native model runs at their elements: where a listener script added
+    /// (`addEventListener`) is on the path below the container with a
+    /// template listener at its element or below it, their order may differ
+    /// from Chromium's, and the run is reported unsupported.
+    fn check_listener_order(&self, path: &[u64], kind: EventKind) -> Res<()> {
+        // (Frameworks delegate only events that bubble: a non-bubbling
+        // event's listeners at its target run in registration order.)
+        let phases: &[bool] = if kind.bubbles() {
+            &[false, true]
+        } else {
+            &[true]
+        };
+        for &capture in phases {
+            let mut template_below = false;
+            for &n in path {
+                if matches!(
+                    js::Element(n),
+                    CONTAINER
+                        | js::Element::BODY
+                        | js::Element::HTML
+                        | js::Element::DOCUMENT
+                        | js::Element::WINDOW
+                ) {
+                    break;
+                }
+                template_below |= self.template_listens(n, kind, capture);
+                let raw = self.target_listeners.iter().any(|l| {
+                    l.target == n && l.capture == capture && l.kind.to_rust() == kind.name()
+                });
+                if raw && template_below {
+                    return Err(Throw::new(
+                        "RunicUnsupportedError",
+                        format!(
+                            "a {} listener added with addEventListener on the path of a template listener at or below its element (frameworks run some template listeners from their root)",
+                            kind.name()
+                        ),
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// `target.dispatchEvent(event)` of an event script created (M6 script
+    /// DOM, slice 3): its listeners run nested in the script, with no
+    /// microtask checkpoint; native types reach the listeners script added
+    /// (a template listener of a native type on the path is reported: the
+    /// frameworks decide whether and when theirs run), without default
+    /// actions. Returns whether the event was not cancelled.
+    fn script_dispatch(&mut self, target: u64, ev: &js::Event) -> Res<bool> {
+        if ev.dispatching() {
+            return Err(Throw::new(
+                "InvalidStateError",
+                "Failed to execute 'dispatchEvent' on 'EventTarget': The event is already being dispatched.",
+            ));
+        }
+        if !ev.data().synthetic {
+            return Err(Throw::new(
+                "RunicUnsupportedError",
+                "dispatchEvent of an event the user agent dispatched",
+            ));
+        }
+        let name = ev.data().kind.to_rust();
+        let Some(path) = self.event_path(target) else {
+            return Err(Throw::new(
+                "RunicUnsupportedError",
+                format!("dispatchEvent of {name} at a node the framework removed"),
+            ));
+        };
+        let native =
+            EventKind::parse(&name).filter(|_| js::event::FIRED_TYPES.contains(&name.as_str()));
+        if let Some(kind) = native {
+            for &n in &path {
+                if self.template_listens(n, kind, false) || self.template_listens(n, kind, true) {
+                    return Err(Throw::new(
+                        "RunicUnsupportedError",
+                        format!(
+                            "dispatchEvent of a native {name} event reaching a template listener (frameworks decide whether and when theirs run)"
+                        ),
+                    ));
+                }
+            }
+        }
+        ev.begin_dispatch(js::Element(target));
+        let mut stages: Vec<(u64, bool)> = path.iter().rev().map(|&n| (n, true)).collect();
+        stages.push((target, false));
+        if ev.data().bubbles {
+            stages.extend(path.iter().skip(1).map(|&n| (n, false)));
+        }
+        for (node, capture) in stages {
+            if ev.propagation_stopped() && !ev.can_enter(js::Element(node)) {
+                break;
+            }
+            for r in self.dispatch_refs(node, &name, native, capture) {
+                if !ev.enter(js::Element(node)) {
+                    break;
+                }
+                let result = match &r.script {
+                    Some(l) => self.call_target(l, ev),
+                    None => match &r.closure {
+                        Some(f) => self.call_nested_listener(f, ev),
+                        None => Ok(()),
+                    },
+                };
+                if let Err(t) = result {
+                    self.uncaught.push(t);
+                }
+            }
+        }
+        ev.end_dispatch();
+        Ok(!ev.default_prevented())
+    }
+
+    /// The listeners a script's dispatch of type `name` reaches at `node`
+    /// in one phase: for native types the document's and the window's and
+    /// those script added; for custom types also the template's, then
+    /// those `on()` and `addEventListener` added.
+    fn dispatch_refs(
+        &self,
+        node: u64,
+        name: &str,
+        native: Option<EventKind>,
+        capture: bool,
+    ) -> Vec<ListenerRef> {
+        let closure = |f: &Val| ListenerRef {
+            instance: 0,
+            handler: 0,
+            args: vec![],
+            closure: Some(f.clone()),
+            script: None,
+        };
+        let mut out: Vec<(u64, ListenerRef)> = vec![];
+        let host = match js::Element(node) {
+            js::Element::WINDOW => Some(true),
+            js::Element::DOCUMENT => Some(false),
+            _ => None,
+        };
+        match (native, host) {
+            (Some(kind), Some(window)) => {
+                let registry = if capture {
+                    &self.capture_listeners
+                } else {
+                    &self.host_listeners
+                };
+                for g in registry {
+                    if g.0 == window && g.1 == kind {
+                        out.push((g.3, closure(&g.2)));
+                    }
+                }
+            }
+            (None, _) if !capture => {
+                for (k, f) in self.template_custom.get(&node).into_iter().flatten() {
+                    if k.to_rust() == name {
+                        out.push((0, closure(f)));
+                    }
+                }
+            }
+            _ => {}
+        }
+        // (The host registries share the registration counter; template and
+        // `on()` custom listeners come first.)
+        out.extend(self.script_registrations(node, name, capture));
+        out.sort_by_key(|(r, _)| *r);
+        out.into_iter().map(|(_, r)| r).collect()
     }
 
     /// The capture listeners of the window, then (`document`) the
@@ -9468,23 +9999,58 @@ impl<'p> Machine<'p> {
             } else {
                 js::Element::DOCUMENT
             };
-            let listeners: Vec<(Val, u64)> = self
-                .capture_listeners
-                .iter()
-                .filter(|g| g.0 == window && g.1 == kind)
-                .map(|g| (g.2.clone(), g.3))
-                .collect();
-            for (f, registration) in listeners {
-                let live = self.capture_listeners.iter().any(|g| g.3 == registration);
-                if !live || !event.enter(current) {
-                    continue;
-                }
-                s.ran = true;
-                let arg = Val::Event(event.clone());
-                let result = self.task(None, true, |m| m.call_value(&f, vec![arg]).map(|_| ()));
-                if let Err(d) = result {
-                    s.error.get_or_insert(d);
-                }
+            self.dispatch_host_phase(kind, event, current, true, s);
+        }
+    }
+
+    /// The listeners of the window or the document for `kind` in one
+    /// phase, each a callback of its own: those of the host registries and
+    /// those script added with `addEventListener` (slice 3), in
+    /// registration order; one removed meanwhile is not called.
+    fn dispatch_host_phase(
+        &mut self,
+        kind: EventKind,
+        event: &js::Event,
+        current: js::Element,
+        capture: bool,
+        s: &mut Run,
+    ) {
+        let window = current == js::Element::WINDOW;
+        let registry = if capture {
+            &self.capture_listeners
+        } else {
+            &self.host_listeners
+        };
+        let mut calls: Vec<(u64, Option<Val>, Option<TargetListener>)> = registry
+            .iter()
+            .filter(|g| g.0 == window && g.1 == kind)
+            .map(|g| (g.3, Some(g.2.clone()), None))
+            .collect();
+        calls.extend(
+            self.script_registrations(current.0, kind.name(), capture)
+                .into_iter()
+                .map(|(r, l)| (r, None, l.script)),
+        );
+        calls.sort_by_key(|c| c.0);
+        for (registration, f, script) in calls {
+            let registry = if capture {
+                &self.capture_listeners
+            } else {
+                &self.host_listeners
+            };
+            let live = script.is_some() || registry.iter().any(|g| g.3 == registration);
+            if !live || !event.enter(current) {
+                continue;
+            }
+            s.ran = true;
+            let arg = event.clone();
+            let result = self.task(None, true, |m| match (&script, &f) {
+                (Some(l), _) => m.call_target(l, &arg),
+                (None, Some(f)) => m.call_value(f, vec![Val::Event(arg.clone())]).map(|_| ()),
+                (None, None) => Ok(()),
+            });
+            if let Err(d) = result {
+                s.error.get_or_insert(d);
             }
         }
     }
@@ -9499,24 +10065,7 @@ impl<'p> Machine<'p> {
             } else {
                 js::Element::DOCUMENT
             };
-            let listeners: Vec<(Val, u64)> = self
-                .host_listeners
-                .iter()
-                .filter(|g| g.0 == window && g.1 == kind)
-                .map(|g| (g.2.clone(), g.3))
-                .collect();
-            for (f, registration) in listeners {
-                let live = self.host_listeners.iter().any(|g| g.3 == registration);
-                if !live || !event.enter(current) {
-                    continue;
-                }
-                s.ran = true;
-                let arg = Val::Event(event.clone());
-                let result = self.task(None, true, |m| m.call_value(&f, vec![arg]).map(|_| ()));
-                if let Err(d) = result {
-                    s.error.get_or_insert(d);
-                }
-            }
+            self.dispatch_host_phase(kind, event, current, false, s);
         }
     }
 }
@@ -10896,6 +11445,7 @@ mod form_submission_tests {
             handler: 0,
             args: vec![],
             closure: None,
+            script: None,
         });
         machine.known_forms.insert(1);
         // Keep callback identity stable independently of registration identity.
@@ -11365,6 +11915,7 @@ mod form_submission_tests {
             handler: 0,
             args: vec![],
             closure: None,
+            script: None,
         });
         machine.known_forms.insert(1);
         machine.flush_pending = true;
@@ -11510,5 +12061,27 @@ mod union_tests {
         );
         assert_eq!(s(m.call(2, vec![], vec![Val::Num(2.0)]).unwrap()), "number");
         assert_eq!(s(m.call(2, vec![], vec![record()]).unwrap()), "object");
+    }
+}
+
+/// Whether `t` is the window, the document, the document element or the
+/// body (where Chromium makes wheel and touch listeners passive by default).
+fn root_target(t: u64) -> bool {
+    matches!(
+        js::Element(t),
+        js::Element::WINDOW | js::Element::DOCUMENT | js::Element::HTML | js::Element::BODY
+    )
+}
+
+/// A tag naming an IR type (a `CustomEvent` detail's, M6 script DOM slice
+/// 3): the generated code writes the same tags.
+pub fn type_tag(t: &Type) -> String {
+    serde_json::to_string(t).expect("a serializable type")
+}
+
+impl Val {
+    /// A boolean value's truth (validated booleans).
+    fn is_true(&self) -> bool {
+        matches!(self, Val::Bool(true))
     }
 }

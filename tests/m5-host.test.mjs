@@ -198,11 +198,13 @@ test('rejected: host values read while rendering, history events off the window'
     /session history/,
   );
   await rejects([['· {roll}</p>', '· {Math.random()}</p>']], 'E_REACTIVITY', /Randomness/);
+  // (A document popstate listener is kept since script DOM slice 3: the
+  // event never reaches the document, in Chromium either.)
   await rejects(
     [
       [
         '<svelte:window onpopstate',
-        '<svelte:document onpopstate={() => {}} />\n<svelte:window onpopstate',
+        '<svelte:document onload={() => {}} />\n<svelte:window onpopstate',
       ],
     ],
     'E_EVENT',

@@ -50,6 +50,7 @@ import { componentValueType, knownComponentRecord } from './component-values.ts'
 import { elementAttributesType } from './svelte-elements.ts';
 import { FRAGMENT_TAGS } from './html-fragments.ts';
 import { INERT_TAGS, TABLE_TAGS } from './elements.ts';
+import { listenableType } from './event-types.ts';
 
 /**
  * The elements script may create (M6 script DOM, docs/design/M6-SCRIPT-DOM.md):
@@ -197,8 +198,50 @@ const EVENT_MEMBER_INTERFACES: Record<string, string> = {
   repeat: 'KeyboardEvent',
 };
 
-/** Events element listeners added by script receive (`element.listen`). */
-const ELEMENT_SCRIPT_EVENTS = ['scroll', 'pointermove', 'pointerenter', 'pointerleave', 'submit'];
+/**
+ * Interfaces script constructs events with (M6 script DOM, slice 3;
+ * `runic_js::event::SCRIPT_INTERFACES`), each with its base interface.
+ */
+const SCRIPT_EVENT_BASES: Record<string, string> = {
+  Event: '',
+  UIEvent: 'Event',
+  MouseEvent: 'UIEvent',
+  WheelEvent: 'MouseEvent',
+  KeyboardEvent: 'UIEvent',
+  FocusEvent: 'UIEvent',
+  InputEvent: 'UIEvent',
+};
+const SCRIPT_EVENT_INTERFACES = Object.keys(SCRIPT_EVENT_BASES);
+
+/** Whether interface `iface` is `owner` or derives from it. */
+function eventDerives(iface: string, owner: string): boolean {
+  for (let at = iface; at; at = SCRIPT_EVENT_BASES[at] ?? '') if (at === owner) return true;
+  return false;
+}
+
+/**
+ * The init dictionary members covered for events script constructs, with
+ * their type and the interfaces that have them
+ * (`runic_js::event::init_member`).
+ */
+const SCRIPT_EVENT_INIT: Record<string, [Type, string[]]> = {
+  detail: ['number', ['UIEvent']],
+  clientX: ['number', ['MouseEvent']],
+  clientY: ['number', ['MouseEvent']],
+  button: ['number', ['MouseEvent']],
+  buttons: ['number', ['MouseEvent']],
+  deltaX: ['number', ['WheelEvent']],
+  deltaY: ['number', ['WheelEvent']],
+  ctrlKey: ['boolean', ['MouseEvent', 'KeyboardEvent']],
+  shiftKey: ['boolean', ['MouseEvent', 'KeyboardEvent']],
+  altKey: ['boolean', ['MouseEvent', 'KeyboardEvent']],
+  metaKey: ['boolean', ['MouseEvent', 'KeyboardEvent']],
+  key: ['string', ['KeyboardEvent']],
+  code: ['string', ['KeyboardEvent']],
+  repeat: ['boolean', ['KeyboardEvent']],
+  isComposing: ['boolean', ['KeyboardEvent', 'InputEvent']],
+  relatedTarget: [{ maybe: 'element' }, ['MouseEvent', 'FocusEvent']],
+};
 
 export type Binding =
   | { kind: 'local'; owner: FnBuilder; local: number }
@@ -3283,6 +3326,219 @@ export class Lowerer {
   private onceRecords = new Map<string, number>();
 
   /**
+   * `new MouseEvent(type, init)` and the other interfaces of
+   * `SCRIPT_EVENT_INTERFACES` (M6 script DOM, slice 3): `event.create` with
+   * the init dictionary's members, its values evaluated in order first.
+   */
+  private scriptEvent(iface: string, e: ts.NewExpression, b: FnBuilder): Expr {
+    const [type, init, ...rest] = e.arguments ?? [];
+    if (!type || rest.length) return this.fail(e, 'E_NEW', `new ${iface} takes a type and options`);
+    const setups: { local: number; value: Expr }[] = [];
+    const hold = (value: Expr): Expr => {
+      const local = b.local('$init', this.irType(value, b));
+      setups.push({ local, value });
+      return { op: 'local', local };
+    };
+    const kind = hold(this.coerce(type, b, STRING));
+    let bubbles: Expr = { op: 'lit', value: false };
+    let cancelable: Expr = { op: 'lit', value: false };
+    const members: Expr[] = [];
+    const member = (key: string, value: ts.Expression | Expr, at: ts.Node): Fail | undefined => {
+      const want = SCRIPT_EVENT_INIT[key];
+      const read = (t: Type) =>
+        hold('op' in value ? value : this.coerce(value as ts.Expression, b, t));
+      if (key === 'bubbles') bubbles = read(BOOLEAN);
+      else if (key === 'cancelable') cancelable = read(BOOLEAN);
+      else if (key === 'composed') read(BOOLEAN);
+      else if (key === 'view') {
+        const v = hold('op' in value ? value : this.expr(value as ts.Expression, b));
+        const t = this.irType(v, b);
+        if (t !== 'element' && maybeInner(t) !== 'element' && maybeInner(t) !== 'void')
+          return this.fail(at, 'E_NEW', `${iface} option view is the window or null`);
+      } else if (want && want[1].some(owner => eventDerives(iface, owner))) {
+        members.push({ op: 'lit', value: key }, read(want[0]));
+      } else return this.fail(at, 'E_NEW', `${iface} option ${key} is not covered`);
+      return undefined;
+    };
+    const o = init && skipParens(init);
+    if (o && ts.isObjectLiteralExpression(o)) {
+      for (const p of o.properties) {
+        if (
+          !(ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p)) ||
+          !ts.isIdentifier(p.name)
+        )
+          return this.fail(p, 'E_NEW', `${iface} options are plain properties`);
+        member(p.name.text, ts.isPropertyAssignment(p) ? p.initializer : p.name, p);
+      }
+    } else if (init) {
+      // A record of the options (absent fields: their defaults).
+      const v = hold(this.expr(init, b));
+      const t = this.irType(v, b);
+      if (typeof t !== 'object' || !('record' in t))
+        return this.fail(init, 'E_NEW', `${iface} options are an object or a record of them`);
+      this.types.records[t.record].fields.forEach((f, field) => {
+        const get: Expr = { op: 'get', object: v, field };
+        if (maybeInner(f.type) !== undefined && f.name !== 'view' && f.name !== 'relatedTarget')
+          return this.fail(init, 'E_NEW', `${iface} option ${f.name} may be undefined`);
+        member(f.name, get, init);
+      });
+    }
+    const created: Expr = {
+      op: 'builtin',
+      name: 'event.create',
+      args: [{ op: 'lit', value: iface }, kind, bubbles, cancelable, ...members],
+      type: 'event',
+    };
+    return setups.reduceRight<Expr>(
+      (body, { local, value }) => ({ op: 'with', local, value, body }),
+      created,
+    );
+  }
+
+  /**
+   * `target.addEventListener(type, listener, options)` and
+   * `removeEventListener` (M6 script DOM, slice 3): `target.listen` and
+   * `target.unlisten` of a node handle (an element, a text, comment or
+   * fragment node, the document, the window), of a type known at build or
+   * run time, with the options `capture`, `once` and `passive` (a boolean,
+   * an object literal, or a record or nullable record of them). A literal
+   * type of a native event the runtime does not fire (Chromium does) is
+   * rejected here; one known at run time is reported there. `signal` is
+   * rejected until `AbortController` exists.
+   */
+  targetListener(method: string, target: Expr, e: ts.CallExpression, b: FnBuilder): Expr {
+    const add = method === 'addEventListener';
+    const [type, listener, options, ...rest] = e.arguments;
+    if (!type || !listener || rest.length)
+      return this.fail(e, 'E_EVENT', `${method} takes a type, a listener and options`);
+    if (ts.isStringLiteralLike(type) && !listenableType(type.text))
+      return this.fail(
+        type,
+        'E_EVENT',
+        `${type.text} listeners are not covered: Chromium fires ${type.text} events and the runtime does not`,
+      );
+    const kind = this.coerce(type, b, STRING);
+    const listenerType: Type = { fn: { params: ['event'], result: 'void' } };
+    this.expected.set(skipParens(listener), listenerType);
+    const f = this.expr(listener, b);
+    const ft = this.irType(f, b);
+    if (
+      typeof ft !== 'object' ||
+      !('fn' in ft) ||
+      !(ft.fn.params.length === 0 || (ft.fn.params.length === 1 && ft.fn.params[0] === 'event'))
+    )
+      return this.fail(
+        listener,
+        'E_EVENT',
+        `${method} takes a listener taking the event or nothing`,
+      );
+    // (The arguments are evaluated in order before the options are read.)
+    const setups: { local: number; value: Expr }[] = [];
+    const hold = (value: Expr, name: string): Expr => {
+      // (A literal or a handle read without effect needs no local.)
+      if (value.op === 'lit' || (value.op === 'builtin' && value.name.endsWith('.node')))
+        return value;
+      const local = b.local(name, this.irType(value, b));
+      setups.push({ local, value });
+      return { op: 'local', local };
+    };
+    const targetRead = hold(target, '$target');
+    const kindRead = hold(kind, '$type');
+    const fRead = hold(f, '$listener');
+    const no: Expr = { op: 'lit', value: false };
+    let capture: Expr = no;
+    let once: Expr = no;
+    let passive: Expr = { op: 'undefined', type: { maybe: BOOLEAN } };
+    const somePassive = (v: Expr): Expr => ({ op: 'some', value: v });
+    const o = options && skipParens(options);
+    if (o && ts.isObjectLiteralExpression(o)) {
+      for (const p of o.properties) {
+        if (
+          !(ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p)) ||
+          !ts.isIdentifier(p.name)
+        )
+          return this.fail(p, 'E_EVENT', 'Listener options are named capture, once and passive');
+        const key = p.name.text;
+        const value = ts.isPropertyAssignment(p) ? p.initializer : p.name;
+        if (key === 'signal')
+          return this.fail(
+            p,
+            'E_EVENT',
+            'The signal listener option is not covered (AbortController is not supported)',
+          );
+        if (!['capture', 'once', 'passive'].includes(key))
+          return this.fail(p, 'E_EVENT', `Listener option ${key} is not covered`);
+        const v = hold(this.coerce(value, b, BOOLEAN), `$${key}`);
+        if (key === 'capture') capture = v;
+        else if (key === 'once') once = v;
+        else passive = somePassive(v);
+      }
+    } else if (o) {
+      const v = this.expr(o, b);
+      const t = this.irType(v, b);
+      const inner = maybeInner(t) ?? t;
+      if (t === BOOLEAN) capture = hold(v, '$capture');
+      else if (typeof inner === 'object' && 'record' in inner) {
+        const read = hold(v, '$options');
+        const record = this.types.records[inner.record];
+        for (const field of record.fields)
+          if (!['capture', 'once', 'passive'].includes(field.name))
+            return this.fail(
+              o,
+              'E_EVENT',
+              field.name === 'signal'
+                ? 'The signal listener option is not covered (AbortController is not supported)'
+                : `Listener option ${field.name} is not covered`,
+            );
+        // A field (absent: undefined) of the options, or of options that
+        // may be nullish (then every option is absent).
+        const get = (name: string): Expr | undefined => {
+          const field = record.fields.findIndex(f => f.name === name);
+          if (field < 0) return undefined;
+          const ft = record.fields[field].type;
+          if (ft !== BOOLEAN && JSON.stringify(ft) !== JSON.stringify({ maybe: BOOLEAN }))
+            return this.fail(o, 'E_EVENT', `Listener option ${name} is a boolean`);
+          const object: Expr = maybeInner(t) ? { op: 'unwrap', value: read } : read;
+          const value: Expr = { op: 'get', object, field };
+          const optional: Expr = ft === BOOLEAN ? somePassive(value) : value;
+          return maybeInner(t)
+            ? {
+                op: 'cond',
+                test: { op: 'builtin', name: 'maybe.is-nullish', args: [read], type: BOOLEAN },
+                then: { op: 'undefined', type: { maybe: BOOLEAN } },
+                else: optional,
+              }
+            : optional;
+        };
+        const flag = (name: string): Expr => {
+          const v = get(name);
+          return v ? { op: 'nullish', left: v, right: no } : no;
+        };
+        capture = flag('capture');
+        once = flag('once');
+        passive = get('passive') ?? passive;
+      } else
+        return this.fail(
+          o,
+          'E_EVENT',
+          'Listener options are a boolean (capture), an object literal or a record of capture, once and passive',
+        );
+    }
+    const call: Expr = {
+      op: 'builtin',
+      name: add ? 'target.listen' : 'target.unlisten',
+      args: add
+        ? [targetRead, kindRead, fRead, capture, once, passive]
+        : [targetRead, kindRead, fRead, capture],
+      type: 'void',
+    };
+    return setups.reduceRight<Expr>(
+      (body, { local, value }) => ({ op: 'with', local, value, body }),
+      call,
+    );
+  }
+
+  /**
    * `target.addEventListener(type, f, { once: true })`: a wrapper is
    * registered that removes itself before calling `f`, as the listener is
    * removed before it runs. A registration function builds the wrapper
@@ -4612,7 +4868,10 @@ export class Lowerer {
           t === undefined ||
           t === 'void' ||
           key.text === 'value' ||
-          key.text === 'checked'
+          key.text === 'checked' ||
+          // (A CustomEvent's detail is read as `event.detail`.)
+          (key.text === 'detail' &&
+            this.checker.getTypeAtLocation(pattern).getSymbol()?.name === 'CustomEvent')
         )
           this.fail(el, 'E_DESTRUCTURE', 'Events destructure into their supported members');
         bind(
@@ -6017,6 +6276,24 @@ export class Lowerer {
           member &&
           ts.isMethodSignature(member) &&
           path.resolve(member.getSourceFile().fileName) === DOM
+        )
+          return { op: 'lit', value: 'function' };
+        // A host interface object (`typeof window.MouseEvent`, `typeof
+        // CustomEvent`; M6 script DOM, slice 3): a constructor the host
+        // declarations give, which Chromium has.
+        const global = ts.isPropertyAccessExpression(operand)
+          ? member
+          : ts.isIdentifier(operand)
+            ? this.symbol(operand)?.valueDeclaration
+            : undefined;
+        if (
+          global &&
+          ts.isVariableDeclaration(global) &&
+          path.resolve(global.getSourceFile().fileName) === DOM &&
+          (this.checker.getTypeAtLocation(global).getConstructSignatures().length > 0 ||
+            !!this.checker.getTypeAtLocation(global).getProperty('prototype')) &&
+          (ts.isIdentifier(operand) ||
+            this.hostName((operand as ts.PropertyAccessExpression).expression) === 'window')
         )
           return { op: 'lit', value: 'function' };
         // The host's globals (`typeof document`): native apps have them.
@@ -7916,6 +8193,30 @@ export class Lowerer {
         };
       }
     }
+    // A feature test of a host object's member (M6 script DOM, slice 3:
+    // embla's `'addEventListener' in node`): true where every type the
+    // value may have is a host interface declaring the member
+    // (frontend/dom.d.ts declares only covered members, each of which
+    // Chromium has); the value is evaluated.
+    if (op === K.InKeyword && ts.isStringLiteralLike(e.left)) {
+      const t = this.checker.getTypeAtLocation(e.right);
+      const parts = t.isUnion() ? t.types : [t];
+      const name = e.left.text;
+      const declared = parts.every(p => {
+        const member = p.getProperty(name);
+        const decl = member?.valueDeclaration ?? member?.declarations?.[0];
+        return !!decl && path.resolve(decl.getSourceFile().fileName) === DOM;
+      });
+      if (declared && name !== 'select') {
+        const v = this.expr(e.right, b);
+        return {
+          op: 'with',
+          local: b.local('$object', this.irType(v, b)),
+          value: v,
+          body: { op: 'lit', value: true },
+        };
+      }
+    }
     // `"select" in element` (bits-ui's isSelectableInput): inputs and text
     // areas have select().
     if (op === K.InKeyword && ts.isStringLiteralLike(e.left) && e.left.text === 'select') {
@@ -9608,12 +9909,23 @@ export class Lowerer {
       return { op: 'builtin', name: `element.${name}`, args: [object], type: NUMBER };
     }
     if (kind === 'event') {
+      // A CustomEvent's detail (M6 script DOM, slice 3), at the type the
+      // program gives it (`CustomEvent<T>`).
+      if (
+        name === 'detail' &&
+        this.checker.getTypeAtLocation(e.expression).getSymbol()?.name === 'CustomEvent'
+      ) {
+        const type = this.types.typeOrUndefined(e);
+        if (type === undefined)
+          return this.fail(e, 'E_TYPE_UNSUPPORTED', "The event's detail type is not a value type");
+        return { op: 'builtin', name: 'event.custom-detail', args: [object], type };
+      }
       const type = EVENT_MEMBERS[name];
       if (type === undefined || type === 'void' || name === 'value' || name === 'checked')
         return this.fail(
           e,
           'E_EVENT',
-          'Event objects support type, key, code, ctrlKey/shiftKey/altKey/metaKey, repeat, isComposing, clientX/clientY, button/buttons, deltaX/deltaY, detail, pointerType, pointerId, target, currentTarget, defaultPrevented, target.value/checked, preventDefault(), stopPropagation() and stopImmediatePropagation()',
+          'Event objects support type, key, code, ctrlKey/shiftKey/altKey/metaKey, repeat, isComposing, clientX/clientY, button/buttons, deltaX/deltaY, detail (of a CustomEvent at its type), pointerType, pointerId, target, currentTarget, defaultPrevented, isTrusted, timeStamp, bubbles, cancelable, target.value/checked, preventDefault(), stopPropagation() and stopImmediatePropagation()',
         );
       return { op: 'builtin', name: `event.${name}`, args: [object], type };
     }
@@ -10829,6 +11141,22 @@ export class Lowerer {
       }
       // getComputedStyle(element): the element, whose properties are read
       // through getPropertyValue (elementMethod).
+      // An event script created dispatched at the window or the document
+      // (M6 script DOM, slice 3).
+      if ((host === 'window' || host === 'document') && method === 'dispatchEvent') {
+        const [event] = e.arguments;
+        if (!event || e.arguments.length !== 1)
+          return this.fail(e, 'E_CALL', 'dispatchEvent takes an event');
+        return {
+          op: 'builtin',
+          name: 'element.dispatchEvent',
+          args: [
+            { op: 'builtin', name: `${host}.node`, args: [], type: 'element' },
+            this.coerce(event, b, 'event'),
+          ],
+          type: BOOLEAN,
+        };
+      }
       if (host === 'window' && method === 'getComputedStyle') {
         if (e.arguments.length !== 1)
           return this.fail(e, 'E_CALL', 'getComputedStyle takes an element (no pseudo-element)');
@@ -10877,17 +11205,26 @@ export class Lowerer {
               ts.isPropertyAssignment(options.properties[0]) &&
               options.properties[0].name.getText() === 'capture' &&
               options.properties[0].initializer.kind === ts.SyntaxKind.TrueKeyword));
-        if (options && !once && !capture)
-          this.fail(
-            options,
-            'E_EVENT',
-            'Listener options other than capture (passive, once with a named function) are planned for a later milestone; once is supported with an inline function',
-          );
         const supported = (k: string) =>
           EVENT_KINDS.includes(k as EventKind) ||
           (host === 'window' && WINDOW_EVENT_KINDS.includes(k as EventKind));
-        if (!type || !ts.isStringLiteralLike(type) || !supported(type.text))
-          this.fail(type ?? e, 'E_EVENT', `${host}.${method} takes a supported event name literal`);
+        // Other types and options (M6 script DOM, slice 3): the listeners of
+        // any event target.
+        if (
+          (options && !once && !capture) ||
+          e.arguments.length > 3 ||
+          !type ||
+          !ts.isStringLiteralLike(type) ||
+          !supported(type.text) ||
+          (host === 'document' && ['resize', 'popstate', 'hashchange'].includes(type.text)) ||
+          !listener
+        )
+          return this.targetListener(
+            method,
+            { op: 'builtin', name: `${host}.node`, args: [], type: 'element' },
+            e,
+            b,
+          );
         if (once)
           return this.onceListener(
             `${host}`,
@@ -12162,28 +12499,10 @@ export class Lowerer {
           return this.fail(e, 'E_CALL', 'dispatchEvent takes an event');
         return call('dispatchEvent', [this.coerce(event, b, 'event')], BOOLEAN);
       }
+      // M6 script DOM, slice 3: listeners of any type, with options.
       case 'addEventListener':
-      case 'removeEventListener': {
-        const [type, listener, options] = e.arguments;
-        if (options)
-          this.fail(
-            options,
-            'E_EVENT',
-            'Listener options (capture, passive, once) are planned for a later milestone',
-          );
-        if (!type || !ts.isStringLiteralLike(type) || !ELEMENT_SCRIPT_EVENTS.includes(type.text))
-          this.fail(
-            type ?? e,
-            'E_EVENT',
-            `Element listeners added by script are supported for ${ELEMENT_SCRIPT_EVENTS.join(', ')}`,
-          );
-        if (!listener) return this.fail(e, 'E_EVENT', `${method} takes a listener`);
-        return call(
-          method === 'addEventListener' ? 'listen' : 'unlisten',
-          [{ op: 'lit', value: (type as ts.StringLiteral).text }, this.expr(listener, b)],
-          'void',
-        );
-      }
+      case 'removeEventListener':
+        return this.targetListener(method, receiver, e, b);
     }
     // `element.matches(":focus-visible")` (bits-ui's isFocusVisible): whether
     // it is focused and its focus is visible, by the input modality.
@@ -13427,6 +13746,7 @@ export class Lowerer {
         return this.fail(e, 'E_NEW', 'new CustomEvent takes a type and options');
       let cancelable: Expr = { op: 'lit', value: false };
       let bubbles: Expr = { op: 'lit', value: false };
+      let detail: Expr | undefined;
       const nothing = (v: Expr) => {
         const t = this.irType(v, b);
         return t === 'void' || (typeof t === 'object' && 'maybe' in t && t.maybe === 'void');
@@ -13455,13 +13775,12 @@ export class Lowerer {
           else if (key === 'composed') evaluate(this.expr(value, b));
           else if (key === 'detail') {
             const v = this.expr(value, b);
-            if (!nothing(v))
-              return this.fail(
-                p,
-                'E_NEW',
-                'A CustomEvent detail other than undefined is not covered',
-              );
-            evaluate(v);
+            if (nothing(v)) evaluate(v);
+            else {
+              // (M6 script DOM, slice 3: a detail of any type.)
+              evaluate(v);
+              detail = { op: 'local', local: setups[setups.length - 1].local };
+            }
           } else return this.fail(p, 'E_NEW', `CustomEvent option ${key} is not covered`);
         }
       } else if (init) {
@@ -13486,30 +13805,39 @@ export class Lowerer {
         for (const f of record.fields)
           if (!['bubbles', 'cancelable', 'composed', 'detail'].includes(f.name))
             return this.fail(init, 'E_NEW', `CustomEvent option ${f.name} is not covered`);
-        const detail = record.fields.find(f => f.name === 'detail');
+        const field = record.fields.findIndex(f => f.name === 'detail');
+        const detailType = field < 0 ? undefined : record.fields[field].type;
         if (
-          detail &&
+          detailType &&
           !(
-            detail.type === 'void' ||
-            (typeof detail.type === 'object' &&
-              'maybe' in detail.type &&
-              detail.type.maybe === 'void')
+            detailType === 'void' ||
+            (typeof detailType === 'object' && 'maybe' in detailType && detailType.maybe === 'void')
           )
         )
-          return this.fail(
-            init,
-            'E_NEW',
-            'A CustomEvent detail other than undefined is not covered',
-          );
+          detail = { op: 'get', object: { op: 'local', local }, field };
         cancelable = flag('cancelable') ?? cancelable;
         bubbles = flag('bubbles') ?? bubbles;
       }
-      const created: Expr = {
-        op: 'builtin',
-        name: 'event.new',
-        args: [this.coerce(type, b, STRING), cancelable, bubbles],
-        type: 'event',
-      };
+      const created: Expr = detail
+        ? {
+            op: 'builtin',
+            name: 'event.custom',
+            args: [
+              this.coerce(type, b, STRING),
+              bubbles,
+              cancelable,
+              detail,
+              // (The detail's IR type, which the interpreter cannot infer.)
+              { op: 'lit', value: JSON.stringify(this.irType(detail, b)) },
+            ],
+            type: 'event',
+          }
+        : {
+            op: 'builtin',
+            name: 'event.new',
+            args: [this.coerce(type, b, STRING), cancelable, bubbles],
+            type: 'event',
+          };
       return setups.reduceRight<Expr>(
         (body, { local, value }) => ({ op: 'with', local, value, body }),
         created,
@@ -13579,6 +13907,22 @@ export class Lowerer {
       }
       return out;
     }
+    // new Event(type, init), new MouseEvent(type, init), … (M6 script DOM,
+    // slice 3): an event of that interface with the init dictionary's
+    // `bubbles`, `cancelable`, `composed` (no effect: there are no shadow
+    // roots), `view` (the window or null; `event.view` is not covered) and
+    // the members the interface has (`runic_js::event::init_member`).
+    const iface = this.hostName(e.expression);
+    if (
+      iface &&
+      SCRIPT_EVENT_INTERFACES.includes(iface) &&
+      !(
+        iface === 'KeyboardEvent' &&
+        e.arguments?.[1] &&
+        this.types.typeOrUndefined(skipParens(e.arguments[1])) === 'event'
+      )
+    )
+      return this.scriptEvent(iface, e, b);
     // new KeyboardEvent(type, e) of another event (M6 overlays: bits-ui's
     // escape layer): a copy of its key, modifiers and cancelability.
     if (this.hostName(e.expression) === 'KeyboardEvent') {

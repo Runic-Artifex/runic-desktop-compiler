@@ -47,3 +47,23 @@ main `e78a676` (Stylo 3a2013ca, Blitz c8760598).
 | IR of the other conformance fixtures (`analyze` at slice 1 and now) | 238 of 238 byte-identical |
 | Cases whose programs use `instanceof Element`/`HTMLElement` (generated code changed): bits-accordion, -accordion-multiple, -checkbox, -checkbox-examples, -dialog, -dropdown-menu, -popover, -select, -sheet, -tabs, -toggle-group, -toggle-group-single, -tooltip, script-dom-announcer, script-dom-nodes, unions, `--pixels` | all gates passed (bits-toggle-group 420x700 with its declared glyph-coverage gap) |
 | Census | 280 of 404 lowered, unchanged; no example changed its first blocker (the north-star blockers are past this slice) |
+
+## Slice 3: events (2026-10-14)
+
+Listener options at every node handle, events script creates and dispatches
+(DOM standard dispatch), `CustomEvent` details at their types, init members,
+template listeners of custom types (Svelte's `on<type>`), feature tests of
+host objects, and the report of listeners script adds whose order with a
+framework's delegated template listeners may differ. Compiler on main
+`7906771`.
+
+| Check | Result |
+|---|---|
+| `node conformance/run.mjs script-dom-events --pixels` (fixture `script-dom-events-svelte`, 13 actions: capture given twice, once with a named function, a passive listener's preventDefault on a checkbox and a cancelling one, a document `once` key listener and a window capture listener, CustomEvent with a typed detail bubbling to an `ontick` template listener and cancelled by an ancestor, a non-bubbling one, a MouseEvent with init members, an Event at a script node bubbling to the document, InvalidStateError of a re-entrant dispatch, removeEventListener by capture flag) | semantics, geometry and pixels passed at 800x600 and 420x600 |
+| Snapshots | Chromium's and the native log agree at every step (Chromium's console intervention for the passive listener's preventDefault is a diagnostic, not an app line) |
+| `node conformance/differential.mjs script-dom-events-svelte script-dom-nodes-svelte script-dom-announcer-svelte --traces 20` | complete: 1560 steps, 0 failures |
+| IR of the other conformance fixtures (`analyze` at `7906771` and now) | 220 of 228 identical; 8 changed where element listeners script adds now lower to `target.listen` (bits-dropdown-menu, -popover, -select, -tooltip, floating, form-submit-element-listeners-svelte/-vue, form-submit-stops-vue) |
+| Cases whose programs use listeners script adds, events script creates or dispatches (generated code changed): bits-command, -dialog, -popover, -select, -sheet, -tooltip, floating, form-submit-element-listeners, form-submit-stops, id-counter, overlay-host, script-dom-announcer, script-dom-nodes, script-dom-events, hover-events, hover-targets, `--pixels` | all gates passed |
+| bits-dropdown-menu | reported unsupported at run time (both viewports): bits-ui's menu adds `pointermove` listeners with `addEventListener` to the sub-trigger and the content, whose items' Svelte `onpointermove` handlers Svelte runs from its delegation root, after them; the runtime runs them at the items, before them. The case passed before only because the order did not change its outcome; the delegation model (P2 row) would cover it |
+| `npm test` | 515 passed, 0 failed (6 new in `tests/script-events.test.mjs`) |
+| `node compiler/cargo.mjs test --offline --workspace` | 186 passed, 0 failed (new: `event::submission_tests::listening_by_type_and_target`, `script_events_dispatch_once_at_a_time`) |

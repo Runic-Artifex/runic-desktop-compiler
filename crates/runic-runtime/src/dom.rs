@@ -243,6 +243,12 @@ pub(crate) struct Listeners {
     custom: HashMap<NodeId, Vec<u32>>,
     /// Keys of listeners whose elements were removed (the app frees them).
     freed: Vec<u32>,
+    /// Keys of element listeners script added (`on()`, `addEventListener`;
+    /// the others are the template's), and among them those added with
+    /// `addEventListener` (M6 script DOM, slice 3), which frameworks do not
+    /// order with their own (`order_conflict`).
+    script_keys: std::collections::HashSet<u32>,
+    raw: std::collections::HashSet<u32>,
     /// An element that lost focus because a list move detached it.
     pub(crate) blurred: Option<NodeId>,
     /// Parents whose child lists changed (MutationObserver, M6 overlays).
@@ -360,6 +366,55 @@ impl Listeners {
             .flatten()
             .filter(move |(e, _)| *e == event)
             .map(|(_, h)| *h)
+    }
+
+    /// Whether `node` has a template listener (not one script added) for
+    /// `event` in the capture phase or not.
+    pub(crate) fn template_listens(&self, node: NodeId, event: Event, capture: bool) -> bool {
+        let keys: Vec<u32> = if capture {
+            self.all_capture(node, event).collect()
+        } else {
+            self.all(node, event).collect()
+        };
+        keys.iter().any(|k| !self.script_keys.contains(k))
+    }
+
+    /// Frameworks run some template listeners from their root (Svelte
+    /// delegates, React dispatches every event from its root), which the
+    /// runtime runs at their elements: where a listener script added with
+    /// `addEventListener` is on `path` (the target first) below the
+    /// container, with a template listener at its element or below it,
+    /// their order may differ from Chromium's (M6 script DOM, slice 3).
+    pub(crate) fn order_conflict(&self, path: &[NodeId], event: Event) -> Option<String> {
+        // (Frameworks delegate only events that bubble: a non-bubbling
+        // event's listeners at its target run in registration order, as
+        // the runtime runs them.)
+        let phases: &[bool] = if event.bubbles() {
+            &[false, true]
+        } else {
+            &[true]
+        };
+        for &capture in phases {
+            let mut template_below = false;
+            for &n in path {
+                if Some(n) == self.container || Some(n) == self.body {
+                    break;
+                }
+                template_below |= self.template_listens(n, event, capture);
+                let mut keys: Box<dyn Iterator<Item = u32>> = if capture {
+                    Box::new(self.all_capture(n, event))
+                } else {
+                    Box::new(self.all(n, event))
+                };
+                if template_below && keys.any(|k| self.raw.contains(&k)) {
+                    return Some(format!(
+                        "a {} listener added with addEventListener on the path of a template listener at or below its element (frameworks run some template listeners from their root)",
+                        event.name()
+                    ));
+                }
+            }
+        }
+        None
     }
 
     /// The capture-phase deliveries of an event along `chain` (the target
@@ -499,6 +554,115 @@ impl Host {
     pub fn listen_element(&self, node: u64, event: Event, key: u32) {
         if let Some(mut dom) = self.dom() {
             dom.listen(NodeId::from_u64(node), event, key);
+            dom.listeners.script_keys.insert(key);
+        }
+    }
+
+    /// A listener script added with `addEventListener` to a node (M6
+    /// script DOM, slice 3): `key` receives `event` at `node` in the capture
+    /// phase or not.
+    pub fn listen_raw(&self, node: u64, event: Event, key: u32, capture: bool) {
+        if let Some(mut dom) = self.dom() {
+            let id = NodeId::from_u64(node);
+            if capture {
+                dom.listen_capture(id, event, key);
+            } else {
+                dom.listen(id, event, key);
+            }
+            dom.listeners.script_keys.insert(key);
+            dom.listeners.raw.insert(key);
+        }
+    }
+
+    /// The kind of event target `node` is (M6 script DOM, slice 3).
+    pub fn target_kind(&self, node: u64) -> runic_js::TargetKind {
+        use runic_js::TargetKind;
+        match runic_js::Element(node) {
+            runic_js::Element::WINDOW => TargetKind::Window,
+            runic_js::Element::DOCUMENT => TargetKind::Document,
+            _ => match self.dom().and_then(|dom| {
+                dom.doc
+                    .get_node(NodeId::from_u64(node))
+                    .map(|n| n.element_data().is_some())
+            }) {
+                Some(false) => TargetKind::Node,
+                _ => TargetKind::Element,
+            },
+        }
+    }
+
+    /// Whether `node` is the window, the document, the document element or
+    /// the body (Chromium makes their wheel and touch listeners passive).
+    pub fn root_target(&self, node: u64) -> bool {
+        if matches!(
+            runic_js::Element(node),
+            runic_js::Element::WINDOW | runic_js::Element::DOCUMENT
+        ) {
+            return true;
+        }
+        self.dom().is_some_and(|dom| {
+            let id = NodeId::from_u64(node);
+            dom.doc.try_root_element().is_some_and(|r| r.id == id) || dom.listeners.body == Some(id)
+        })
+    }
+
+    /// The event path of `target` for a dispatch by script (DOM standard:
+    /// the target, its ancestors of every node kind, then the document and
+    /// the window where it is connected).
+    pub fn event_path(&self, target: u64) -> Vec<u64> {
+        use runic_js::Element as E;
+        match E(target) {
+            E::WINDOW => return vec![target],
+            E::DOCUMENT => return vec![target, E::WINDOW.0],
+            _ => {}
+        }
+        let Some(dom) = self.dom() else {
+            return vec![target];
+        };
+        let mut path = vec![];
+        let mut at = Some(NodeId::from_u64(target));
+        let mut connected = false;
+        while let Some(n) = at.and_then(|id| dom.doc.get_node(id)) {
+            if n.parent.is_none()
+                && n.element_data().is_none()
+                && !dom.listeners.fragments.contains(&n.id)
+            {
+                // The document node.
+                connected = true;
+                break;
+            }
+            path.push(n.id.as_u64());
+            at = n.parent;
+        }
+        if connected {
+            path.extend([E::DOCUMENT.0, E::WINDOW.0]);
+        }
+        path
+    }
+
+    /// Whether a template listener (not one script added) for `event` is
+    /// on `path` (a script dispatch of a native type reaching one is
+    /// reported: the frameworks decide whether and when theirs run).
+    pub fn template_on_path(&self, path: &[u64], event: Event) -> bool {
+        self.dom().is_some_and(|dom| {
+            path.iter().any(|&n| {
+                let n = NodeId::from_u64(n);
+                dom.listeners.template_listens(n, event, false)
+                    || dom.listeners.template_listens(n, event, true)
+            })
+        })
+    }
+
+    /// Report a listener script added whose order with a template listener
+    /// may differ from Chromium's (`Listeners::order_conflict`), for an
+    /// event dispatched along `path` (the target first).
+    pub fn check_listener_order(&self, path: &[u64], event: Event) {
+        let why = self.dom().and_then(|dom| {
+            let path: Vec<NodeId> = path.iter().map(|&n| NodeId::from_u64(n)).collect();
+            dom.listeners.order_conflict(&path, event)
+        });
+        if let Some(why) = why {
+            crate::unsupported(&why);
         }
     }
 
@@ -531,11 +695,12 @@ impl Host {
     pub fn unlisten_element(&self, node: u64, key: u32) {
         if let Some(mut dom) = self.dom() {
             let node = NodeId::from_u64(node);
-            if dom
-                .listeners
-                .map
-                .get(&node)
-                .is_some_and(|l| l.iter().any(|(_, k)| *k == key))
+            if [&dom.listeners.map, &dom.listeners.capture]
+                .iter()
+                .any(|m| {
+                    m.get(&node)
+                        .is_some_and(|l| l.iter().any(|(_, k)| *k == key))
+                })
             {
                 dom.unlisten(node, key);
             }
@@ -2653,9 +2818,20 @@ impl Dom<'_> {
         false
     }
 
+    /// Whether listener `key` was added by script with `addEventListener`
+    /// (a callback of its own, M6 script DOM slice 3).
+    pub fn raw_listener(&self, key: u32) -> bool {
+        self.listeners.raw.contains(&key)
+    }
+
     /// Listener keys released by removed elements since the last call.
     pub fn take_freed(&mut self) -> Vec<u32> {
-        std::mem::take(&mut self.listeners.freed)
+        let freed = std::mem::take(&mut self.listeners.freed);
+        for k in &freed {
+            self.listeners.script_keys.remove(k);
+            self.listeners.raw.remove(k);
+        }
+        freed
     }
 
     /// Move (or insert) `nodes` into `parent` before `before`, or append them.

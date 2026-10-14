@@ -2,7 +2,7 @@
 //! argument is evaluated into a temporary first (in order); the result uses
 //! the shared `runic-js` implementations.
 
-use crate::expr::{FnCtx, js_str};
+use crate::expr::{FnCtx, js_str, rust_str};
 use crate::types::rust_type;
 use runic_ir::{Expr, Program, Type, Value};
 
@@ -1204,7 +1204,7 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             );
             if m == "unlisten-capture" {
                 format!(
-                    "{{ let f = {}; let id = Rc::as_ptr(&f) as *const () as usize; if let Some(i) = {find} {{ let key = cx.capture_host.remove(i).3; cx.listeners[key as usize] = None; cx.free.push(key); }} }}",
+                    "{{ let f = {}; let id = Rc::as_ptr(&f) as *const () as usize; if let Some(i) = {find} {{ let key = cx.capture_host.remove(i).3; cx.targets.retain(|h| h.4 != key); cx.listeners[key as usize] = None; cx.free.push(key); }} }}",
                     t[1]
                 )
             } else {
@@ -1233,7 +1233,7 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             );
             if m == "unlisten" {
                 format!(
-                    "{{ let f = {}; let id = Rc::as_ptr(&f) as *const () as usize; if let Some(i) = {find} {{ let key = cx.host.remove(i).3; cx.listeners[key as usize] = None; cx.free.push(key); }} }}",
+                    "{{ let f = {}; let id = Rc::as_ptr(&f) as *const () as usize; if let Some(i) = {find} {{ let key = cx.host.remove(i).3; cx.targets.retain(|h| h.4 != key); cx.listeners[key as usize] = None; cx.free.push(key); }} }}",
                     t[1]
                 )
             } else {
@@ -1248,18 +1248,134 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             }
         }
         ("event", "new") => format!(
-            "js::Event::new(js::EventData {{ kind: {}, cancelable: {}, bubbles: {}, synthetic: true, ..Default::default() }})",
+            "js::Event::script(js::EventData {{ kind: {}, cancelable: {}, bubbles: {}, ..Default::default() }}, None)",
             t[0],
             t[1],
             t.get(2).map_or("false", |b| b.as_str())
         ),
+        // M6 script DOM, slice 3: events script creates, with a
+        // `CustomEvent`'s detail tagged with its type, or with the members
+        // of their interface's init dictionary.
+        ("event", "custom") => {
+            let detail = match (t.get(3), types.get(3)) {
+                (Some(v), Some(Type::Maybe(inner))) => format!(
+                    "match {v} {{ Maybe::Some(v) => Some(js::Detail {{ value: Rc::new(v), tag: {}.into() }}), _ => None }}",
+                    rust_str(&runic_ir::interp::type_tag(inner))
+                ),
+                (Some(v), Some(ty)) => format!(
+                    "Some(js::Detail {{ value: Rc::new({v}), tag: {}.into() }})",
+                    rust_str(&runic_ir::interp::type_tag(ty))
+                ),
+                _ => "None".into(),
+            };
+            format!(
+                "js::Event::script(js::EventData {{ kind: {}, bubbles: {}, cancelable: {}, interface: Some(\"CustomEvent\"), ..Default::default() }}, {detail})",
+                t[0], t[1], t[2]
+            )
+        }
+        ("event", "create") => {
+            let Some(Expr::Lit {
+                value: runic_ir::Value::String(interface),
+            }) = args.first()
+            else {
+                unreachable!("validated interface")
+            };
+            let mut init = String::new();
+            for (i, pair) in args[4..].chunks(2).enumerate() {
+                let Expr::Lit {
+                    value: runic_ir::Value::String(name),
+                } = &pair[0]
+                else {
+                    unreachable!("validated init member")
+                };
+                let v = &t[5 + 2 * i];
+                let set = match &types[5 + 2 * i] {
+                    Type::Number => format!("d.init_number({}, {v});", rust_str(name)),
+                    Type::String => format!("d.init_string({}, {v});", rust_str(name)),
+                    Type::Boolean => format!("d.init_bool({}, {v});", rust_str(name)),
+                    _ => format!(
+                        "d.related = {{ let m: Maybe<js::Element> = {v}; match m {{ Maybe::Some(e) => Some(e), _ => None }} }};"
+                    ),
+                };
+                init.push_str(&set);
+                init.push(' ');
+            }
+            format!(
+                "{{ let mut d = js::EventData {{ kind: {}, bubbles: {}, cancelable: {}, interface: Some({}), ..Default::default() }}; {init}js::Event::script(d, None) }}",
+                t[1],
+                t[2],
+                t[3],
+                rust_str(interface)
+            )
+        }
+        ("event", "custom-detail") => {
+            let want = runic_ir::interp::type_tag(ty);
+            let (inner, wrap) = match ty {
+                Type::Maybe(i) => (
+                    runic_ir::interp::type_tag(i),
+                    format!(
+                        "Maybe::Some(v.downcast_ref::<{}>().expect(\"tagged detail\").clone())",
+                        rust_type(i)
+                    ),
+                ),
+                _ => (
+                    want.clone(),
+                    format!(
+                        "v.downcast_ref::<{}>().expect(\"tagged detail\").clone()",
+                        rust_type(ty)
+                    ),
+                ),
+            };
+            let none = if matches!(ty, Type::Maybe(_)) {
+                "Ok(Maybe::Null)".to_string()
+            } else {
+                format!(
+                    "Err(js::event::detail_type_error(\"null\", {}))",
+                    rust_str(&ty.name())
+                )
+            };
+            q(
+                cx,
+                format!(
+                    "(|| -> JsResult<{}> {{ match {}.detail() {{ None => {none}, Some(d) if d.tag == {} || d.tag == {} => {{ let v = &d.value; Ok({wrap}) }} Some(d) => Err(js::event::detail_type_error(&d.tag, {})) }} }})()",
+                    rust_type(ty),
+                    t[0],
+                    rust_str(&want),
+                    rust_str(&inner),
+                    rust_str(&want)
+                ),
+            )
+        }
+        // Listeners script adds with `addEventListener` (the generated
+        // `target_listen`), identified by (target, type, listener, capture).
+        ("target", "listen") => {
+            let call = match &types[2] {
+                Type::Fn(f) if f.params.is_empty() => "f(cx)",
+                _ => "f(cx, cx.event.clone().expect(\"event context\"))",
+            };
+            let passive = match &types[5] {
+                Type::Maybe(_) => format!(
+                    "{{ let m: Maybe<bool> = {}; match m {{ Maybe::Some(b) => Some(b), _ => None }} }}",
+                    t[5]
+                ),
+                _ => format!("Some({})", t[5]),
+            };
+            format!(
+                "{{ let target = {}.0; let kind = {}; let f = {}; let id = Rc::as_ptr(&f) as *const () as usize; let g: Lst = Rc::new(move |cx: &mut Cx| {{ let _ = {call}?; Ok(()) }}); target_listen(cx, target, kind, g, id, {}, {}, {passive}); }}",
+                t[0], t[1], t[2], t[3], t[4]
+            )
+        }
+        ("target", "unlisten") => format!(
+            "{{ let target = {}.0; let kind = {}; let f = {}; let id = Rc::as_ptr(&f) as *const () as usize; target_unlisten(cx, target, &kind, id, {}); }}",
+            t[0], t[1], t[2], t[3]
+        ),
         // Custom event listeners (M6 overlays), identified by their function
         // value, and their dispatch by script.
+        // (Since script DOM slice 3, the listeners `addEventListener` adds.)
         ("custom", m @ ("listen" | "unlisten")) => {
-            let find = "cx.custom_host.iter().position(|h| h.0 == node && h.1 == name && h.2 == id)";
             if m == "unlisten" {
                 format!(
-                    "{{ let node = {}.0; let name = {}; let f = {}; let id = Rc::as_ptr(&f) as *const () as usize; if let Some(i) = {find} {{ let key = cx.custom_host.remove(i).3; cx.dom.unlisten_custom(node, key); }} }}",
+                    "{{ let node = {}.0; let name = {}; let f = {}; let id = Rc::as_ptr(&f) as *const () as usize; target_unlisten(cx, node, &name, id, false); }}",
                     t[0], t[1], t[2]
                 )
             } else {
@@ -1268,39 +1384,42 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
                     _ => "f(cx, cx.event.clone().expect(\"event context\"))",
                 };
                 format!(
-                    "{{ let node = {}.0; let name = {}; if Event::parse(&name.to_rust()).is_some() {{ runic_runtime::unsupported(&format!(\"a listener of native {{}} events added with a type known at run time\", name.to_rust())); }} else {{ let f = {}; let id = Rc::as_ptr(&f) as *const () as usize; if {find}.is_none() {{ let g: Lst = Rc::new(move |cx: &mut Cx| {{ let _ = {call}?; Ok(()) }}); let key = cx.listen(g); cx.dom.listen_custom(node, key); cx.custom_host.push((node, name, id, key)); }} }} }}",
+                    "{{ let node = {}.0; let name = {}; let f = {}; let id = Rc::as_ptr(&f) as *const () as usize; let g: Lst = Rc::new(move |cx: &mut Cx| {{ let _ = {call}?; Ok(()) }}); target_listen(cx, node, name, g, id, false, false, None); }}",
                     t[0], t[1], t[2]
                 )
             }
         }
-        ("element", "dispatchEvent") => format!(
-            "{{ let target = {}.0; let ev = {}; let name = ev.data().kind.clone(); if !ev.data().synthetic || Event::parse(&name.to_rust()).is_some() {{ runic_runtime::unsupported(&format!(\"dispatchEvent of a {{}} event\", name.to_rust())); false }} else {{ let mut path = vec![target]; if ev.data().bubbles {{ let mut n = target; while let Some(p) = cx.dom.parent_element(n) {{ path.push(p); n = p; }} }} let outer = cx.event.replace(ev.clone()); for node in path {{ let keys: Vec<u32> = cx.custom_host.iter().filter(|h| h.0 == node && h.1 == name).map(|h| h.3).collect(); for key in keys {{ if !ev.enter(js::Element(node)) {{ break; }} let l = cx.listeners.get(key as usize).cloned().flatten(); if let Some(l) = l {{ if let Err(e) = l(cx) {{ eprintln!(\"runic: uncaught exception in a listener: {{e}}\"); }} }} }} if ev.propagation_stopped() {{ break; }} }} cx.event = outer; ev.finish(); !ev.default_prevented() }} }}",
-            t[0], t[1]
+        // (The generated `script_dispatch`: DOM standard dispatch, M6 script
+        // DOM slice 3.)
+        ("element", "dispatchEvent") => q(
+            cx,
+            format!("{{ let target = {}.0; let ev = {}; script_dispatch(cx, target, ev) }}", t[0], t[1]),
         ),
         ("event", "instance-of") => format!(
             "{{ let e = &{}; let c = {}.to_rust(); e.data().instance_of(&c).unwrap_or_else(|| {{ runic_runtime::unsupported(&format!(\"instanceof {{c}} of a {{}} event\", e.data().kind.to_rust())); false }}) }}",
             t[0], t[1]
         ),
         ("event", "keyboard") => format!(
-            "{{ let d = {}.data().clone(); js::Event::new(js::EventData {{ kind: {}, key: d.key, code: d.code, ctrl: d.ctrl, shift: d.shift, alt: d.alt, meta: d.meta, repeat: d.repeat, composing: d.composing, cancelable: d.cancelable, synthetic: true, keyboard: true, ..Default::default() }}) }}",
+            "{{ let d = {}.data().clone(); js::Event::script(js::EventData {{ kind: {}, key: d.key, code: d.code, ctrl: d.ctrl, shift: d.shift, alt: d.alt, meta: d.meta, repeat: d.repeat, composing: d.composing, cancelable: d.cancelable, keyboard: true, ..Default::default() }}, None) }}",
             t[1], t[0]
         ),
-        // (An event created by script covers only its type and cancellation,
-        // and a keyboard copy its key members.)
+        // (An event created by script covers the members of its interface,
+        // `EventData::member_unsupported`.)
         ("event", m) => {
             let e = &t[0];
-            let keys = matches!(m, "key" | "code" | "ctrlKey" | "shiftKey" | "altKey" | "metaKey" | "repeat" | "isComposing");
             let guard = if matches!(
                 m,
-                "type" | "defaultPrevented" | "preventDefault" | "stopPropagation" | "stopImmediatePropagation"
+                "type" | "defaultPrevented" | "preventDefault" | "stopPropagation" | "stopImmediatePropagation" | "isTrusted" | "timeStamp" | "cancelable" | "currentTarget" | "path-target"
             ) {
                 String::new()
-            } else if keys {
-                format!("if {e}.data().synthetic && !{e}.data().keyboard {{ runic_runtime::unsupported(\"{m} of an event created by script\"); }} ")
             } else {
-                format!("if {e}.data().synthetic {{ runic_runtime::unsupported(\"{m} of an event created by script\"); }} ")
+                format!("if let Some(why) = {e}.data().member_unsupported({}) {{ runic_runtime::unsupported(&why); }} ", rust_str(m))
             };
             let body = match m {
+                "isTrusted" => format!("{e}.is_trusted()"),
+                "timeStamp" => format!("{e}.data().time_stamp"),
+                "bubbles" => format!("{e}.data().bubbles"),
+                "cancelable" => format!("{e}.data().cancelable"),
                 "type" => format!("{e}.data().kind.clone()"),
                 "key" => format!("{e}.data().key.clone()"),
                 "code" => format!("{e}.data().code.clone()"),
@@ -1326,7 +1445,9 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
                 "pointerType" => format!(
                     "JsString::from({e}.data().pointer_type().unwrap_or_else(|| {{ runic_runtime::unsupported(\"pointerType of an event that is not a pointer event\"); \"\" }}))"
                 ),
-                "target" => format!("{e}.data().target"),
+                "target" => format!(
+                    "{e}.target().unwrap_or_else(|| {{ runic_runtime::unsupported(\"target of an event never dispatched (null)\"); js::Element(0) }})"
+                ),
                 "relatedTarget" => format!("{e}.data().related.map_or(Maybe::Null, Maybe::Some)"),
                 "currentTarget" => {
                     format!("{e}.current_target().map_or(Maybe::Null, Maybe::Some)")

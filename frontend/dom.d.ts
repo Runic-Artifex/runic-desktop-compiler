@@ -139,21 +139,7 @@ interface HTMLElement extends Node {
   contains(other: HTMLElement | null): boolean;
   /** Dispatch a cancelable form submit event; no submitter argument is supported. */
   requestSubmit(): void;
-  /**
-   * M6 overlays (bits-ui's menu): dispatch an event created by script, of a
-   * type that is not a native event's; whether it was not cancelled.
-   */
-  dispatchEvent(event: Event): boolean;
-  // M6 overlays (floating-ui's autoUpdate): listeners added by script;
-  // pointer movement too (bits-ui's submenu intent).
-  addEventListener<K extends ElementScriptEvent>(
-    type: K,
-    listener: (event: RunicEventMap[K]) => void,
-  ): void;
-  removeEventListener<K extends ElementScriptEvent>(
-    type: K,
-    listener: (event: RunicEventMap[K]) => void,
-  ): void;
+  // Listeners and `dispatchEvent`: EventTarget's (M6 script DOM, slice 3).
 }
 /** M6 (bits-ui's isHTMLElement): `x instanceof HTMLElement` of element values. */
 declare var HTMLElement: { prototype: HTMLElement };
@@ -290,7 +276,7 @@ declare var Node: { prototype: Element };
  * IR type; slice 1 types them as elements (text, comment and fragment
  * interfaces follow with their members).
  */
-interface Node {
+interface Node extends EventTarget {
   readonly __runicElement: true;
   /** 1 element, 3 text, 8 comment, 9 document, 11 fragment. */
   readonly nodeType: number;
@@ -375,19 +361,94 @@ interface DOMStringMap {
  */
 interface EventTarget {
   readonly __runicElement: true;
+  /**
+   * M6 script DOM, slice 3: listeners of any type (native types the
+   * runtime does not fire, where Chromium does, are rejected or reported),
+   * identified by (type, listener, capture), with the options `capture`,
+   * `once` and `passive` (`signal` is not covered).
+   */
+  addEventListener<K extends keyof RunicEventMap>(
+    type: K,
+    listener: (event: RunicEventMap[K]) => void,
+    options?: boolean | AddEventListenerOptions,
+  ): void;
+  addEventListener(
+    type: string,
+    listener: (event: any) => void,
+    options?: boolean | AddEventListenerOptions,
+  ): void;
+  removeEventListener<K extends keyof RunicEventMap>(
+    type: K,
+    listener: (event: RunicEventMap[K]) => void,
+    options?: boolean | EventListenerOptions,
+  ): void;
+  removeEventListener(
+    type: string,
+    listener: (event: any) => void,
+    options?: boolean | EventListenerOptions,
+  ): void;
+  /**
+   * Dispatch an event created by script (DOM standard): its listeners run
+   * at once; whether it was not cancelled. A native type reaching a
+   * template listener is reported (frameworks decide whether theirs run).
+   */
+  dispatchEvent(event: Event): boolean;
 }
-/** M6 overlays: an event created by script (`detail` is not covered). */
-interface CustomEvent<T = unknown> extends Event {}
+/** An event created by script with a detail of any type (M6 script DOM, slice 3). */
+interface CustomEvent<T = any> extends Event {
+  readonly detail: T;
+}
 interface CustomEventInit<T = unknown> {
   bubbles?: boolean;
   cancelable?: boolean;
   composed?: boolean;
   detail?: T;
 }
+interface EventListenerOptions {
+  capture?: boolean;
+}
 interface AddEventListenerOptions {
   capture?: boolean;
   once?: boolean;
   passive?: boolean;
+}
+interface EventInit {
+  bubbles?: boolean;
+  cancelable?: boolean;
+  composed?: boolean;
+}
+interface UIEventInit extends EventInit {
+  detail?: number;
+  view?: HostWindow | null;
+}
+interface EventModifierInit extends UIEventInit {
+  ctrlKey?: boolean;
+  shiftKey?: boolean;
+  altKey?: boolean;
+  metaKey?: boolean;
+}
+interface MouseEventInit extends EventModifierInit {
+  clientX?: number;
+  clientY?: number;
+  button?: number;
+  buttons?: number;
+  relatedTarget?: EventTarget | null;
+}
+interface WheelEventInit extends MouseEventInit {
+  deltaX?: number;
+  deltaY?: number;
+}
+interface KeyboardEventInit extends EventModifierInit {
+  key?: string;
+  code?: string;
+  repeat?: boolean;
+  isComposing?: boolean;
+}
+interface FocusEventInit extends UIEventInit {
+  relatedTarget?: EventTarget | null;
+}
+interface InputEventInit extends UIEventInit {
+  isComposing?: boolean;
 }
 /**
  * An attribute bag (docs/IR.md `attrs`): attribute values, listeners and
@@ -406,16 +467,25 @@ interface Event {
   readonly target: HTMLElement;
   readonly currentTarget: HTMLElement | null;
   readonly defaultPrevented: boolean;
+  /** M6 script DOM, slice 3. `bubbles` of events the user agent dispatches is reported. */
+  readonly isTrusted: boolean;
+  readonly timeStamp: number;
+  readonly bubbles: boolean;
+  readonly cancelable: boolean;
   preventDefault(): void;
   stopPropagation(): void;
   stopImmediatePropagation(): void;
 }
-interface UIEvent extends Event {}
+interface UIEvent extends Event {
+  readonly detail: number;
+}
 /** Native form submission: only the common Event operations are covered. */
 interface SubmitEvent extends Event {}
 /** M6 overlays (bits-ui's escape layer): a copy of a keyboard event, never dispatched. */
 declare var KeyboardEvent: {
   new (type: string, init: KeyboardEvent): KeyboardEvent;
+  /** M6 script DOM, slice 3: an event script creates and dispatches. */
+  new (type: string, init?: KeyboardEventInit): KeyboardEvent;
   prototype: KeyboardEvent;
 };
 /**
@@ -426,11 +496,25 @@ declare var PointerEvent: {
   new (type: string, init: PointerEvent): PointerEvent;
   prototype: PointerEvent;
 };
-declare var MouseEvent: { prototype: MouseEvent };
-declare var FocusEvent: { prototype: FocusEvent };
-declare var WheelEvent: { prototype: WheelEvent };
-declare var UIEvent: { prototype: UIEvent };
-declare var Event: { prototype: Event };
+// Events script creates with an init dictionary (M6 script DOM, slice 3).
+declare var MouseEvent: {
+  new (type: string, init?: MouseEventInit): MouseEvent;
+  prototype: MouseEvent;
+};
+declare var FocusEvent: {
+  new (type: string, init?: FocusEventInit): FocusEvent;
+  prototype: FocusEvent;
+};
+declare var WheelEvent: {
+  new (type: string, init?: WheelEventInit): WheelEvent;
+  prototype: WheelEvent;
+};
+declare var UIEvent: { new (type: string, init?: UIEventInit): UIEvent; prototype: UIEvent };
+declare var InputEvent: {
+  new (type: string, init?: InputEventInit): InputEvent;
+  prototype: InputEvent;
+};
+declare var Event: { new (type: string, init?: EventInit): Event; prototype: Event };
 declare var SubmitEvent: { prototype: SubmitEvent };
 /** `x instanceof SVGElement` of element values (M6 overlays). */
 interface SVGElement extends HTMLElement {}
@@ -441,8 +525,11 @@ declare var SVGElement: { prototype: SVGElement };
  */
 declare var CustomEvent: {
   new <T = unknown>(type: string, init?: CustomEventInit<T>): CustomEvent<T>;
+  prototype: CustomEvent;
 };
-interface InputEvent extends UIEvent {}
+interface InputEvent extends UIEvent {
+  readonly isComposing: boolean;
+}
 interface KeyboardEvent extends UIEvent {
   readonly key: string;
   readonly code: string;
@@ -504,8 +591,6 @@ interface HostEventMap {
   scroll: Event;
   resize: Event;
 }
-/** The events of listeners an element takes from script. */
-type ElementScriptEvent = 'scroll' | 'pointermove' | 'pointerenter' | 'pointerleave';
 // Every event kind (listeners passed through rest props).
 interface RunicEventMap extends HostEventMap {
   pointerenter: PointerEvent;
@@ -519,13 +604,25 @@ interface HostEventTarget {
   addEventListener<K extends keyof HostEventMap>(
     type: K,
     listener: (event: HostEventMap[K]) => void,
-    options?: boolean | { capture?: boolean; once?: boolean },
+    options?: boolean | AddEventListenerOptions,
+  ): void;
+  /** M6 script DOM, slice 3: other types (custom ones too). */
+  addEventListener(
+    type: string,
+    listener: (event: any) => void,
+    options?: boolean | AddEventListenerOptions,
   ): void;
   removeEventListener<K extends keyof HostEventMap>(
     type: K,
     listener: (event: HostEventMap[K]) => void,
-    options?: boolean | { capture?: boolean; once?: boolean },
+    options?: boolean | EventListenerOptions,
   ): void;
+  removeEventListener(
+    type: string,
+    listener: (event: any) => void,
+    options?: boolean | EventListenerOptions,
+  ): void;
+  dispatchEvent(event: Event): boolean;
 }
 // The window also receives the session history events.
 interface WindowEventMap extends HostEventMap {
@@ -536,13 +633,25 @@ interface WindowEventTarget {
   addEventListener<K extends keyof WindowEventMap>(
     type: K,
     listener: (event: WindowEventMap[K]) => void,
-    options?: boolean | { capture?: boolean; once?: boolean },
+    options?: boolean | AddEventListenerOptions,
+  ): void;
+  /** M6 script DOM, slice 3: other types (custom ones too). */
+  addEventListener(
+    type: string,
+    listener: (event: any) => void,
+    options?: boolean | AddEventListenerOptions,
   ): void;
   removeEventListener<K extends keyof WindowEventMap>(
     type: K,
     listener: (event: WindowEventMap[K]) => void,
-    options?: boolean | { capture?: boolean; once?: boolean },
+    options?: boolean | EventListenerOptions,
   ): void;
+  removeEventListener(
+    type: string,
+    listener: (event: any) => void,
+    options?: boolean | EventListenerOptions,
+  ): void;
+  dispatchEvent(event: Event): boolean;
 }
 /** `getComputedStyle(element)` (M6, bits-ui's direction): property reads only. */
 interface ComputedStyle {
@@ -584,7 +693,8 @@ interface HostWindow extends WindowEventTarget {
   scrollBy(options?: ScrollToOptions): void;
   scrollBy(x: number, y: number): void;
 }
-declare const window: HostWindow;
+// (With the globals: `typeof window.MouseEvent`, M6 script DOM slice 3.)
+declare const window: HostWindow & typeof globalThis;
 /** The window's type where declaration files name it (bits-ui's `getWindow: () => Window & typeof globalThis`). */
 type Window = HostWindow;
 /**

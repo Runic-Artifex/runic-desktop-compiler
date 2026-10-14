@@ -27,6 +27,7 @@ import type {
   ImageUrl,
 } from '../ir.ts';
 import { EVENT_KINDS, IMAGE_EVENT_KINDS } from '../ir.ts';
+import { customType } from '../event-types.ts';
 import {
   FnBuilder,
   Lowerer,
@@ -5646,6 +5647,7 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
       const attrs: { name: string; value: Expr }[] = [];
       const props: { name: string; value: Expr }[] = [];
       const listeners: Listener[] = [];
+      const customListeners: { event: string; listener: Expr }[] = [];
       const checkbox =
         n.name === 'input' &&
         n.attributes.some(
@@ -5673,6 +5675,29 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
       for (const a of n.attributes) {
         if (a.type === 'Attribute') {
           const name: string = a.name;
+          // An event attribute of a custom event type (M6 script DOM, slice
+          // 3: shadcn-svelte's `onemblaInit`): Svelte adds the listener when
+          // it creates the element, calling the value at each event.
+          // (`on<type>capture` listens in the capture phase: not here.)
+          if (
+            /^on[A-Za-z][\w-]*$/.test(name) &&
+            customType(name.slice(2)) &&
+            !name.endsWith('capture')
+          ) {
+            const v = a.value;
+            const tag = Array.isArray(v) ? v[0] : v;
+            if (
+              v === true ||
+              !tag ||
+              tag.type !== 'ExpressionTag' ||
+              (Array.isArray(v) && v.length !== 1)
+            )
+              fail('E_EVENT', 'Event attributes need a handler expression', loc(a));
+            const e = exprNode(tag.expression);
+            lower.expected.set(skipParens(e), { fn: { params: ['event'], result: 'void' } });
+            customListeners.push({ event: name.slice(2), listener: value(e) });
+            continue;
+          }
           if (/^on[a-z]+$/.test(name)) {
             const event = name.slice(2);
             // An image's outcome (M6 images): `<img>` attributes only.
@@ -5998,6 +6023,7 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
         ...(attrs.length ? { attrs } : {}),
         ...(props.length ? { props } : {}),
         ...(listeners.length ? { listeners } : {}),
+        ...(customListeners.length ? { customListeners } : {}),
         ...(reference !== undefined ? { ref: reference } : {}),
         ...(bag ? { spread: bag, spreadBooleanText: true as const } : {}),
         ...(classes.length ? { classes } : {}),

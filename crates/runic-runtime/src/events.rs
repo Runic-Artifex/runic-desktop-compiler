@@ -1093,6 +1093,9 @@ impl<A: App> Handler<'_, A> {
         // that do not bubble, such as focus), then the target's and the
         // ancestors'.
         let chain = element_chain(doc, elements[0]);
+        if let Some(why) = self.listeners.order_conflict(&chain, kind) {
+            crate::unsupported(&why);
+        }
         let mut deliveries: Vec<Delivery> = self.listeners.capture_deliveries(&chain, kind, &event);
         deliveries.extend(path.iter().flat_map(|&n| {
             let event = &event;

@@ -1240,6 +1240,105 @@ impl<'a> Scope<'a> {
             }
             Builtin { name, args, ty } => {
                 self.check_type(ty, src)?;
+                // Events script creates (M6 script DOM, slice 3): a literal
+                // interface, and literal init members it has, of their types.
+                if name == "event.create" {
+                    let literal = |e: Option<&Expr>| match e {
+                        Some(Lit {
+                            value: Value::String(s),
+                        }) => Some(s.clone()),
+                        _ => None,
+                    };
+                    let interface = literal(args.first());
+                    if !interface
+                        .as_deref()
+                        .is_some_and(|i| runic_js::event::SCRIPT_INTERFACES.contains(&i))
+                    {
+                        return err(
+                            "E_BUILTIN",
+                            format!(
+                                "event.create: the interface is one of {} (a literal)",
+                                runic_js::event::SCRIPT_INTERFACES.join(", ")
+                            ),
+                            src,
+                        );
+                    }
+                    let interface = interface.unwrap_or_default();
+                    for pair in args.get(4..).unwrap_or_default().chunks(2) {
+                        let Some(member) = literal(pair.first()) else {
+                            return err(
+                                "E_BUILTIN",
+                                "event.create: init member names are literals",
+                                src,
+                            );
+                        };
+                        let Some(want) = runic_js::event::init_member(&interface, &member) else {
+                            return err(
+                                "E_BUILTIN",
+                                format!(
+                                    "event.create: {interface} init member {member} is not covered"
+                                ),
+                                src,
+                            );
+                        };
+                        let want = match want {
+                            runic_js::event::InitType::Number => Type::Number,
+                            runic_js::event::InitType::String => Type::String,
+                            runic_js::event::InitType::Boolean => Type::Boolean,
+                            runic_js::event::InitType::Target => Type::maybe(Type::Element),
+                        };
+                        if let Some(v) = pair.get(1) {
+                            self.expect(v, want, d, src)?;
+                        }
+                    }
+                }
+                // A CustomEvent's detail and its type (IR JSON, a literal).
+                if name == "event.custom" && args.len() == 5 {
+                    let declared = match &args[4] {
+                        Lit {
+                            value: Value::String(s),
+                        } => serde_json::from_str::<Type>(s).ok(),
+                        _ => None,
+                    };
+                    let have = self.infer(&args[3], d, src)?;
+                    if declared.as_ref() != Some(&have) {
+                        return err(
+                            "E_BUILTIN",
+                            format!(
+                                "event.custom: the detail's type is a literal of its IR type ({})",
+                                have.name()
+                            ),
+                            src,
+                        );
+                    }
+                }
+                // Listeners of a literal type script adds: a native type the
+                // runtime does not fire anywhere is rejected here (one known
+                // at run time is reported there).
+                if name == "target.listen" {
+                    if let Some(Lit {
+                        value: Value::String(t),
+                    }) = args.get(1)
+                    {
+                        use runic_js::event::{Listening, TargetKind, listening};
+                        if [
+                            TargetKind::Element,
+                            TargetKind::Document,
+                            TargetKind::Window,
+                        ]
+                        .iter()
+                        .all(|&k| listening(k, t) == Listening::Unsupported)
+                        {
+                            return err(
+                                "E_BUILTIN",
+                                format!(
+                                    "target.listen: the runtime does not fire {t} events (Chromium does)"
+                                ),
+                                src,
+                            );
+                        }
+                    }
+                }
                 if name == "media.matches" || name == "media.query" {
                     let supported = match args.first() {
                         Some(Lit {
@@ -3227,6 +3326,7 @@ impl<'p> NodeCx<'_, 'p> {
                 attrs,
                 props,
                 listeners,
+                custom_listeners,
                 children,
                 reference,
                 spread,
@@ -3478,6 +3578,41 @@ impl<'p> NodeCx<'_, 'p> {
                         s.expect(a, param.ty.clone(), 0, src)?;
                     }
                     self.used[l.handler] = true;
+                }
+                // Custom event types (M6 script DOM, slice 3): a type
+                // Chromium never dispatches itself, and a listener value.
+                let mut custom = HashSet::new();
+                for l in custom_listeners {
+                    if l.event.is_empty()
+                        || runic_js::event::NATIVE_TYPES.contains(&l.event.as_str())
+                        || !custom.insert(l.event.as_str())
+                    {
+                        return err(
+                            "E_IR",
+                            format!(
+                                "Custom listener {:?}: a custom event type (not a native one), once per element",
+                                l.event
+                            ),
+                            src,
+                        );
+                    }
+                    let t = s.infer(&l.listener, 0, src)?;
+                    let inner = match &t {
+                        Type::Maybe(i) => i.as_ref(),
+                        other => other,
+                    };
+                    if !matches!(inner, Type::Fn(f) if f.params.is_empty() || f.params == [Type::Event])
+                    {
+                        return err(
+                            "E_IR",
+                            format!(
+                                "Custom listener {:?} must be a function taking the event or nothing, found {}",
+                                l.event,
+                                t.name()
+                            ),
+                            src,
+                        );
+                    }
                 }
                 if let Some(a) = adopt {
                     if !((tag == "input" && !checkbox) || tag == "textarea") {
