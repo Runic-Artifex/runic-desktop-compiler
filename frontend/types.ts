@@ -975,10 +975,11 @@ export class TypeMapper {
     // A node list (frontend/dom.d.ts `NodeListOf<T>`, `HTMLCollection`): the
     // array of its items read at once, as lowering reads a live list
     // (`Lowerer.liveListUse` keeps a live one from being held), and as a
-    // static one (an option of nodes the program gives) is.
+    // static one (an option of nodes the program gives) is; a TouchList
+    // likewise, though no touch event exists to hold one.
     const list = t.symbol?.getName();
     if (
-      (list === 'NodeListOf' || list === 'HTMLCollection') &&
+      (list === 'NodeListOf' || list === 'HTMLCollection' || list === 'TouchList') &&
       t.symbol.declarations?.every(
         d => d.getSourceFile().fileName === HOST_DECLARATIONS + 'dom.d.ts',
       )

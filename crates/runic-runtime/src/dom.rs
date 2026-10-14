@@ -1193,6 +1193,11 @@ impl Host {
                 {
                     crate::unsupported(&format!("getComputedStyle {name} of a percentage ({v})"));
                 }
+                // (So is an `auto` margin's, a length Chromium resolves from
+                // the layout: M6 script DOM slice 4, embla's `margin-right`.)
+                if name.starts_with("margin-") && v == "auto" {
+                    crate::unsupported(&format!("getComputedStyle {name} of an auto margin"));
+                }
                 v
             })
             .unwrap_or_default()
@@ -2837,13 +2842,19 @@ impl Dom<'_> {
     }
 
     /// IntersectionObserver geometry of element `node` (M6 overlays,
-    /// `layout::intersection`) against the viewport grown by `margins`.
+    /// `layout::intersection`) against the viewport grown by `margins`, or
+    /// against element `root` (M6 script DOM, slice 4; the document is the
+    /// viewport).
     pub fn intersection(
         &mut self,
         node: u64,
         margins: &[runic_js::intersection::Margin; 4],
+        root: Option<runic_js::Element>,
     ) -> crate::layout::Intersection {
-        crate::layout::intersection(self.doc, NodeId::from_u64(node), margins)
+        let root = root
+            .filter(|r| *r != runic_js::Element::DOCUMENT)
+            .map(|r| NodeId::from_u64(r.0));
+        crate::layout::intersection(self.doc, NodeId::from_u64(node), margins, root)
     }
 
     /// The depth of element `node` in the document.

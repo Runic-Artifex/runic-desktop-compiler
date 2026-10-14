@@ -2181,7 +2181,11 @@ export function inferFields(
       if (sym) visit(fn.getSourceFile());
       return out;
     };
-    const untypedParams = (member: ts.FunctionLikeDeclaration, outside = false) =>
+    const untypedParams = (
+      member: ts.FunctionLikeDeclaration,
+      outside = false,
+      nullableMerge = false,
+    ) =>
       member.parameters.forEach((p, i) => {
         // (Also an object pattern, `#findNextNonDisabledItem({ start, grid })`
         // of bits-ui's Command: the pattern is annotated.)
@@ -2264,7 +2268,21 @@ export function inferFields(
           }
         }
         if (open) return;
-        const text = texts.size === 1 ? [...texts][0] : widestObject(typeOf);
+        // (A value and the same value possibly absent, embla's DragTracker
+        // `readTime(evt)` and `readTime(startEvent)` of a `let` that may
+        // still be undefined: the nullable type, whose reads throw a
+        // TypeError where it is nullish, as JavaScript's do.)
+        const [t0, t1] = [...texts];
+        const nullableOf = (a: string, b2: string) =>
+          b2 === `${a} | undefined` || b2 === `${a} | null` || b2 === `${a} | null | undefined`;
+        const text =
+          texts.size === 1
+            ? t0
+            : nullableMerge && texts.size === 2 && nullableOf(t0, t1)
+              ? t1
+              : nullableMerge && texts.size === 2 && nullableOf(t1, t0)
+                ? t0
+                : widestObject(typeOf);
         if (text === undefined) return;
         const end = p.name.end;
         const seg = m.segments.find(g => end >= g.synth && end <= g.synth + g.length);
@@ -2710,7 +2728,11 @@ export function inferFields(
               }
         } else if (nestedDeclaration(n) && genericFromCalls(n)) {
           // (Typed generic, below.)
-        } else if (usedAsValue(n) || feedsGeneric(n) || nestedDeclaration(n)) untypedParams(n);
+        } else if (nestedDeclaration(n)) {
+          // (Lowering binds one closure, never specialised: a value and the
+          // same value possibly absent take the nullable type.)
+          untypedParams(n, false, true);
+        } else if (usedAsValue(n) || feedsGeneric(n)) untypedParams(n);
       }
       ts.forEachChild(n, functions);
     };
@@ -3246,6 +3268,48 @@ function assignedDictionaries(
       }
       return false;
     };
+    /**
+     * Whether call `c` passes the dictionary (argument `arg`) to a function
+     * declaration of this module whose parameter there is only the argument
+     * of `Object.keys`, `Object.values` or `Object.entries`.
+     */
+    const enumerates = (c: ts.CallExpression, arg: ts.Node): boolean => {
+      const i = c.arguments.indexOf(arg as ts.Expression);
+      const callee = ts.isIdentifier(c.expression)
+        ? checker.getSymbolAtLocation(c.expression)?.valueDeclaration
+        : undefined;
+      if (!callee || !ts.isFunctionDeclaration(callee) || callee.getSourceFile() !== sf)
+        return false;
+      const param = callee.parameters[i];
+      if (!param || param.dotDotDotToken || !ts.isIdentifier(param.name) || !callee.body)
+        return false;
+      const ps = checker.getSymbolAtLocation(param.name);
+      let ok = true;
+      const visit = (y: ts.Node) => {
+        if (!ok) return;
+        if (ts.isIdentifier(y) && y !== param.name && checker.getSymbolAtLocation(y) === ps) {
+          let up: ts.Node = y;
+          while (ts.isParenthesizedExpression(up.parent)) up = up.parent;
+          const call = up.parent;
+          ok =
+            ts.isCallExpression(call) &&
+            call.arguments.length === 1 &&
+            call.arguments[0] === up &&
+            ts.isPropertyAccessExpression(call.expression) &&
+            ['keys', 'values', 'entries'].includes(call.expression.name.text) &&
+            ts.isIdentifier(call.expression.expression) &&
+            call.expression.expression.text === 'Object' &&
+            !!checker
+              .getSymbolAtLocation(call.expression.expression)
+              ?.declarations?.some(d =>
+                /[\\/]lib\.[\w.]*\.d\.ts$/.test(d.getSourceFile().fileName),
+              );
+        }
+        ts.forEachChild(y, visit);
+      };
+      visit(callee.body);
+      return ok;
+    };
     const items = new Set<string>();
     const values = new Set<string>();
     let open = false;
@@ -3325,7 +3389,16 @@ function assignedDictionaries(
           )
             // (A destructuring target or a loop variable writes it.)
             open = true;
-        } else open = true;
+        } else if (
+          // (Passed to a function of the module that only enumerates it:
+          // embla's `objectKeys(intersectionEntryMap)`.)
+          !(
+            ts.isCallExpression(p) &&
+            p.arguments.includes(at as ts.Expression) &&
+            enumerates(p, at)
+          )
+        )
+          open = true;
       }
       ts.forEachChild(x, uses);
     };

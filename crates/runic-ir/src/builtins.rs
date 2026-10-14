@@ -1392,9 +1392,14 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
         }
         // IntersectionObserver (M6 overlays): created with its callback, a
         // rootMargin (checked when it runs: a SyntaxError) and thresholds (a
-        // RangeError outside 0..=1), the document's viewport its root.
+        // RangeError outside 0..=1), the document's viewport its root, or
+        // (M6 script DOM, slice 4) a nullable element root, none being the
+        // document's viewport.
         ("intersection", "new") => {
-            arity(args, 3, 3)?;
+            arity(args, 3, 4)?;
+            if let Some(root) = args.get(3) {
+                expect(root, &Type::Maybe(Box::new(Element)), "root")?;
+            }
             match declared {
                 Record(r) if intersection_observer_shape(records, *r).is_some() => {
                     expect(&args[0], &records[*r].fields[0].ty, "callback")?;

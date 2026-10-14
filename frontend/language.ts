@@ -4590,6 +4590,25 @@ export class Lowerer {
       if (curried) return curried;
       const expando = this.expando(d, sym, b);
       if (expando) return expando;
+      // A constant of `a && b` or `a || b` whose operands have different
+      // types (embla's DragTracker `const isFlick = diffTime && !expired &&
+      // …`, a number or a boolean) that the program only tests (`isFlick ?
+      // force : 0`): its truthiness, the only thing observed of it.
+      const logical = d.initializer && skipParens(d.initializer);
+      if (
+        logical &&
+        !d.type &&
+        d.parent.flags & ts.NodeFlags.Const &&
+        ts.isBinaryExpression(logical) &&
+        (logical.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+          logical.operatorToken.kind === ts.SyntaxKind.BarBarToken) &&
+        this.mixedKinds(this.checker.getTypeAtLocation(d.name)) &&
+        this.onlyTested(sym, d)
+      ) {
+        const local = b.local(d.name.text, BOOLEAN, b.boxed.has(sym));
+        this.bindings.set(sym, { kind: 'local', owner: b, local });
+        return [{ op: 'let', local, value: this.condition(logical, b), ...this.src(d) }];
+      }
       // A type that only TypeScript's `any` makes unmappable (untyped
       // JavaScript: `ReadableBox<any>`) is untyped too.
       const declared = this.types.typeOrUndefined(d.name);
@@ -5483,6 +5502,18 @@ export class Lowerer {
   }
 
   private destructure(pattern: ts.BindingName, source: Expr, type: Type, b: FnBuilder): Stmt[] {
+    // A pattern over a nullable value (embla's `const { isIntersecting } =
+    // intersectionEntryMap[index]`, a dictionary read TypeScript types
+    // present): JavaScript throws a TypeError destructuring null or
+    // undefined, as unwrapping does.
+    const inner = maybeInner(type);
+    if (
+      (ts.isObjectBindingPattern(pattern) || ts.isArrayBindingPattern(pattern)) &&
+      inner !== undefined &&
+      maybeInner(inner) === undefined &&
+      inner !== 'void'
+    )
+      return this.destructure(pattern, { op: 'unwrap', value: source }, inner, b);
     const out: Stmt[] = [];
     const bind = (name: ts.BindingName, value: Expr, t: Type, init?: ts.Expression) => {
       // A default applies where the value is undefined (not null, as `??`
@@ -9228,6 +9259,45 @@ export class Lowerer {
         };
       }
     }
+    // `evt instanceof ownerWindow.MouseEvent` (embla's isMouseEvent): the
+    // window value's constructor is the global one (a program has one
+    // window); the window value is evaluated after `evt`, and reading a
+    // member of null throws a TypeError, as unwrapping does.
+    if (
+      op === K.InstanceOfKeyword &&
+      ts.isPropertyAccessExpression(e.right) &&
+      EVENT_INTERFACES.includes(e.right.name.text) &&
+      this.types.hostOf(
+        this.checker.getNonNullableType(this.checker.getTypeAtLocation(e.right.expression)),
+      ) === 'window'
+    ) {
+      const v = this.expr(e.left, b);
+      if (this.irType(v, b) !== 'event')
+        return this.fail(e, 'E_EXPRESSION', `instanceof ${e.right.name.text} tests event values`);
+      const w = this.expr(e.right.expression, b);
+      const wt = this.irType(w, b);
+      const event = b.local('$event', 'event');
+      const win = b.local('$window', wt);
+      return {
+        op: 'with',
+        local: event,
+        value: v,
+        body: {
+          op: 'with',
+          local: win,
+          value: maybeInner(wt) !== undefined ? { op: 'unwrap', value: w } : w,
+          body: {
+            op: 'builtin',
+            name: 'event.instance-of',
+            args: [
+              { op: 'local', local: event },
+              { op: 'lit', value: e.right.name.text },
+            ],
+            type: BOOLEAN,
+          },
+        },
+      };
+    }
     if (op === K.InKeyword || op === K.InstanceOfKeyword)
       return this.fail(e, 'E_EXPRESSION', 'in/instanceof are planned for later');
     // An array element compared for equality: undefined past the end
@@ -10935,6 +11005,38 @@ export class Lowerer {
           return this.fail(e, 'E_TYPE_UNSUPPORTED', "The event's detail type is not a value type");
         return { op: 'builtin', name: 'event.custom-detail', args: [object], type };
       }
+      // A TouchEvent's touches (embla's `evt.touches.length` where the
+      // event is not a MouseEvent): no touch event exists in a program (the
+      // runtime takes no touch input, script constructs none), so the read
+      // is reported where it runs (frontend/dom.d.ts `TouchEvent`).
+      if (name === 'touches') {
+        // (TouchEvent's `touches`, also where TypeScript types the read
+        // `any`: an event of `TouchEvent | MouseEvent` not narrowed.)
+        const et = this.checker.getTypeAtLocation(e.expression);
+        const touchList = (et.isUnion() ? et.types : [et])
+          .map(t => t.getProperty('touches'))
+          .find(p => p !== undefined);
+        // (An event type without it, embla's listeners of `Event`: the host
+        // declarations' TouchList.)
+        const declared = this.program
+          .getSourceFile(DOM)
+          ?.statements.find(
+            (x): x is ts.InterfaceDeclaration =>
+              ts.isInterfaceDeclaration(x) && x.name.text === 'TouchList',
+          );
+        const listType = touchList
+          ? this.checker.getTypeOfSymbolAtLocation(touchList, e)
+          : declared && this.checker.getTypeAtLocation(declared.name);
+        const type = listType && this.types.tryMap(listType, e);
+        if (type === undefined)
+          return this.fail(e, 'E_TYPE_UNSUPPORTED', 'The touch list type is not a value type');
+        const read = this.unsupportedValue(
+          'event.touches',
+          type,
+          'a TouchEvent read (touches), which no event of the runtime is',
+        );
+        return { op: 'with', local: b.local('$event', 'event'), value: object, body: read };
+      }
       const type = EVENT_MEMBERS[name];
       if (type === undefined || type === 'void' || name === 'value' || name === 'checked')
         return this.fail(
@@ -11541,6 +11643,19 @@ export class Lowerer {
           type: { maybe: 'element' },
         };
     }
+    // `(c ? evt : evt.touches[0])[coord]` (embla's DragTracker `readPoint`):
+    // a conditional of values of different types read by a key of finitely
+    // many names, each branch read by the key (JavaScript evaluates the
+    // condition, the branch, then the key).
+    const receiver = skipParens(e.expression);
+    if (
+      ts.isConditionalExpression(receiver) &&
+      !e.questionDotToken &&
+      this.finiteStrings(e.argumentExpression) !== undefined &&
+      this.checker.getTypeAtLocation(receiver.whenTrue) !==
+        this.checker.getTypeAtLocation(receiver.whenFalse)
+    )
+      return this.computedRead(receiver, e.argumentExpression, e, b);
     let object = this.expr(e.expression, b);
     let t = this.irType(object, b);
     // An untyped nullable value, or one TypeScript narrowed to a present one
@@ -13072,6 +13187,148 @@ export class Lowerer {
     return this.fail(e, 'E_CALL', 'Unsupported call');
   }
 
+  /** Whether `t` is a union of values of several kinds (number, string, boolean, object). */
+  private mixedKinds(t: ts.Type): boolean {
+    const F = ts.TypeFlags;
+    const kinds = new Set(
+      (t.isUnion() ? t.types : [t])
+        .filter(m => !(m.flags & (F.Null | F.Undefined | F.Void)))
+        .map(m =>
+          m.flags & F.BooleanLike
+            ? 'b'
+            : m.flags & F.NumberLike
+              ? 'n'
+              : m.flags & F.StringLike
+                ? 's'
+                : 'o',
+        ),
+    );
+    return kinds.size > 1;
+  }
+
+  /**
+   * Whether every use of constant `sym` (declared by `d`) only tests its
+   * truthiness: the condition of an `if`, a loop or `?:`, the operand of
+   * `!`, or an operand of `&&`/`||` whose value is itself only tested.
+   */
+  private onlyTested(sym: ts.Symbol, d: ts.VariableDeclaration): boolean {
+    const tested = (n: ts.Node): boolean => {
+      let at: ts.Node = n;
+      while (ts.isParenthesizedExpression(at.parent)) at = at.parent;
+      const p = at.parent;
+      if (
+        (ts.isIfStatement(p) && p.expression === at) ||
+        (ts.isConditionalExpression(p) && p.condition === at) ||
+        ((ts.isWhileStatement(p) || ts.isDoStatement(p)) && p.expression === at) ||
+        (ts.isForStatement(p) && p.condition === at) ||
+        (ts.isPrefixUnaryExpression(p) && p.operator === ts.SyntaxKind.ExclamationToken)
+      )
+        return true;
+      if (
+        ts.isBinaryExpression(p) &&
+        (p.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+          p.operatorToken.kind === ts.SyntaxKind.BarBarToken)
+      )
+        return tested(p);
+      return false;
+    };
+    let ok = true;
+    const scope = d.parent.parent.parent ?? d.getSourceFile();
+    const visit = (x: ts.Node) => {
+      if (!ok) return;
+      if (ts.isIdentifier(x) && x !== d.name && this.checker.getSymbolAtLocation(x) === sym)
+        ok = tested(x);
+      ts.forEachChild(x, visit);
+    };
+    visit(scope);
+    return ok;
+  }
+
+  /**
+   * `receiver[key]` where `key` is one of finitely many names
+   * (`finiteStrings`): a conditional receiver read in each branch; an
+   * event's members (`event.clientX`) or a plain record's fields of one
+   * type chosen by comparing the key with the names (a key outside them,
+   * possible only through an unsound cast, throws a TypeError).
+   */
+  private computedRead(
+    receiver: ts.Expression,
+    key: ts.Expression,
+    at: ts.Node,
+    b: FnBuilder,
+  ): Expr {
+    const r = skipParens(receiver);
+    if (ts.isConditionalExpression(r))
+      return {
+        op: 'cond',
+        test: this.condition(r.condition, b),
+        then: this.computedRead(r.whenTrue, key, at, b),
+        else: this.computedRead(r.whenFalse, key, at, b),
+      };
+    const names = this.finiteStrings(key)!;
+    const object = this.expr(r, b);
+    const t = this.irType(object, b);
+    const rec =
+      typeof t === 'object' && 'record' in t && !this.types.records[t.record].class
+        ? this.types.records[t.record]
+        : undefined;
+    const reads = names.map(name => {
+      if (t === 'event') {
+        const mt = EVENT_MEMBERS[name];
+        return mt === undefined || mt === 'void' || name === 'value' || name === 'checked'
+          ? undefined
+          : {
+              name,
+              type: mt,
+              read: (o: Expr): Expr => ({
+                op: 'builtin',
+                name: `event.${name}`,
+                args: [o],
+                type: mt,
+              }),
+            };
+      }
+      const i = rec ? rec.fields.findIndex(f => f.name === name) : -1;
+      return i < 0
+        ? undefined
+        : {
+            name,
+            type: rec!.fields[i].type,
+            read: (o: Expr): Expr => ({ op: 'get', object: o, field: i }),
+          };
+    });
+    if (
+      reads.some(x => x === undefined) ||
+      new Set(reads.map(x => JSON.stringify(x!.type))).size !== 1
+    )
+      return this.fail(
+        at,
+        'E_MEMBER',
+        'A computed read is covered on events (their members) and records (fields of one type)',
+      );
+    const type = reads[0]!.type;
+    const obj = b.local('$object', t);
+    const k = b.local('$key', STRING);
+    let chain: Expr = this.typeErrorValue(
+      'computedRead',
+      type,
+      'Cannot read a member outside the names the key may be',
+    );
+    for (const x of [...reads].reverse())
+      chain = {
+        op: 'cond',
+        test: { op: 'eq', left: { op: 'local', local: k }, right: { op: 'lit', value: x!.name } },
+        then: x!.read({ op: 'local', local: obj }),
+        else: chain,
+      };
+    return {
+      op: 'with',
+      local: obj,
+      value: object,
+      body: { op: 'with', local: k, value: this.coerce(key, b, STRING), body: chain },
+    };
+  }
+
   /**
    * The strings expression `e` may be, where TypeScript's types give a
    * finite set: a literal, a value of a union of string literals, or a
@@ -13081,6 +13338,26 @@ export class Lowerer {
   finiteStrings(e: ts.Expression): string[] | undefined {
     const x = skipParens(e);
     if (ts.isStringLiteralLike(x)) return [x.text];
+    // (A conditional: either branch's.)
+    if (ts.isConditionalExpression(x)) {
+      const a = this.finiteStrings(x.whenTrue);
+      const c = a && this.finiteStrings(x.whenFalse);
+      return c && [...new Set([...a!, ...c])];
+    }
+    // (A constant: its initialiser's, embla's `const coord = \`client${…}\``.)
+    if (ts.isIdentifier(x)) {
+      const d = this.checker.getSymbolAtLocation(x)?.valueDeclaration;
+      if (
+        d &&
+        ts.isVariableDeclaration(d) &&
+        d.initializer &&
+        ts.isVariableDeclarationList(d.parent) &&
+        d.parent.flags & ts.NodeFlags.Const
+      ) {
+        const own = this.finiteStrings(d.initializer);
+        if (own) return own;
+      }
+    }
     const literals = (t: ts.Type): string[] | undefined => {
       const parts = t.isUnion() ? t.types : [t];
       return parts.every(m => m.isStringLiteral())
@@ -13090,7 +13367,7 @@ export class Lowerer {
     if (ts.isTemplateExpression(x)) {
       let out = [x.head.text];
       for (const span of x.templateSpans) {
-        const values = literals(this.checker.getTypeAtLocation(span.expression));
+        const values = this.finiteStrings(span.expression);
         if (!values || out.length * values.length > 64) return undefined;
         out = out.flatMap(o => values.map(v => o + v + span.literal.text));
       }
@@ -14463,6 +14740,16 @@ export class Lowerer {
    * other calls.
    */
   private arrayFromLength(e: ts.CallExpression, b: FnBuilder): Expr | undefined {
+    /** `Array(n)` or `new Array(n)` of the global `Array`: its `n`. */
+    const holes = (x: ts.Expression): ts.Expression | undefined => {
+      x = skipParens(x);
+      return (ts.isCallExpression(x) || ts.isNewExpression(x)) &&
+        this.globalName(x.expression) === 'Array' &&
+        x.arguments?.length === 1 &&
+        !ts.isSpreadElement(x.arguments[0])
+        ? x.arguments[0]
+        : undefined;
+    };
     const fromCall = (c: ts.Expression): ts.CallExpression | undefined => {
       c = skipParens(c);
       return ts.isCallExpression(c) &&
@@ -14470,7 +14757,8 @@ export class Lowerer {
         c.expression.name.text === 'from' &&
         this.globalName(c.expression.expression) === 'Array' &&
         c.arguments[0] !== undefined &&
-        ts.isObjectLiteralExpression(skipParens(c.arguments[0]))
+        (ts.isObjectLiteralExpression(skipParens(c.arguments[0])) ||
+          holes(c.arguments[0]) !== undefined)
         ? c
         : undefined;
     };
@@ -14497,19 +14785,35 @@ export class Lowerer {
       }
     }
     if (!from) return undefined;
-    const source = skipParens(from.arguments[0]) as ts.ObjectLiteralExpression;
-    const [length] = source.properties;
-    if (
-      source.properties.length !== 1 ||
-      !ts.isPropertyAssignment(length) ||
-      !(ts.isIdentifier(length.name) || ts.isStringLiteral(length.name)) ||
-      length.name.text !== 'length'
-    )
-      return this.fail(
-        source,
-        'E_BUILTIN',
-        'Array.from over an array-like object takes { length: n } (arrays, sets and strings are iterated)',
-      );
+    // `Array.from(Array(n), f)` (embla's `arrayFromNumber`): the array of n
+    // holes, which Array.from iterates as n undefined values; `Array(n)`
+    // throws a RangeError where n is not an array length (ToUint32(n) !== n).
+    const holeCount = holes(from.arguments[0]);
+    let lengthExpr: ts.Expression;
+    if (holeCount) {
+      if (this.irType(this.expr(holeCount, b), b) !== NUMBER)
+        return this.fail(
+          holeCount,
+          'E_BUILTIN',
+          'Array(n) is covered with a number n (another value is the one element of the array)',
+        );
+      lengthExpr = holeCount;
+    } else {
+      const source = skipParens(from.arguments[0]) as ts.ObjectLiteralExpression;
+      const [length] = source.properties;
+      if (
+        source.properties.length !== 1 ||
+        !ts.isPropertyAssignment(length) ||
+        !(ts.isIdentifier(length.name) || ts.isStringLiteral(length.name)) ||
+        length.name.text !== 'length'
+      )
+        return this.fail(
+          source,
+          'E_BUILTIN',
+          'Array.from over an array-like object takes { length: n } (arrays, sets and strings are iterated)',
+        );
+      lengthExpr = length.initializer;
+    }
     const f = mapFn && skipParens(mapFn);
     if (
       !f ||
@@ -14522,7 +14826,7 @@ export class Lowerer {
         'E_BUILTIN',
         'Array.from({ length: n }) is covered with a mapping arrow of at most two named parameters (the undefined element and the index)',
       );
-    const n = this.coerce(length.initializer, b, NUMBER);
+    const n = this.coerce(lengthExpr, b, NUMBER);
     const params: Type[] = (['void', NUMBER] as Type[]).slice(0, f.parameters.length);
     // (An array expected here, a derived field's declared type: the
     // function returns its elements.)
@@ -14615,7 +14919,37 @@ export class Lowerer {
         { op: 'return', value: local(3) },
       ],
     };
-    return { op: 'call', function: index, args: [n, closure] };
+    if (!holeCount) return { op: 'call', function: index, args: [n, closure] };
+    // (`Array(n)` first: its RangeError before the mapping function exists.)
+    const held = b.local('$length', NUMBER);
+    const read: Expr = { op: 'local', local: held };
+    const invalid: Expr = {
+      op: 'or',
+      left: {
+        op: 'not',
+        arg: {
+          op: 'eq',
+          left: { op: 'builtin', name: 'Math.trunc', args: [read], type: NUMBER },
+          right: read,
+        },
+      },
+      right: {
+        op: 'or',
+        left: { op: 'lt', left: read, right: num(0) },
+        right: { op: 'gt', left: read, right: num(2 ** 32 - 1) },
+      },
+    } as Expr;
+    return {
+      op: 'with',
+      local: held,
+      value: n,
+      body: {
+        op: 'cond',
+        test: invalid,
+        then: this.errorValue('RangeError', 'Array$length', array, 'Invalid array length'),
+        else: { op: 'call', function: index, args: [read, closure] },
+      },
+    };
   }
 
   /** Whether `t` is an array of `unknown` or `any` (`unknown[]`). */
@@ -14861,6 +15195,11 @@ export class Lowerer {
    */
   /** A call throwing a TypeError with `message` where a value of `type` is expected. */
   typeErrorValue(name: string, type: Type, message: string): Expr {
+    return this.errorValue('TypeError', name, type, message);
+  }
+
+  /** A call throwing an error of `kind` with `message` where a value of `type` is expected. */
+  errorValue(kind: string, name: string, type: Type, message: string): Expr {
     const index = this.reserve();
     this.functions[index] = {
       name,
@@ -14874,7 +15213,7 @@ export class Lowerer {
             op: 'record',
             record: this.errorRecord(),
             fields: [
-              { op: 'lit', value: 'TypeError' },
+              { op: 'lit', value: kind },
               { op: 'lit', value: message },
             ],
           },
@@ -15155,6 +15494,8 @@ export class Lowerer {
         return this.fail(e, 'E_NEW', 'new IntersectionObserver takes a callback and options');
       let rootMargin: Expr = { op: 'lit', value: '0px' };
       let thresholds: Expr = { op: 'array', type: { array: NUMBER }, items: [] };
+      // (An element root, or null: the implicit root. M6 script DOM, slice 4.)
+      let root: Expr | undefined;
       if (options) {
         const o = skipParens(options);
         if (!ts.isObjectLiteralExpression(o))
@@ -15170,12 +15511,18 @@ export class Lowerer {
               v.kind !== ts.SyntaxKind.NullKeyword &&
               !(ts.isIdentifier(v) && v.text === 'undefined' && !this.binding(v)) &&
               this.hostName(v) !== 'document'
-            )
-              return this.fail(
-                p,
-                'E_NEW',
-                'IntersectionObserver roots other than the document (an element, scrolling) are planned for later',
-              );
+            ) {
+              const r = this.expr(value, b);
+              const rt = this.irType(r, b);
+              if (rt === 'element') root = { op: 'some', value: r };
+              else if (sameType(rt, { maybe: 'element' })) root = r;
+              else
+                return this.fail(
+                  p,
+                  'E_NEW',
+                  'IntersectionObserver roots are an element, the document or null',
+                );
+            }
           } else if (name === 'rootMargin') rootMargin = this.coerce(value, b, STRING);
           else if (name === 'threshold') {
             // A number or an array of numbers.
@@ -15183,6 +15530,15 @@ export class Lowerer {
             const t = this.irType(v, b);
             if (t === NUMBER) thresholds = { op: 'array', type: { array: NUMBER }, items: [v] };
             else if (sameType(t, { array: NUMBER })) thresholds = v;
+            // (A number that may be absent, embla's `inViewThreshold` option:
+            // the dictionary member's default 0 where it is undefined, and
+            // null converted to 0 as WebIDL converts it to a double.)
+            else if (sameType(t, { maybe: NUMBER }))
+              thresholds = {
+                op: 'array',
+                type: { array: NUMBER },
+                items: [{ op: 'nullish', left: v, right: { op: 'lit', value: 0 } }],
+              };
             else
               return this.fail(p, 'E_NEW', 'IntersectionObserver threshold is a number or numbers');
           } else return this.fail(p, 'E_NEW', `IntersectionObserver option ${name} is unsupported`);
@@ -15195,6 +15551,7 @@ export class Lowerer {
           this.coerce(cb, b, this.types.records[type.record].fields[0].type),
           rootMargin,
           thresholds,
+          ...(root ? [root] : []),
         ],
         type,
       };

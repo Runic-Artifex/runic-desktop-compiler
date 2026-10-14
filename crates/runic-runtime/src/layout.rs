@@ -244,29 +244,92 @@ fn inclusive_intersect(a: [f64; 4], b: [f64; 4]) -> Option<[f64; 4]> {
     (x1 >= x0 && y1 >= y0).then_some([x0, y0, x1 - x0, y1 - y0])
 }
 
-/// The IntersectionObserver geometry of `node` with the document's
-/// viewport as root (the implicit root and `root: document` of a top-level
-/// document): its bounding box clipped by each ancestor of its containing
-/// block chain that clips overflow (to the padding box), then by the root
-/// intersection rectangle. A target without boxes does not intersect.
-/// Clipping under a transformed ancestor and `clip-path` are not covered
-/// (reported unsupported).
+/// The padding box of `id` in viewport coordinates (its border box less its
+/// borders and scrollbars), given its border box `b`.
+fn padding_box(doc: &BaseDocument, id: NodeId, b: &blitz_dom::BoundingRect) -> [f64; 4] {
+    let l = *doc.get_node(id).expect("node").unrounded_layout();
+    let px = b.x + l.border.left as f64;
+    let py = b.y + l.border.top as f64;
+    let pw = (b.width - (l.border.left + l.border.right + l.scrollbar_size.width) as f64).max(0.0);
+    let ph =
+        (b.height - (l.border.top + l.border.bottom + l.scrollbar_size.height) as f64).max(0.0);
+    [px, py, pw, ph]
+}
+
+/// Reports a transform of `id` other than a translation (which
+/// `client_rect` gives as it is drawn) unsupported.
+fn check_translation(doc: &BaseDocument, id: NodeId) {
+    let Some(a) = doc.get_node(id) else { return };
+    if let Some(t) = a.transform().as_deref() {
+        let [xx, yx, xy, yy, _, _] = t.as_coeffs();
+        if xx != 1.0 || yx != 0.0 || xy != 0.0 || yy != 1.0 {
+            crate::unsupported(
+                "IntersectionObserver of a target under an ancestor transformed other than by a translation",
+            );
+        }
+    }
+}
+
+/// The IntersectionObserver geometry of `node`. With the document's
+/// viewport as root (`root` none: the implicit root and `root: document` of
+/// a top-level document): its bounding box clipped by each ancestor of its
+/// containing block chain that clips overflow (to the padding box), then by
+/// the root intersection rectangle, the viewport grown by the margins. With
+/// an element root (M6 script DOM, slice 4: embla's `root:
+/// container.parentElement`), as the IntersectionObserver standard computes
+/// it: the root intersection rectangle is the root's padding box where it
+/// clips its content (overflow other than visible) and its border box
+/// otherwise, grown by the margins (percentages of its width and height);
+/// the target is clipped by the ancestors between it and the root, and then
+/// by that rectangle, which is not clipped by the viewport. A target that
+/// is not a descendant of the root in the containing block chain, and a
+/// root without a box, are reported unsupported. A target without boxes
+/// does not intersect. Clipping under a transformed ancestor and
+/// `clip-path` are not covered (reported unsupported).
 pub(crate) fn intersection(
     doc: &mut BaseDocument,
     node: NodeId,
     margins: &[runic_js::intersection::Margin; 4],
+    element_root: Option<NodeId>,
 ) -> Intersection {
     resolve(doc);
-    let (vw, vh) = viewport(doc);
-    let root = {
+    let grow = |[x, y, w, h]: [f64; 4]| {
         let [top, right, bottom, left] = *margins;
         let (t, r, b, l) = (
-            top.resolve(vh),
-            right.resolve(vw),
-            bottom.resolve(vh),
-            left.resolve(vw),
+            top.resolve(h),
+            right.resolve(w),
+            bottom.resolve(h),
+            left.resolve(w),
         );
-        [-l, -t, (vw + l + r).max(0.0), (vh + t + b).max(0.0)]
+        [x - l, y - t, (w + l + r).max(0.0), (h + t + b).max(0.0)]
+    };
+    let root = match element_root {
+        None => {
+            let (vw, vh) = viewport(doc);
+            grow([0.0, 0.0, vw, vh])
+        }
+        Some(id) => {
+            let Some(b) = client_rect(doc, id).filter(|_| rendered(doc, id)) else {
+                crate::unsupported("IntersectionObserver of an element root without a box");
+                return Intersection {
+                    target: [0.0; 4],
+                    intersection: [0.0; 4],
+                    root: [0.0; 4],
+                    intersecting: false,
+                    ratio: 0.0,
+                };
+            };
+            check_translation(doc, id);
+            if style(doc, id, "clip-path") != "none" {
+                crate::unsupported("IntersectionObserver of an element root with a clip-path");
+            }
+            let (ox, oy) = (style(doc, id, "overflow-x"), style(doc, id, "overflow-y"));
+            grow(if ox != "visible" || oy != "visible" {
+                padding_box(doc, id, &b)
+            } else {
+                [b.x, b.y, b.width, b.height]
+            })
+        }
     };
     let none = Intersection {
         target: [0.0; 4],
@@ -281,37 +344,28 @@ pub(crate) fn intersection(
     let target = [r.x, r.y, r.width, r.height];
     let mut clipped = Some(target);
     let mut current = doc.get_node(node).and_then(|n| n.containing_block());
+    let mut reached = false;
     while let (Some(id), Some(rect)) = (current, clipped) {
+        if Some(id) == element_root {
+            reached = true;
+            break;
+        }
         let Some(a) = doc.get_node(id) else { break };
         if is_root(doc, id) {
             break;
         }
         // A translation (floating-ui positions floating elements with one:
-        // a submenu's anchor) moves the ancestor's box, which `client_rect`
-        // gives as it is drawn; other transforms are not covered.
-        if let Some(t) = a.transform().as_deref() {
-            let [xx, yx, xy, yy, _, _] = t.as_coeffs();
-            if xx != 1.0 || yx != 0.0 || xy != 0.0 || yy != 1.0 {
-                crate::unsupported(
-                    "IntersectionObserver of a target under an ancestor transformed other than by a translation",
-                );
-            }
-        }
+        // a submenu's anchor; embla moves its container with one) moves the
+        // ancestor's box, which `client_rect` gives as it is drawn; other
+        // transforms are not covered.
+        check_translation(doc, id);
         if style(doc, id, "clip-path") != "none" {
             crate::unsupported("IntersectionObserver of a target under a clip-path");
         }
         let (ox, oy) = (style(doc, id, "overflow-x"), style(doc, id, "overflow-y"));
         if ox != "visible" || oy != "visible" {
             if let Some(b) = client_rect(doc, id) {
-                let l = *a.unrounded_layout();
-                let px = b.x + l.border.left as f64;
-                let py = b.y + l.border.top as f64;
-                let pw = (b.width
-                    - (l.border.left + l.border.right + l.scrollbar_size.width) as f64)
-                    .max(0.0);
-                let ph = (b.height
-                    - (l.border.top + l.border.bottom + l.scrollbar_size.height) as f64)
-                    .max(0.0);
+                let [px, py, pw, ph] = padding_box(doc, id, &b);
                 // An axis whose overflow is visible is not clipped.
                 let big = f64::MAX / 4.0;
                 let clip = [
@@ -324,6 +378,22 @@ pub(crate) fn intersection(
             }
         }
         current = a.containing_block();
+    }
+    // (Clipped away before the root is met: the rest of the chain decides
+    // nothing, but the target must still be the root's descendant.)
+    if element_root.is_some() && !reached {
+        while let Some(id) = current {
+            if Some(id) == element_root {
+                reached = true;
+                break;
+            }
+            current = doc.get_node(id).and_then(|a| a.containing_block());
+        }
+        if !reached {
+            crate::unsupported(
+                "IntersectionObserver of a target outside its root's containing block chain",
+            );
+        }
     }
     let Some(inter) = clipped.and_then(|c| inclusive_intersect(c, root)) else {
         return Intersection { target, ..none };

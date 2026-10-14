@@ -973,10 +973,15 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             let Type::Record(r) = ty else {
                 panic!("validated IntersectionObserver record")
             };
+            // (An element root, M6 script DOM slice 4: none is the viewport.)
+            let root = match t.get(3) {
+                Some(r) => format!("match {r} {{ Maybe::Some(e) => Some(e), _ => None }}"),
+                None => "None".to_string(),
+            };
             let syntax = cx.q("Err::<(), _>(js::Throw::new(\"SyntaxError\", m))");
             let range = cx.q("Err::<(), _>(js::Throw::new(\"RangeError\", m))");
             format!(
-                "{{ let cb = {}; let margins = match js::intersection::parse_root_margin(&{}.to_rust()) {{ Ok(v) => v, Err(m) => {{ {syntax}; unreachable!() }} }}; let values: Vec<f64> = {}.borrow().clone(); let thresholds = match js::intersection::thresholds(&values) {{ Ok(v) => v, Err(m) => {{ {range}; unreachable!() }} }}; let o = JsRef::new(R{r} {{ f0: cb }}); cx.io_observers.push((o.clone(), margins, thresholds, Vec::new())); o }}",
+                "{{ let cb = {}; let margins = match js::intersection::parse_root_margin(&{}.to_rust()) {{ Ok(v) => v, Err(m) => {{ {syntax}; unreachable!() }} }}; let values: Vec<f64> = {}.borrow().clone(); let thresholds = match js::intersection::thresholds(&values) {{ Ok(v) => v, Err(m) => {{ {range}; unreachable!() }} }}; let root: Option<js::Element> = {root}; let o = JsRef::new(R{r} {{ f0: cb }}); cx.io_observers.push((o.clone(), margins, thresholds, root, Vec::new())); o }}",
                 t[0], t[1], t[2]
             )
         }
@@ -993,7 +998,7 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
         // Disconnecting also drops the entries queued for the observer
         // (as Chromium does).
         ("intersection", "disconnect") => format!(
-            "{{ let o = {}; cx.io_obs.retain(|x| !JsRef::ptr_eq(&x.0, &o)); for x in cx.io_observers.iter_mut() {{ if JsRef::ptr_eq(&x.0, &o) {{ x.3.clear(); }} }} }}",
+            "{{ let o = {}; cx.io_obs.retain(|x| !JsRef::ptr_eq(&x.0, &o)); for x in cx.io_observers.iter_mut() {{ if JsRef::ptr_eq(&x.0, &o) {{ x.4.clear(); }} }} }}",
             t[0]
         ),
         ("resize", "unobserve") => format!(

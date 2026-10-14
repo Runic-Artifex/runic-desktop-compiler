@@ -164,4 +164,11 @@ test("EventHandler's listeners, the generic and nested helpers, reduce seeds and
   assert.match(text, /\}: __dts\d+\.EngineType, alpha: number\) => \{/);
   // A copy of the slides (`[].slice.call(customSlides || container.children)`).
   assert.match(text, /let slides: HTMLElement\[\] \| undefined;/);
+  // A dictionary passed to a helper that only enumerates its keys.
+  assert.match(
+    text,
+    /const intersectionEntryMap: \{ \[key: string\]: IntersectionObserverEntry \} = \{\};/,
+  );
+  // Called with a value and with the same value possibly undefined.
+  assert.match(text, /function readTime\(evt: __dts\d+\.PointerEventType \| undefined\)/);
 });

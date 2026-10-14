@@ -3335,7 +3335,7 @@ pub fn generate(
     let (io_fields, io_init, io_step, io_notify) = match io {
         Some((o, runic_ir::builtins::IntersectionShape { entry, rect })) => (
             format!(
-                "pub io_observers: Vec<(JsRef<R{o}>, [js::intersection::Margin; 4], Vec<f64>, Vec<JsRef<R{entry}>>)>, pub io_obs: Vec<(JsRef<R{o}>, js::Element, i64, bool)>, pub io_task: bool, "
+                "pub io_observers: Vec<(JsRef<R{o}>, [js::intersection::Margin; 4], Vec<f64>, Option<js::Element>, Vec<JsRef<R{entry}>>)>, pub io_obs: Vec<(JsRef<R{o}>, js::Element, i64, bool)>, pub io_task: bool, "
             ),
             "io_observers: Vec::new(), io_obs: Vec::new(), io_task: false, ".to_string(),
             format!(
@@ -3345,20 +3345,20 @@ pub fn generate(
                  let rect = |r: [f64; 4]| JsRef::new(R{rect} {{ f0: r[0], f1: r[1], f2: r[2], f3: r[3], f4: r[1], f5: r[0] + r[2], f6: r[1] + r[3], f7: r[0] }});\n\
                  // Each observer in creation order, its targets in the order observed.\n\
                  for k in 0..self.cx.io_observers.len() {{\n\
-                 let (ob, margins, thresholds) = {{ let x = &self.cx.io_observers[k]; (x.0.clone(), x.1, x.2.clone()) }};\n\
+                 let (ob, margins, thresholds, root) = {{ let x = &self.cx.io_observers[k]; (x.0.clone(), x.1, x.2.clone(), x.3) }};\n\
                  let mut entries = Vec::new();\n\
                  for o in self.cx.io_obs.iter_mut().filter(|o| JsRef::ptr_eq(&o.0, &ob)) {{\n\
-                 let g = dom.intersection(o.1.0, &margins);\n\
+                 let g = dom.intersection(o.1.0, &margins, root);\n\
                  let index = js::intersection::threshold_index(&thresholds, g.ratio);\n\
                  if index != o.2 || g.intersecting != o.3 {{ entries.push(JsRef::new(R{entry} {{ f0: rect(g.target), f1: g.ratio, f2: rect(g.intersection), f3: g.intersecting, f4: Maybe::Some(rect(g.root)), f5: o.1, f6: time }})); }}\n\
                  o.2 = index; o.3 = g.intersecting;\n\
                  }}\n\
-                 if !entries.is_empty() {{ queued = true; self.cx.io_observers[k].3.extend(entries); }}\n\
+                 if !entries.is_empty() {{ queued = true; self.cx.io_observers[k].4.extend(entries); }}\n\
                  }}\n\
                  if queued && !self.cx.io_task {{ self.cx.io_task = true; self.cx.host_tasks.push_back(HostTask::Intersection); }}\n\
                  queued\n}}\n"
             ),
-            "{ self.cx.io_task = false; let mut k = 0; while k < self.cx.io_observers.len() { let list = std::mem::take(&mut self.cx.io_observers[k].3); let ob = self.cx.io_observers[k].0.clone(); k += 1; if list.is_empty() { continue; } let cb = ob.borrow().f0.clone(); let list = js::array(list); if let Err(e) = self.task(dom, false, |cx| cb(cx, list, ob)) { eprintln!(\"runic: uncaught exception in an IntersectionObserver callback: {e}\"); } } None }".to_string(),
+            "{ self.cx.io_task = false; let mut k = 0; while k < self.cx.io_observers.len() { let list = std::mem::take(&mut self.cx.io_observers[k].4); let ob = self.cx.io_observers[k].0.clone(); k += 1; if list.is_empty() { continue; } let cb = ob.borrow().f0.clone(); let list = js::array(list); if let Err(e) = self.task(dom, false, |cx| cb(cx, list, ob)) { eprintln!(\"runic: uncaught exception in an IntersectionObserver callback: {e}\"); } } None }".to_string(),
         ),
         None => (String::new(), String::new(), String::new(), "None".to_string()),
     };

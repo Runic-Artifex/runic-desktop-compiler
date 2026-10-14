@@ -79,8 +79,26 @@ const LOGIC = `export function run(k: number): string {
   const late = { v: k * 3 };
   const copy: number[] = [].slice.call(list);
   copy.push(9);
+  const filled = Array.from(Array(k + 1), (_, i) => k + i);
+  const errorName = (f: () => number): string => {
+    try {
+      f();
+      return 'none';
+    } catch (e) {
+      return (e as Error).name;
+    }
+  };
+  const invalid = errorName(() => Array.from(Array(k - 1.5), (_, i) => i).length);
+  const d: { [key: string]: { v: number } } = { a: { v: k } };
+  const { v } = d['a'];
+  const missing = errorName(() => {
+    const { v: w } = d['b'];
+    return w;
+  });
+  const flick = k && k > 1;
   return [pick('start', k), pick('center', k), pick('end', k), edge, list.join(','),
-    keys.join(','), first, later(), copy.join(','), list.length].join(' ');
+    keys.join(','), first, later(), copy.join(','), list.length, filled.join(','), invalid,
+    v, missing, flick ? 'flick' : 'still'].join(' ');
 }
 `;
 
@@ -95,7 +113,10 @@ test('keyed calls of functions of different arities, early functions, concat, Ob
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
-  assert.equal(want[0], '0 4.5 9 left 1,2,2 0,1,2 false 3 1,2,2,9 3');
+  assert.equal(
+    want[0],
+    '0 4.5 9 left 1,2,2 0,1,2 false 3 1,2,2,9 3 1,2 RangeError 1 TypeError still',
+  );
   const out = await withApp(
     {
       'logic.ts': LOGIC,
@@ -156,6 +177,55 @@ test('element metrics destructured and a computed property name of finitely many
         collect(root).then(g => lower(g)),
         e => e.code === 'E_CALL' && /getPropertyValue reads/.test(e.message),
       ),
+  );
+});
+
+test('an IntersectionObserver with an element root, instanceof of a window member, and a computed read of a conditional', async () => {
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  let el: HTMLElement | undefined = $state();
+  let hit = $state('');
+  let axis = $state('x');
+  const point = { clientX: 5, clientY: 6 };
+  function threshold(): number | undefined {
+    return undefined;
+  }
+  $effect(() => {
+    const o = new IntersectionObserver(() => {}, { root: el?.parentElement, threshold: threshold() });
+    return () => o.disconnect();
+  });
+  function onclick(e: MouseEvent) {
+    const coord = \`client\${axis === 'x' ? 'X' : 'Y'}\`;
+    const isMouse = e instanceof window.MouseEvent;
+    const read = (isMouse ? e : point)[coord];
+    hit = String(isMouse) + ' ' + (read > -1) + ' ' + (axis === 'x' ? point : e)[coord];
+    axis = 'y';
+  }
+</script>
+<div><button id="go" bind:this={el} {onclick}>go</button></div>
+<p id="out">{hit}</p>
+`,
+    },
+    async root => {
+      const { ir } = await lower(await collect(root));
+      const body = JSON.stringify(ir.functions);
+      assert.match(body, /"name":"intersection\.new","args":\[[^\]]*\]?.*?\{"op":"nullish"/s);
+      const io = ir.functions.flatMap(
+        f => JSON.stringify(f.body).match(/"name":"intersection\.new","args":\[/g) ?? [],
+      ).length;
+      assert.equal(io, 1);
+      assert.match(
+        body,
+        /"name":"event\.instance-of","args":\[\{"op":"local","local":\d+\},\{"op":"lit","value":"MouseEvent"\}/,
+      );
+      const steps = interpret(ir, [
+        { kind: 'click', id: 'go' },
+        { kind: 'click', id: 'go' },
+      ]);
+      assert.equal(text(find(steps[1].state.dom, 'out')), 'true true 5');
+      assert.match(text(find(steps[2].state.dom, 'out')), /^true true \d+(\.\d+)?$/);
+    },
   );
 });
 

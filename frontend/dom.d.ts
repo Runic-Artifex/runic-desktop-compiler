@@ -196,8 +196,9 @@ declare var ResizeObserver: {
 };
 /**
  * An IntersectionObserver (M6 overlays): the document's viewport is its root
- * (`root` is the document or absent); its callback receives the entries in
- * a task after a frame's layout.
+ * (`root` is the document or absent), or an element (M6 script DOM, slice
+ * 4: embla's `root: container.parentElement`); its callback receives the
+ * entries in a task after a frame's layout.
  */
 interface IntersectionObserver {
   /** The callback type (a record of the IR holds the callback). */
@@ -210,7 +211,7 @@ interface IntersectionObserver {
   disconnect(): void;
 }
 interface IntersectionObserverInit {
-  root?: HostDocument | null;
+  root?: HTMLElement | HostDocument | null;
   rootMargin?: string;
   threshold?: number | number[];
 }
