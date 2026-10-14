@@ -295,6 +295,7 @@ pub(crate) fn begin(
                 current: node.as_u64(),
                 delegated: None,
                 joined: false,
+                capture: false,
             })
     }));
     Some(Submission {

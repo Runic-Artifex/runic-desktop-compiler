@@ -463,6 +463,7 @@ impl Listeners {
                     current: current.as_u64(),
                     delegated,
                     joined,
+                    capture: false,
                 }
             };
         let keys: Vec<u32> = self
@@ -602,6 +603,7 @@ impl Listeners {
                         current: n.as_u64(),
                         delegated: None,
                         joined: false,
+                        capture: true,
                     })
             })
             .collect()
@@ -2592,6 +2594,7 @@ pub(crate) fn click_event(
                 current: n.as_u64(),
                 delegated: None,
                 joined: false,
+                capture: false,
             })
     }));
     vec![(event, kind, deliveries)]
@@ -2630,6 +2633,7 @@ fn focus_event(
                 current: n.as_u64(),
                 delegated: None,
                 joined: false,
+                capture: false,
             })
     }));
     (event, kind, deliveries)

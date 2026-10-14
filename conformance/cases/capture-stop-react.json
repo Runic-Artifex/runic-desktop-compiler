@@ -1,0 +1,72 @@
+{
+  "description": "stopPropagation in a capture-phase listener ends the dispatch at its invocation (DOM standard: one per node and phase), as Chromium does, where the framework declares no dispatch policy (React; listeners script adds for mousedown, which no React handler of the program listens for): the node's own bubbling listeners do not run, at the target its non-capture listeners (registered before the capture ones too) do not run, stopImmediatePropagation also skips the rest of the invocation, at the container, an ancestor and the target. A harness click and a script dispatchEvent of a MouseEvent take the same path",
+  "fixtures": [
+    "capture-stop-react"
+  ],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "target"
+    },
+    {
+      "kind": "click",
+      "id": "nested-dispatch"
+    },
+    {
+      "kind": "click",
+      "id": "mode-root-stop"
+    },
+    {
+      "kind": "click",
+      "id": "target"
+    },
+    {
+      "kind": "click",
+      "id": "nested-dispatch"
+    },
+    {
+      "kind": "click",
+      "id": "mode-outer-stop"
+    },
+    {
+      "kind": "click",
+      "id": "target"
+    },
+    {
+      "kind": "click",
+      "id": "nested-dispatch"
+    },
+    {
+      "kind": "click",
+      "id": "mode-outer-immediate"
+    },
+    {
+      "kind": "click",
+      "id": "target"
+    },
+    {
+      "kind": "click",
+      "id": "nested-dispatch"
+    },
+    {
+      "kind": "click",
+      "id": "mode-target-stop"
+    },
+    {
+      "kind": "click",
+      "id": "target"
+    },
+    {
+      "kind": "click",
+      "id": "nested-dispatch"
+    },
+    {
+      "kind": "click",
+      "id": "mode-open"
+    },
+    {
+      "kind": "click",
+      "id": "target"
+    }
+  ]
+}
