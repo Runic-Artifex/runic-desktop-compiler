@@ -81,6 +81,39 @@ export function packageBindings(
       bindPackImport(stmt, edge, lower, name);
       return lower.bindings.get(symbol);
     }
+    // A function's static property, assigned at the module's top level
+    // (embla-carousel's `EmblaCarousel.globalOptions = undefined`).
+    if (
+      ts.isPropertyAccessExpression(decl) &&
+      ts.isIdentifier(decl.expression) &&
+      ts.isBinaryExpression(decl.parent) &&
+      decl.parent.left === decl &&
+      decl.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isExpressionStatement(decl.parent.parent) &&
+      decl.parent.parent.parent === sf
+    ) {
+      const fn = decl.expression.text;
+      const declared = sf.statements.some(
+        x => ts.isFunctionDeclaration(x) && x.name?.text === fn && !!x.body,
+      );
+      const assigned = sf.statements.filter(
+        x =>
+          ts.isExpressionStatement(x) &&
+          ts.isBinaryExpression(x.expression) &&
+          ts.isPropertyAccessExpression(x.expression.left) &&
+          ts.isIdentifier(x.expression.left.expression) &&
+          x.expression.left.expression.text === fn &&
+          x.expression.left.name.text === decl.name.text,
+      );
+      if (!declared || assigned.length !== 1)
+        return lower.fail(
+          decl,
+          'E_MODULE',
+          'Static properties of functions are supported where the module assigns each once, at its top level, to a function it declares',
+        );
+      lower.functionStatic(symbol, decl, `${fn}.${decl.name.text}`);
+      return lower.bindings.get(symbol);
+    }
     if (decl.parent !== sf && !(ts.isVariableDeclaration(decl) && decl.parent.parent.parent === sf))
       return undefined;
     if (ts.isFunctionDeclaration(decl) && decl.name && decl.body) {

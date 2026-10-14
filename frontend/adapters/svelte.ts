@@ -311,6 +311,9 @@ const COMPONENT_EXPORT =
   'declare const __RunicComponent: import("svelte").Component<__RunicProps>;\nexport default __RunicComponent;\n';
 
 /** A `.svelte` file and its virtual TypeScript module. */
+/** The length of each action's function in its unit's virtual module (`use:`). */
+const actionLengths = new WeakMap<SNode, number>();
+
 interface Unit {
   file: string;
   rel: string;
@@ -1243,9 +1246,28 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
           a.type === 'ClassDirective'
         )
           expr(a.expression);
-        else if (a.type === 'StyleDirective' && a.value !== true)
+        else if (a.type === 'StyleDirective' && a.value !== true) {
           for (const v of Array.isArray(a.value) ? a.value : [a.value])
             if (v.type === 'ExpressionTag') expr(v.expression);
+        }
+        // An action (`use:name={value}`), typed as svelte-check types it: a
+        // function of the element.
+        else if (a.type === 'UseDirective') {
+          s += '(';
+          const at = s.length;
+          s += '(__runicActionNode: HTMLElement) => ';
+          const name = a.start + 'use:'.length;
+          copy(name, name + a.name.length);
+          s += '(__runicActionNode';
+          if (a.expression) {
+            s += ', ';
+            inline(a.expression);
+          }
+          s += ')';
+          u.starts.set(a, at);
+          actionLengths.set(a, s.length - at);
+          s += ');\n';
+        }
     };
     const fragment = (f: SNode) => {
       // `{@const}` declarations hold for their whole block (Svelte hoists them).
@@ -4133,6 +4155,154 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
         blockDepth--;
       }
     };
+    /**
+     * An action (`use:name={value}`, M6 script DOM slice 4: embla-carousel-
+     * svelte) as Svelte 5 runs it (`$.action`): an effect created when the
+     * template is, after the element's content, that calls
+     * `name(element, value)` untracked; the cleanup calls the `destroy` of
+     * what it returned, read when it runs. Covered where Svelte's effect
+     * order is the IR's: an element outside every block whose component
+     * creates nothing with effects after it in the template (its children
+     * are created before the action, its script effects after the
+     * template). `update` needs Svelte's deep reads of the value (below).
+     */
+    const action = (n: SNode, a: SNode, ref: number) => {
+      if (blockDepth)
+        fail(
+          'E_TEMPLATE',
+          'use: on an element inside a block, a snippet or component content is planned for later (the action effect would live with the block)',
+          loc(a),
+        );
+      const later = (x: SNode): SNode | undefined => {
+        if (!x || typeof x !== 'object') return undefined;
+        if (Array.isArray(x)) {
+          for (const y of x) {
+            const f = later(y);
+            if (f) return f;
+          }
+          return undefined;
+        }
+        if (
+          typeof x.start === 'number' &&
+          x.start >= n.end &&
+          [
+            'Component',
+            'IfBlock',
+            'EachBlock',
+            'KeyBlock',
+            'AwaitBlock',
+            'RenderTag',
+            'SvelteComponent',
+            'SvelteElement',
+            'SvelteSelf',
+          ].includes(x.type)
+        )
+          return x;
+        for (const v of [x.fragment, x.nodes, x.consequent, x.alternate, x.body]) {
+          const f = later(v);
+          if (f) return f;
+        }
+        return undefined;
+      };
+      const after = later(u.ast.fragment);
+      if (after)
+        fail(
+          'E_TEMPLATE',
+          `use: on an element followed in its component's template by content that may have effects (${after.type}) is planned for later: Svelte runs the action's effect before theirs`,
+          loc(a),
+        );
+      const fn = nodeIn(u, a, actionLengths.get(a)) as ts.ArrowFunction;
+      const { index: call } = lower.function(fn, `use:${a.name}`, undefined, COMPONENT);
+      const payload = lower.functions[call].result;
+      const record =
+        typeof payload === 'object' && 'record' in payload ? payload.record : undefined;
+      if (payload !== 'void' && record === undefined)
+        fail('E_TEMPLATE', 'An action returns nothing or an object (update, destroy)', loc(a));
+      const fieldOf = (name: string) =>
+        record === undefined
+          ? -1
+          : lower.types.records[record].fields.findIndex(f => f.name === name);
+      const destroy = fieldOf('destroy');
+      const update = fieldOf('update');
+      if (update >= 0)
+        fail(
+          'E_TEMPLATE',
+          "An action's update is planned (next): Svelte calls it when what the value reads deeply changes",
+          loc(a),
+        );
+      const run = lower.reserve();
+      const node: Expr = { op: 'unwrap', value: { op: 'cell', cell: ref } };
+      const body: Stmt[] = [];
+      const locals: { name: string; type: Type }[] = [];
+      const cleanup: Type = { fn: { params: [], result: 'void' } };
+      let result: Type = 'void';
+      if (record === undefined)
+        body.push({ op: 'expr', value: { op: 'call', function: call, args: [node] } });
+      else {
+        locals.push({ name: 'payload', type: payload });
+        body.push({ op: 'let', local: 0, value: { op: 'call', function: call, args: [node] } });
+        if (destroy >= 0) {
+          const dt = lower.types.records[record].fields[destroy].type;
+          const d = lower.reserve();
+          lower.functions[d] = {
+            name: `use:${a.name}$destroy`,
+            component: COMPONENT,
+            captures: [{ name: 'payload', type: payload }],
+            params: [],
+            locals: [],
+            result: 'void',
+            body: [
+              {
+                op: 'expr',
+                value: {
+                  op: 'call-value',
+                  callee: {
+                    op: 'unwrap',
+                    value: { op: 'get', object: { op: 'local', local: 0 }, field: destroy },
+                  },
+                  args: [],
+                },
+              },
+            ],
+          };
+          const closure: Expr = { op: 'closure', function: d, captures: [0] };
+          result = maybeInner(dt) !== undefined ? { maybe: cleanup } : cleanup;
+          body.push({
+            op: 'return',
+            value:
+              maybeInner(dt) !== undefined
+                ? {
+                    op: 'cond',
+                    test: {
+                      op: 'builtin',
+                      name: 'maybe.is-nullish',
+                      args: [{ op: 'get', object: { op: 'local', local: 0 }, field: destroy }],
+                      type: 'boolean',
+                    },
+                    then: { op: 'undefined', type: { maybe: cleanup } },
+                    else: { op: 'some', value: closure },
+                  }
+                : closure,
+          });
+        }
+      }
+      lower.functions[run] = {
+        name: `use:${a.name}$effect`,
+        component: COMPONENT,
+        params: [],
+        locals,
+        result,
+        body,
+      };
+      effects.splice(actionEffects++, 0, {
+        run,
+        phase: 'post',
+        deps: { kind: 'once' },
+        unmount: { removal: 'after', order: 'post' },
+        source: loc(a),
+      });
+    };
+    let actionEffects = 0;
     const children = (fragment: SNode, parent?: string): Node[] => {
       // An <svg>'s content is in the SVG namespace.
       if (parent === 'svg') inSvg++;
@@ -5703,6 +5873,7 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
       const classes: { name: string; value: Expr }[] = [];
       let spread: { at: number; value: Expr; shape: Shape } | undefined;
       let reference: number | undefined;
+      const actions: SNode[] = [];
       for (const a of n.attributes) {
         if (a.type === 'Attribute') {
           const name: string = a.name;
@@ -5966,7 +6137,22 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
               loc(a),
             );
           spread = { at: n.attributes.indexOf(a), value: v, shape: shapes.of(e) };
-        } else fail('E_TEMPLATE', `${a.type} is planned for a later milestone`, loc(a));
+        } else if (a.type === 'UseDirective') actions.push(a);
+        else fail('E_TEMPLATE', `${a.type} is planned for a later milestone`, loc(a));
+      }
+      // Actions (`use:`): effects of the element (`action`).
+      if (actions.length) {
+        if (reference === undefined) {
+          reference = cells.length;
+          cells.push({
+            name: '$use',
+            type: { maybe: 'element' },
+            init: { op: 'null', type: { maybe: 'element' } },
+            tracking: 'identity',
+            source: loc(n),
+          });
+        }
+        for (const a of actions) action(n, a, reference);
       }
       // A dynamic style, or any style with style: directives, is managed
       // through the CSSOM as Svelte's set_style does; a static one stays a

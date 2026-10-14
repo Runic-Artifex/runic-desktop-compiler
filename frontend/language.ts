@@ -1799,6 +1799,10 @@ export class Lowerer {
         if (one !== undefined) return (one === e.right.text) === eq;
       }
       if ((eq || ne) && ts.isTypeOfExpression(e.left) && ts.isStringLiteralLike(e.right)) {
+        // The window and the document are objects (`typeof window !==
+        // 'undefined'`); reading them has no effect.
+        const host = this.hostName(e.left.expression);
+        if (host === 'window' || host === 'document') return ('object' === e.right.text) === eq;
         const m = member(e.left.expression);
         if (m) {
           const F = ts.TypeFlags;
@@ -5076,6 +5080,8 @@ export class Lowerer {
    * bindings answer first.
    */
   private targetType(target: ts.Expression, b: FnBuilder): Type {
+    const fnStatic = this.functionStaticOf(target);
+    if (fnStatic) return this.moduleVariableType(fnStatic.global);
     if (ts.isIdentifier(target)) {
       const binding = this.binding(target);
       if (binding?.kind === 'cell') return this.hooks.cellType(binding.cell);
@@ -5606,6 +5612,16 @@ export class Lowerer {
     else if (have === 'dyn' && want !== undefined && want !== 'dyn')
       value = this.dynTo(value, want);
     else value = this.classes.fitAt(value, have, want, target);
+    const fnStatic = this.functionStaticOf(target);
+    if (fnStatic)
+      return [
+        {
+          op: 'assign',
+          target: { place: 'field', object: { op: 'global', global: fnStatic.global }, field: 0 },
+          value,
+          ...this.src(target),
+        },
+      ];
     if (ts.isIdentifier(target)) {
       const binding = this.binding(target);
       if (binding?.kind === 'local')
@@ -6478,6 +6494,57 @@ export class Lowerer {
       return () => {};
     }
     return () => set(initial());
+  }
+
+  /**
+   * A static property of a package function (M6 script DOM, slice 4:
+   * embla-carousel's `EmblaCarousel.globalOptions = undefined` at its
+   * module's top level, typed by the declaration file's `declare namespace
+   * EmblaCarousel { let globalOptions: … }`): a module variable, initialised
+   * by that assignment, which reads and writes of `F.p` use. `left` is the
+   * assignment's target, the property symbol's declaration.
+   */
+  functionStatic(sym: ts.Symbol, left: ts.PropertyAccessExpression, name: string): void {
+    const assignment = left.parent as ts.BinaryExpression;
+    const type = this.types.of(left);
+    const init = assignment.right;
+    if (!this.expected.has(init)) this.expected.set(init, maybeInner(type) ?? type);
+    const record = this.types.records.length;
+    this.types.records.push({ name: `${name}$static`, class: true, fields: [{ name, type }] });
+    const global = this.globals.length;
+    this.globals.push({
+      name: `${name}$static`,
+      type: { record },
+      init: { op: 'undefined', type: { maybe: 'number' } },
+    });
+    this.bindings.set(sym, { kind: 'module-let', global });
+    if (this.inPackage(left)) this.packageGlobals.add(global);
+    this.globals[global].init = {
+      op: 'record',
+      record,
+      fields: [this.coerceValue(this.value(init, undefined, `${name}$static`), type, init)],
+    };
+  }
+
+  /** The module variable of function static `F.p` that `e` reads, if any (`functionStatic`). */
+  functionStaticOf(e: ts.Expression): { global: number } | undefined {
+    e = skipParens(e);
+    if (!ts.isPropertyAccessExpression(e)) return undefined;
+    const sym = this.checker.getSymbolAtLocation(e.name);
+    const decl = sym?.valueDeclaration;
+    if (
+      !sym ||
+      !decl ||
+      !ts.isPropertyAccessExpression(decl) ||
+      !ts.isIdentifier(decl.expression) ||
+      !ts.isBinaryExpression(decl.parent) ||
+      decl.parent.left !== decl ||
+      !ts.isExpressionStatement(decl.parent.parent) ||
+      !ts.isSourceFile(decl.parent.parent.parent)
+    )
+      return undefined;
+    const binding = this.bindingOf(sym);
+    return binding?.kind === 'module-let' ? binding : undefined;
   }
 
   /** A value of an initialiser as type `want` (nullable widening, null of the type). */
@@ -7766,6 +7833,15 @@ export class Lowerer {
 
   private prefix(e: ts.PrefixUnaryExpression, b: FnBuilder): Expr {
     const K = ts.SyntaxKind;
+    // `!x` of a value whose truth is known at build time (M6 script DOM,
+    // slice 4: embla-carousel-reactive-utils' `!!(typeof window !==
+    // 'undefined' && window.document && window.document.createElement)`):
+    // its negation, after what the test still evaluates.
+    if (e.operator === K.ExclamationToken) {
+      const effects: ts.Expression[] = [];
+      const known = this.staticTruth(e.operand, b, effects);
+      if (known !== undefined) return this.after(effects, { op: 'lit', value: !known }, b);
+    }
     const v = this.expr(e.operand, b);
     const t = this.irType(v, b);
     switch (e.operator) {
@@ -8723,6 +8799,9 @@ export class Lowerer {
         return 'document';
       // `window.navigator` (also `window?.navigator`: the window is never nullish).
       if (name === 'navigator' && this.hostName(inner, depth + 1) === 'window') return 'navigator';
+      // `window.document` (M6 script DOM, slice 4: embla-carousel-reactive-
+      // utils' `canUseDOM`).
+      if (name === 'document' && this.hostName(inner, depth + 1) === 'window') return 'document';
       // `window.CSS` (also `window?.CSS`): the CSS namespace, never nullish.
       if (name === 'CSS' && this.hostName(inner, depth + 1) === 'window') return 'CSS';
       // A member of a name typed as the document or the window (M6 script
@@ -9373,6 +9452,12 @@ export class Lowerer {
     }
     const name = e.name.text;
     if (e.expression.kind === ts.SyntaxKind.SuperKeyword) return this.classes.superRead(e, b);
+    // A function's static property (`functionStatic`).
+    const fnStatic = this.functionStaticOf(e);
+    if (fnStatic) {
+      const read: Expr = { op: 'get', object: { op: 'global', global: fnStatic.global }, field: 0 };
+      return read;
+    }
     // `this.name` in a static member: the class's static member.
     if (e.expression.kind === ts.SyntaxKind.ThisKeyword) {
       const cls = this.classes.staticThis(e.expression);
@@ -14287,14 +14372,15 @@ export class Lowerer {
     )
       return this.byName(e, recordType.record, b);
     if (order.some((n, i) => declared.fields[i].name !== n)) {
-      if (declared.name !== 'Object')
-        return this.fail(
-          e,
-          'E_OBJECT',
-          `Properties are in a different order than in ${declared.name} (${declared.fields
-            .map(f => f.name)
-            .join(', ')}); key order is observable, so write them in declaration order`,
-        );
+      // (A literal of a declared type listing its keys in another order than
+      // the type, shadcn-svelte's carousel context `$state<EmblaContext>({
+      // api, scrollPrev, scrollNext, orientation, … })`: by name, and the
+      // type's key order is not tracked, so key-observing built-ins reject
+      // its values, as for objects listing their keys in different orders.)
+      if (declared.name !== 'Object') {
+        this.types.packageRecords.add(recordType.record);
+        return this.byName(e, recordType.record, b);
+      }
       // (Where this record is expected, an element of an array literal
       // whose objects list their keys in different orders, shadcn-svelte's
       // combobox-popup `countries`: the values by name, and the record's

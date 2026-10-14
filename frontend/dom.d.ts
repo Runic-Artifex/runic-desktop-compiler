@@ -722,6 +722,8 @@ interface HostWindow extends WindowEventTarget {
   getComputedStyle(element: HTMLElement | HostRootElement): ComputedStyle;
   /** M6 overlays (bits-ui's platform checks). */
   readonly navigator: typeof navigator;
+  /** M6 script DOM, slice 4 (embla-carousel-reactive-utils' `canUseDOM`). */
+  readonly document: HostDocument;
   /** The CSS namespace (bits-ui's PinInput `window?.CSS?.supports`). */
   readonly CSS: typeof CSS;
   setTimeout: typeof setTimeout;

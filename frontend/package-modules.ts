@@ -113,6 +113,11 @@ interface Declared {
   >;
   /** Constants (`export declare const X: T`). */
   variables: Set<string>;
+  /**
+   * Static properties of functions (`declare namespace F { let p: T }`,
+   * merged with `declare function F`), by function.
+   */
+  statics?: Map<string, Set<string>>;
   /** The declaration file, and the names it declares or imports at its top level. */
   sf?: ts.SourceFile;
   top: Set<string>;
@@ -209,6 +214,18 @@ function declarations(dts: string): Declared {
     } else if (ts.isVariableStatement(stmt)) {
       for (const d of stmt.declarationList.declarations)
         if (ts.isIdentifier(d.name) && d.type) out.variables.add(d.name.text);
+    } else if (
+      ts.isModuleDeclaration(stmt) &&
+      ts.isIdentifier(stmt.name) &&
+      stmt.body &&
+      ts.isModuleBlock(stmt.body)
+    ) {
+      const props = new Set<string>();
+      for (const x of stmt.body.statements)
+        if (ts.isVariableStatement(x))
+          for (const d of x.declarationList.declarations)
+            if (ts.isIdentifier(d.name) && d.type) props.add(d.name.text);
+      if (props.size) (out.statics ??= new Map()).set(stmt.name.text, props);
     } else if (ts.isClassDeclaration(stmt) && stmt.name) {
       const c = {
         decl: stmt,
@@ -280,7 +297,10 @@ function virtualDeclarations(
       ts.isTypeAliasDeclaration(stmt) ||
       ts.isFunctionDeclaration(stmt) ||
       ts.isVariableStatement(stmt) ||
-      ts.isEnumDeclaration(stmt);
+      ts.isEnumDeclaration(stmt) ||
+      // (A namespace merged with a function: embla's `declare namespace
+      // EmblaCarousel { let globalOptions }`.)
+      (ts.isModuleDeclaration(stmt) && ts.isIdentifier(stmt.name));
     const exported = ts
       .getModifiers(stmt as ts.HasModifiers)
       ?.some(
@@ -679,6 +699,24 @@ export function annotate(
     if (at !== undefined && !decl.type) add(at, `: ${type}`);
   };
   for (const stmt of sf.statements) {
+    // A static property of a function the declaration file declares in a
+    // namespace merged with it (embla-carousel's `EmblaCarousel.globalOptions
+    // = undefined`): the value assigned at the top level is of its declared
+    // type, which TypeScript gives the property it adds to the function.
+    if (
+      ts.isExpressionStatement(stmt) &&
+      ts.isBinaryExpression(stmt.expression) &&
+      stmt.expression.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isPropertyAccessExpression(stmt.expression.left) &&
+      ts.isIdentifier(stmt.expression.left.expression)
+    ) {
+      const fn = stmt.expression.left.expression.text;
+      const prop = stmt.expression.left.name.text;
+      const { declared, ns } = of(fn);
+      if (declared.functions.has(fn) && declared.statics?.get(fn)?.has(prop))
+        add(stmt.expression.right.end, ` as (typeof ${ns}.${fn})[${JSON.stringify(prop)}]`);
+      continue;
+    }
     // Exported constants take their declared types (runed `Context<T>` keys).
     if (ts.isVariableStatement(stmt)) {
       for (const d of stmt.declarationList.declarations) {

@@ -151,12 +151,18 @@ test('a subclass re-declaring a base field with an object of the same shape lowe
 });
 
 test('a re-declared field whose object differs from the base field’s in key order or getters is rejected, located', async () => {
-  const cases = [
-    [
+  // (Objects in another key order than the base field's type are built by
+  // name; the type's key order is then not tracked, so a key-observing
+  // built-in of the field is rejected.)
+  await withApp(
+    model(
       "opts: { n: number; k: string } = { n: 1, k: 'a' };",
       "opts: { k: string; n: number } = { k: 'b', n: 2 };",
-      'E_OBJECT',
-    ],
+      'JSON.stringify(this.opts)',
+    ),
+    root => assert.rejects(lowered(root), failWith('E_OBJECT', 'model.svelte.ts')),
+  );
+  const cases = [
     [
       "opts: { n: number; k: string } = { n: 1, k: 'a' };",
       'opts: { k: string; n: number } = make();',
