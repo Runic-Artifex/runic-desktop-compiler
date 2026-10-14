@@ -93,6 +93,9 @@ pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
         viewport: Some(Viewport::new(width, height, 1.0, ColorScheme::Light)),
         ..Default::default()
     });
+    // Animation and transition events (CSS slice 3b), if the program may
+    // listen to them: recorded from the start, as Chromium tracks them.
+    doc.track_animation_events(A::ANIMATION_EVENTS);
     // Chromium user-agent defaults that Blitz's stylesheet lacks at the pinned
     // revision (form controls use `font: -webkit-small-control`).
     doc.add_user_agent_stylesheet(UA_PARITY);

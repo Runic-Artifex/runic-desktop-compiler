@@ -126,7 +126,17 @@ export type EventKind =
   | 'popstate'
   | 'hashchange'
   | 'load'
-  | 'error';
+  | 'error'
+  // CSS animation and transition events (CSS slice 3b): a frame's
+  // animation step dispatches them, with Chromium 153's timing.
+  | 'animationstart'
+  | 'animationiteration'
+  | 'animationend'
+  | 'animationcancel'
+  | 'transitionrun'
+  | 'transitionstart'
+  | 'transitionend'
+  | 'transitioncancel';
 
 export const EVENT_KINDS: readonly EventKind[] = [
   'click',
@@ -158,6 +168,14 @@ export const EVENT_KINDS: readonly EventKind[] = [
   'focusout',
   'scroll',
   'resize',
+  'animationstart',
+  'animationiteration',
+  'animationend',
+  'animationcancel',
+  'transitionrun',
+  'transitionstart',
+  'transitionend',
+  'transitioncancel',
 ];
 
 /** Session history events: fired at the window only (window listeners). */

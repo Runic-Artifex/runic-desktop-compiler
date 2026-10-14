@@ -141,7 +141,10 @@ try {
           };
           // document.title is a host effect of programs that set it (M6).
           const trackTitle = /"document\.set-title"/.test(JSON.stringify(ir));
-          const b = await browser.run(dir, { viewport, actions, ...env, clock: fakeClock, trackTitle, out: values.pixels ? path.join(shots, 'browser') : path.join(out, 'tmp') });
+          // Animation and transition events (CSS slice 3b): Chromium dispatches
+          // them at its next rendering frame, which the harness then awaits.
+          const animationEvents = /"(animation(start|iteration|end|cancel)|transition(run|start|end|cancel))"/.test(JSON.stringify(ir));
+          const b = await browser.run(dir, { viewport, actions, ...env, clock: fakeClock, trackTitle, animationEvents, out: values.pixels ? path.join(shots, 'browser') : path.join(out, 'tmp') });
           const capturedBuild = values['retain-snapshots'] ? captureBuild(binary) : undefined;
           const n = runProbe(binary, { viewport, actions, ...env, visibleTargets: true, gpuAdapter, out: values.pixels ? path.join(shots, 'native') : undefined });
           if (values['retain-snapshots']) {

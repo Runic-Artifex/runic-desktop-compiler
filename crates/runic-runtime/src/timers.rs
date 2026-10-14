@@ -91,9 +91,47 @@ impl<C: Clone> Timers<C> {
         self.entries.retain(|e| e.id as f64 != id);
     }
 
-    /// The due time of the next timer.
+    /// Whether frame callbacks wait for the window's next frame instead of
+    /// a due time: in apps (not probes), the shell's redraws are the frames,
+    /// and a frame runs its callbacks after its animation events, as
+    /// Chromium's "update the rendering" does (`Native::update_rendering`).
+    fn frames_at_redraw() -> bool {
+        !crate::probe_mode()
+    }
+
+    fn due_by_time(e: &Entry<C>) -> bool {
+        e.kind != TimerKind::Frame || !Self::frames_at_redraw()
+    }
+
+    /// The due time of the next timer (frames that wait for a redraw aside).
     pub fn next_due(&self) -> Option<f64> {
-        self.entries.iter().map(|e| e.call_at).reduce(f64::min)
+        self.entries
+            .iter()
+            .filter(|e| Self::due_by_time(e))
+            .map(|e| e.call_at)
+            .reduce(f64::min)
+    }
+
+    /// Whether frame callbacks are waiting for the window's next frame.
+    pub fn has_frames(&self) -> bool {
+        Self::frames_at_redraw() && self.entries.iter().any(|e| e.kind == TimerKind::Frame)
+    }
+
+    /// The callbacks of the window's frame (apps): every frame callback
+    /// requested before it, in order of request; those they request run at
+    /// the next frame.
+    pub fn take_frames(&mut self) -> Vec<C> {
+        let mut frames = Vec::new();
+        self.entries.retain(|e| {
+            if e.kind == TimerKind::Frame {
+                frames.push((e.id, e.callback.clone()));
+                false
+            } else {
+                true
+            }
+        });
+        frames.sort_by_key(|f| f.0);
+        frames.into_iter().map(|f| f.1).collect()
     }
 
     /// Take the first timer due at or before `to` and advance the clock to it.
@@ -103,7 +141,7 @@ impl<C: Clone> Timers<C> {
             .entries
             .iter()
             .enumerate()
-            .filter(|(_, e)| e.call_at <= to)
+            .filter(|(_, e)| e.call_at <= to && Self::due_by_time(e))
             .min_by(|(_, a), (_, b)| {
                 a.call_at
                     .total_cmp(&b.call_at)

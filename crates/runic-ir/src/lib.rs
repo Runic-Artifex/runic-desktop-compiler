@@ -1126,6 +1126,18 @@ pub enum EventKind {
     /// reference interpreter loads no images.
     Load,
     Error,
+    /// CSS animation and transition events (CSS slice 3b): dispatched at a
+    /// frame's animation step with Chromium 153's timing (bubbling and
+    /// cancelable, as Chromium creates them). The reference interpreter has
+    /// no style engine and dispatches none.
+    Animationstart,
+    Animationiteration,
+    Animationend,
+    Animationcancel,
+    Transitionrun,
+    Transitionstart,
+    Transitionend,
+    Transitioncancel,
 }
 
 impl EventKind {
@@ -1186,6 +1198,21 @@ impl EventKind {
         matches!(self, EventKind::Load | EventKind::Error)
     }
 
+    /// A CSS animation or transition event (CSS slice 3b).
+    pub fn animation(self) -> bool {
+        matches!(
+            self,
+            EventKind::Animationstart
+                | EventKind::Animationiteration
+                | EventKind::Animationend
+                | EventKind::Animationcancel
+                | EventKind::Transitionrun
+                | EventKind::Transitionstart
+                | EventKind::Transitionend
+                | EventKind::Transitioncancel
+        )
+    }
+
     /// Fired at the window only (no element or document listeners).
     pub fn window_only(self) -> bool {
         matches!(
@@ -1227,10 +1254,19 @@ impl EventKind {
             EventKind::Popstate | EventKind::Hashchange => "back",
             // No input delivers them: the image's request completes.
             EventKind::Load | EventKind::Error => "load",
+            // A frame's animation step dispatches them.
+            EventKind::Animationstart
+            | EventKind::Animationiteration
+            | EventKind::Animationend
+            | EventKind::Animationcancel
+            | EventKind::Transitionrun
+            | EventKind::Transitionstart
+            | EventKind::Transitionend
+            | EventKind::Transitioncancel => "animation",
         }
     }
 
-    pub const ALL: [EventKind; 33] = [
+    pub const ALL: [EventKind; 41] = [
         EventKind::Click,
         EventKind::Submit,
         EventKind::Input,
@@ -1264,6 +1300,14 @@ impl EventKind {
         EventKind::Hashchange,
         EventKind::Load,
         EventKind::Error,
+        EventKind::Animationstart,
+        EventKind::Animationiteration,
+        EventKind::Animationend,
+        EventKind::Animationcancel,
+        EventKind::Transitionrun,
+        EventKind::Transitionstart,
+        EventKind::Transitionend,
+        EventKind::Transitioncancel,
     ];
 
     /// The kind named `name` (`event.type`).
@@ -1320,6 +1364,14 @@ impl EventKind {
             EventKind::Hashchange => "hashchange",
             EventKind::Load => "load",
             EventKind::Error => "error",
+            EventKind::Animationstart => "animationstart",
+            EventKind::Animationiteration => "animationiteration",
+            EventKind::Animationend => "animationend",
+            EventKind::Animationcancel => "animationcancel",
+            EventKind::Transitionrun => "transitionrun",
+            EventKind::Transitionstart => "transitionstart",
+            EventKind::Transitionend => "transitionend",
+            EventKind::Transitioncancel => "transitioncancel",
         }
     }
 }

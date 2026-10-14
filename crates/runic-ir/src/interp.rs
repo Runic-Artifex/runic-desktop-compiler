@@ -4927,6 +4927,42 @@ impl<'p> Machine<'p> {
                     },
                     "deltaX" => Val::Num(d.delta_x),
                     "deltaY" => Val::Num(d.delta_y),
+                    "elapsedTime" => {
+                        if !matches!(d.interface(), Some("AnimationEvent" | "TransitionEvent")) {
+                            return Err(Throw::new(
+                                "RunicUnsupportedError",
+                                "elapsedTime of an event that is not an animation or transition event",
+                            ));
+                        }
+                        Val::Num(d.elapsed_time)
+                    }
+                    "animationName" => {
+                        if !matches!(d.interface(), Some("AnimationEvent")) {
+                            return Err(Throw::new(
+                                "RunicUnsupportedError",
+                                "animationName of an event that is not an animation event",
+                            ));
+                        }
+                        Val::Str(d.animation_name.clone())
+                    }
+                    "propertyName" => {
+                        if !matches!(d.interface(), Some("TransitionEvent")) {
+                            return Err(Throw::new(
+                                "RunicUnsupportedError",
+                                "propertyName of an event that is not a transition event",
+                            ));
+                        }
+                        Val::Str(d.property_name.clone())
+                    }
+                    "pseudoElement" => {
+                        if !matches!(d.interface(), Some("AnimationEvent" | "TransitionEvent")) {
+                            return Err(Throw::new(
+                                "RunicUnsupportedError",
+                                "pseudoElement of an event that is not an animation or transition event",
+                            ));
+                        }
+                        Val::Str(d.pseudo_element.clone())
+                    }
                     // (An event script created has no target until it is
                     // dispatched: null, which the typed read cannot hold.)
                     "target" => match e.target() {

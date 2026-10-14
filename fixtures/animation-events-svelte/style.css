@@ -1,0 +1,28 @@
+@font-face { font-family: RunicFixture; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #eae6dc; color: #252c28; font-family: RunicFixture; font-size: 16px; }
+body { padding: 16px; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+button { font-family: RunicFixture; font-size: 14px; height: 36px; padding: 0 14px; border: 1px solid #52665b; border-radius: 6px; background: #e2e8df; color: #252c28; }
+.rows { display: grid; gap: 6px; }
+.row { position: relative; height: 24px; background: #faf8f1; border: 1px solid #b7b7a9; border-radius: 6px; }
+.box { position: absolute; left: 8px; top: 3px; width: 120px; height: 16px; border-radius: 2px; background: rgb(40, 90, 160); }
+pre { font-family: RunicFixture; font-size: 12px; line-height: 15px; margin: 12px 0 0; white-space: pre; }
+
+@keyframes pulse { from { opacity: 0.2; } to { opacity: 1; } }
+@keyframes slide { from { transform: translateX(0px); } to { transform: translateX(160px); } }
+
+/* Two iterations: start, iteration, end. */
+#a { animation: slide 100ms linear 2; }
+/* A delay: before, then start and end. */
+#b { animation: pulse 60ms linear 50ms; }
+/* A negative delay: started 40 ms in. */
+#c { animation: slide 100ms linear -40ms; }
+/* A pseudo-element's animation (pseudoElement "::before"). */
+#e::before { content: ''; position: absolute; left: 130px; top: 0; width: 16px; height: 16px; background: rgb(200, 60, 40); animation: slide 80ms linear; }
+/* A transition, reversed half way. */
+#t { opacity: 0.2; transition: opacity 100ms linear; }
+#t.on { opacity: 1; }
+/* Cancelled by display: none on its ancestor, started again when shown. */
+#d { animation: slide 200ms linear infinite; }
+.hidden { display: none; }

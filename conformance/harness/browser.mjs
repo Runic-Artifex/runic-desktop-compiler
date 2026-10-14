@@ -452,6 +452,21 @@ function timeBasedCss() {
   return [...document.styleSheets].some(s => rules(s.cssRules));
 }
 
+/**
+ * One rendering frame of Chromium (the fake clock replaces
+ * requestAnimationFrame): a new ResizeObserver's first notification comes
+ * in the next frame's update, after its animation events.
+ */
+function renderingFrame() {
+  return new Promise(resolve => {
+    const observer = new ResizeObserver(() => {
+      observer.disconnect();
+      resolve();
+    });
+    observer.observe(document.documentElement);
+  });
+}
+
 const twoFrames = () =>
   new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
@@ -607,6 +622,7 @@ export async function createBrowserHarness() {
         locale = 'en-US',
         clock: fakeClock = false,
         trackTitle = false,
+        animationEvents = false,
         url = '/',
         clipboard = '',
         seed = 1,
@@ -770,21 +786,41 @@ export async function createBrowserHarness() {
         const time = {
           now: CLOCK_START,
           stepped: false,
-          seek() {
-            return page.evaluate(seekAnimations, this.now);
+          /**
+           * Seek the animations to virtual time `at` (the clock's by default).
+           * A page that may listen to animation and transition events then
+           * gets a rendering frame, where Chromium dispatches them (CSS slice
+           * 3b), so that they are dispatched at the seek.
+           */
+          async seek(at = this.now) {
+            await page.evaluate(seekAnimations, at);
+            if (animationEvents) await page.evaluate(renderingFrame);
           },
           /** A document loaded: its animations start now. */
           async loaded() {
             this.stepped = await page.evaluate(timeBasedCss);
             await this.seek();
           },
-          /** Advance virtual time by `ms`, frame by frame when the CSS is time-based. */
+          /**
+           * Advance virtual time by `ms`, frame by frame when the CSS is
+           * time-based. A frame runs Chromium's "update the rendering" order
+           * (CSS slice 3b): the timers due before it (the clock then stands
+           * at the millisecond before the frame; Playwright's clock moves in
+           * whole milliseconds), the animations sought to the frame (their
+           * `finished` promises, then their events), then the timers due at
+           * the frame (its animation frame callbacks among them, also those
+           * requested by the events' listeners), and another seek for the
+           * animations they start.
+           */
           async wait(ms) {
             const to = this.now + ms;
             await this.seek();
             if (this.stepped)
               for (let frame = Math.floor(this.now / 16) * 16 + 16; frame <= to; frame += 16) {
-                await page.clock.runFor(frame - this.now);
+                await page.clock.runFor(frame - 1 - this.now);
+                this.now = frame - 1;
+                await this.seek(frame);
+                await page.clock.runFor(1);
                 this.now = frame;
                 await this.seek();
               }
