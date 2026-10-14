@@ -572,6 +572,9 @@ pub struct Instance<'p> {
     /// Content the parent provides for each declared slot.
     slots: Vec<Option<Provided<'p>>>,
     alive: bool,
+    /// Destroyed where the update removed its block: the cleanups
+    /// `schedule.teardown` runs at removal have run.
+    torn: bool,
     /// The instance whose rendered output contains this one (the instance
     /// rendering a slot for content passed through it).
     parent: Option<usize>,
@@ -668,6 +671,31 @@ struct Provided<'p> {
     parent: usize,
     def: &'p SlotDef,
     values: Vec<Val>,
+}
+
+/// One step of a render, for teardowns at removal (`schedule.teardown`).
+#[derive(Clone, Copy, Debug)]
+enum Trace {
+    /// An instance is entered (before its template renders) …
+    Enter(usize),
+    /// … and left.
+    Exit(usize),
+    /// An element renders, with whether it has attachments (they are
+    /// noted before its children render).
+    Element(u64, bool),
+}
+
+/// A part of the tree an update may remove as one block.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum Region {
+    /// The rendered branch of an `if` node.
+    Branch(InstKey),
+    /// A block of an `each` node, by key.
+    Item(InstKey, MapKey),
+    /// The `else` content of an `each` node.
+    Else(InstKey),
+    /// An imperatively mounted instance and what it renders.
+    Mounted(usize),
 }
 
 /// Identity of a child instance: its parent instance, its `component` node and
@@ -849,6 +877,17 @@ pub struct Machine<'p> {
     /// The keys of every keyed list as last rendered (by instance, path and
     /// node), to know which blocks the framework moves.
     list_keys: HashMap<(usize, Vec<MapKey>, usize), Vec<MapKey>>,
+    /// Where `schedule.teardown` runs cleanups at removal: the running
+    /// render's order of instances (entered, left) and of elements with
+    /// attachments, and what each region (an `if` and its branch, a list
+    /// block, a list's `else`) rendered last time, with the regions this
+    /// render reached.
+    trace: Vec<Trace>,
+    regions: HashMap<Region, (bool, Vec<Trace>)>,
+    rendered_regions: HashSet<Region>,
+    /// Elements of blocks removed during the running render (no longer
+    /// connected, though the last tree still holds them).
+    removed_now: HashSet<u64>,
     /// Elements of blocks the last render moved (Chromium blurs a focused
     /// element when it is detached to be moved).
     moved: HashSet<u64>,
@@ -1355,6 +1394,10 @@ impl<'p> Machine<'p> {
             element_ids: HashMap::new(),
             rendered_elements: HashSet::new(),
             list_keys: HashMap::new(),
+            trace: vec![],
+            regions: HashMap::new(),
+            rendered_regions: HashSet::new(),
+            removed_now: HashSet::new(),
             moved: HashSet::new(),
             checked_radios: vec![],
             next_element: 0,
@@ -1502,6 +1545,7 @@ impl<'p> Machine<'p> {
             binds: vec![None; n],
             slots: vec![None; comp.slots.len()],
             alive: true,
+            torn: false,
             parent,
             effects: comp
                 .effects
@@ -4103,7 +4147,10 @@ impl<'p> Machine<'p> {
                 };
                 Val::Bool(match self.script_tree(e.0) {
                     Some(_) => self.script.attachment(e.0) == Some(ScriptParent::Body),
-                    None => chain_nodes(&self.last_tree, e.0).is_some(),
+                    None => {
+                        chain_nodes(&self.last_tree, e.0).is_some()
+                            && !self.removed_now.contains(&e.0)
+                    }
                 })
             }
             ("element", m @ ("querySelectorAll" | "querySelector")) => {
@@ -5278,6 +5325,8 @@ impl<'p> Machine<'p> {
         self.template_custom.clear();
         self.moved.clear();
         self.order.clear();
+        self.trace.clear();
+        self.rendered_regions.clear();
         let mut visited = HashSet::new();
         let mut out = vec![];
         let previous = std::mem::take(&mut self.refs);
@@ -5294,10 +5343,20 @@ impl<'p> Machine<'p> {
             visited.insert(id);
             self.order.push(id);
             let mut content = vec![];
+            let start = self.trace.len();
+            self.trace.push(Trace::Enter(id));
             result = self.render_instance(id, &mut content, &mut visited);
+            self.trace.push(Trace::Exit(id));
+            // What `mounted.unmount` tears down at once.
+            let region = Region::Mounted(id);
+            self.regions
+                .insert(region.clone(), (true, self.trace[start..].to_vec()));
+            self.rendered_regions.insert(region);
             portals.push(content);
         }
         self.restore_due = false;
+        let reached = std::mem::take(&mut self.rendered_regions);
+        self.regions.retain(|r, _| reached.contains(r));
         let rendered = std::mem::take(&mut self.rendered_elements);
         self.element_ids.retain(|k, _| rendered.contains(k));
         // Attachments of elements no longer rendered are cleaned up.
@@ -5410,6 +5469,7 @@ impl<'p> Machine<'p> {
             }
         }
         self.last_tree = tree.clone();
+        self.removed_now.clear();
         Ok(tree)
     }
 
@@ -5541,13 +5601,43 @@ impl<'p> Machine<'p> {
                 otherwise,
                 ..
             } => {
-                let body = if self.eval(test, frame)?.boolean() {
-                    then
-                } else {
-                    otherwise
+                let cond = self.eval(test, frame)?.boolean();
+                let body = if cond { then } else { otherwise };
+                let policy = self.program.schedule.teardown;
+                if policy == Teardown::Deferred {
+                    for c in body {
+                        self.render_node(c, frame, path, out, visited)?;
+                    }
+                    return Ok(());
+                }
+                // The branch it replaces is torn down where the update
+                // removes it: before the new one is created, or after.
+                let region = Region::Branch(InstKey {
+                    parent: self.current,
+                    node: n as *const Node as usize,
+                    path: path.clone(),
+                    via: self.via.clone(),
+                });
+                let replaced = match self.regions.get(&region) {
+                    Some((was, _)) if *was != cond => self.regions.remove(&region).map(|r| r.1),
+                    _ => None,
                 };
+                if policy == Teardown::BeforeAtRemoval {
+                    if let Some(old) = &replaced {
+                        self.tear_down(old);
+                    }
+                }
+                let start = self.trace.len();
                 for c in body {
                     self.render_node(c, frame, path, out, visited)?;
+                }
+                self.regions
+                    .insert(region.clone(), (cond, self.trace[start..].to_vec()));
+                self.rendered_regions.insert(region);
+                if policy == Teardown::AtRemoval {
+                    if let Some(old) = &replaced {
+                        self.tear_down(old);
+                    }
                 }
             }
             Node::Each {
@@ -5562,18 +5652,34 @@ impl<'p> Machine<'p> {
             } => {
                 let list_id = (self.current, path.clone(), n as *const Node as usize);
                 let previous = self.list_keys.remove(&list_id).unwrap_or_default();
-                let mut keys = vec![];
-                let mut blocks = vec![];
                 let list = self.eval(items, frame)?.array();
                 let values: Vec<Val> = list.borrow().clone();
+                // Regions for teardowns at removal (`schedule.teardown`).
+                let at_removal = self.program.schedule.teardown != Teardown::Deferred;
+                let node_key = InstKey {
+                    parent: self.current,
+                    node: n as *const Node as usize,
+                    path: path.clone(),
+                    via: self.via.clone(),
+                };
                 if values.is_empty() {
+                    // Created before the blocks it replaces are removed.
+                    let start = self.trace.len();
                     for c in otherwise {
                         self.render_node(c, frame, path, out, visited)?;
                     }
+                    if at_removal {
+                        let region = Region::Else(node_key.clone());
+                        self.regions
+                            .insert(region.clone(), (true, self.trace[start..].to_vec()));
+                        self.rendered_regions.insert(region);
+                    }
                 }
+                // Keys first, as generated code takes them.
+                let mut keys = Vec::with_capacity(values.len());
                 let mut seen = HashSet::new();
-                for (i, v) in values.into_iter().enumerate() {
-                    frame.set(*item, v);
+                for (i, v) in values.iter().enumerate() {
+                    frame.set(*item, v.clone());
                     if let Some(x) = index {
                         frame.set(*x, Val::Num(i as f64));
                     }
@@ -5584,31 +5690,79 @@ impl<'p> Machine<'p> {
                     if !seen.insert(k.clone()) {
                         return Err(Throw::new("RunicKeyError", "Duplicate key in a keyed list"));
                     }
-                    path.push(k.clone());
-                    let start = out.len();
-                    for c in body {
-                        self.render_node(c, frame, path, out, visited)?;
-                    }
-                    path.pop();
-                    blocks.push(start..out.len());
                     keys.push(k);
                 }
-                // Blocks the framework's keyed diff moves (detaching them).
-                if key.is_some() && !previous.is_empty() {
-                    let old: Vec<Option<usize>> = keys
-                        .iter()
-                        .map(|k| previous.iter().position(|p| p == k))
-                        .collect();
-                    let strategy = match reorder {
-                        Reorder::Lis => js::reorder::Reorder::Lis,
-                        Reorder::Forward => js::reorder::Reorder::Forward,
-                        Reorder::Stash => js::reorder::Reorder::Stash,
-                    };
-                    let keep = js::reorder::keep(strategy, &old, previous.len());
-                    for (j, range) in blocks.into_iter().enumerate() {
-                        if old[j].is_some() && !keep[j] {
-                            element_ids(&out[range], &mut self.moved);
+                let at: HashMap<&MapKey, usize> =
+                    previous.iter().enumerate().map(|(o, k)| (k, o)).collect();
+                let old: Vec<Option<usize>> = keys.iter().map(|k| at.get(k).copied()).collect();
+                let strategy = match reorder {
+                    Reorder::Lis => js::reorder::Reorder::Lis,
+                    Reorder::Forward => js::reorder::Reorder::Forward,
+                    Reorder::Stash => js::reorder::Reorder::Stash,
+                };
+                let (steps, keep) = js::reorder::schedule(strategy, &old, previous.len());
+                // Blocks render in the order the framework's keyed diff creates
+                // and updates them (their components' setup and pre effects
+                // run then); the tree and the instance order stay in
+                // document order.
+                type Rendered = (Vec<VNode>, Vec<usize>, Vec<u64>, Vec<Trace>);
+                let mut rendered: Vec<Option<Rendered>> = (0..keys.len()).map(|_| None).collect();
+                for step in steps {
+                    let j = match step {
+                        js::reorder::Step::Mount(j) | js::reorder::Step::Patch(j) => j,
+                        js::reorder::Step::Remove(o) => {
+                            // Torn down where the keyed diff removes it.
+                            let region = Region::Item(node_key.clone(), previous[o].clone());
+                            if let Some((_, old)) = self.regions.remove(&region) {
+                                self.tear_down(&old);
+                            }
+                            continue;
                         }
+                        js::reorder::Step::Move(_) => continue,
+                    };
+                    frame.set(*item, values[j].clone());
+                    if let Some(x) = index {
+                        frame.set(*x, Val::Num(j as f64));
+                    }
+                    let (order, radios, trace) = (
+                        self.order.len(),
+                        self.checked_radios.len(),
+                        self.trace.len(),
+                    );
+                    path.push(keys[j].clone());
+                    let mut block = vec![];
+                    let r = body
+                        .iter()
+                        .try_for_each(|c| self.render_node(c, frame, path, &mut block, visited));
+                    path.pop();
+                    r?;
+                    let order = self.order.split_off(order);
+                    let radios = self.checked_radios.split_off(radios);
+                    let trace = self.trace.split_off(trace);
+                    if at_removal {
+                        let region = Region::Item(node_key.clone(), keys[j].clone());
+                        self.regions.insert(region.clone(), (true, trace.clone()));
+                        self.rendered_regions.insert(region);
+                    }
+                    rendered[j] = Some((block, order, radios, trace));
+                }
+                // The `else` content the blocks replace goes after them.
+                if !values.is_empty() {
+                    if let Some((_, old)) = self.regions.remove(&Region::Else(node_key.clone())) {
+                        self.tear_down(&old);
+                    }
+                }
+                for (j, r) in rendered.into_iter().enumerate() {
+                    let (block, order, radios, trace) =
+                        r.expect("every block is mounted or patched");
+                    let start = out.len();
+                    out.extend(block);
+                    self.order.extend(order);
+                    self.checked_radios.extend(radios);
+                    self.trace.extend(trace);
+                    // Blocks the framework's keyed diff moves (detaching them).
+                    if key.is_some() && old[j].is_some() && !keep[j] {
+                        element_ids(&out[start..], &mut self.moved);
                     }
                 }
                 self.list_keys.insert(list_id, keys);
@@ -5740,7 +5894,9 @@ impl<'p> Machine<'p> {
                 self.instances[id].slots = provided;
                 visited.insert(id);
                 self.order.push(id);
+                self.trace.push(Trace::Enter(id));
                 self.render_instance(id, out, visited)?;
+                self.trace.push(Trace::Exit(id));
             }
             Node::Element {
                 tag,
@@ -6077,6 +6233,8 @@ impl<'p> Machine<'p> {
                     }
                     self.note_attachments(id, attachments);
                 }
+                self.trace
+                    .push(Trace::Element(id, self.attached.contains_key(&id)));
                 if !spread_default && self.spread_defaults.remove(&id).is_some() {
                     return Err(Throw::new(
                         "RunicUnsupportedError",
@@ -7461,6 +7619,13 @@ impl<'p> Machine<'p> {
             }
         }
         let destroyed: Vec<usize> = order.iter().copied().filter(|i| set.contains(i)).collect();
+        // Under `schedule.teardown` at-removal, in its last render's order
+        // with its attachments (Svelte's unmount destroys the root effect).
+        if self.program.schedule.teardown != Teardown::Deferred {
+            if let Some((_, trace)) = self.regions.remove(&Region::Mounted(id)) {
+                self.tear_down(&trace);
+            }
+        }
         for &i in &destroyed {
             self.instances[i].alive = false;
         }
@@ -7786,15 +7951,22 @@ impl<'p> Machine<'p> {
         if destroyed.is_empty() {
             return;
         }
-        let set: HashSet<usize> = destroyed.iter().copied().collect();
-        let roots: Vec<usize> = order
-            .iter()
-            .copied()
-            .filter(|i| {
-                set.contains(i) && !self.instances[*i].parent.is_some_and(|p| set.contains(&p))
-            })
-            .collect();
+        let policy = self.program.schedule.teardown;
         for removal in [Removal::Before, Removal::After] {
+            // Instances torn down where their block was removed ran the
+            // cleanups the policy runs there.
+            let set: HashSet<usize> = destroyed
+                .iter()
+                .copied()
+                .filter(|&i| !(self.instances[i].torn && policy.at_removal(removal)))
+                .collect();
+            let roots: Vec<usize> = order
+                .iter()
+                .copied()
+                .filter(|i| {
+                    set.contains(i) && !self.instances[*i].parent.is_some_and(|p| set.contains(&p))
+                })
+                .collect();
             for &r in &roots {
                 self.teardown_at(
                     r,
@@ -7842,6 +8014,70 @@ impl<'p> Machine<'p> {
         for &(j, e) in due {
             if j == i {
                 self.run_cleanup(i, e);
+            }
+        }
+    }
+
+    /// A block the update removes, where it removes it (`schedule.teardown`):
+    /// the cleanups the policy runs at removal of the instances and
+    /// attachments its last render held (`trace`), those before removal
+    /// first, each in render order: an instance's `pre`-ordered cleanups when
+    /// it was entered, its `post`-ordered ones when it was left, and the
+    /// cleanups of an element's attachments (after removal) where it
+    /// rendered (Svelte destroys effects in tree order, attachments among
+    /// them). The instances are destroyed; the rest of their cleanups run
+    /// after the tree has updated.
+    fn tear_down(&mut self, trace: &[Trace]) {
+        let policy = self.program.schedule.teardown;
+        for removal in [Removal::Before, Removal::After] {
+            if removal == Removal::After {
+                // The block's DOM leaves the document (`isConnected`).
+                for t in trace {
+                    if let Trace::Element(e, _) = *t {
+                        self.removed_now.insert(e);
+                    }
+                }
+            }
+            if !policy.at_removal(removal) {
+                continue;
+            }
+            for t in trace {
+                let (i, order) = match *t {
+                    Trace::Enter(i) => (i, TreeOrder::Pre),
+                    Trace::Exit(i) => (i, TreeOrder::Post),
+                    Trace::Element(_, false) => continue,
+                    Trace::Element(e, true) => {
+                        if removal == Removal::After {
+                            for a in self.attached.remove(&e).unwrap_or_default() {
+                                if let Some(Some(c)) = a.cleanup {
+                                    if let Err(t) = self.call_value(&c, vec![]) {
+                                        self.uncaught.push(t);
+                                    }
+                                }
+                            }
+                        }
+                        continue;
+                    }
+                };
+                if self.instances[i].torn {
+                    continue;
+                }
+                let due: Vec<usize> = (0..self.instances[i].effects.len())
+                    .filter(|&e| {
+                        let effect = self.effect_at(i, e);
+                        effect.unmount.removal == removal && effect.unmount.order == order
+                    })
+                    .collect();
+                for e in due {
+                    self.run_cleanup(i, e);
+                }
+            }
+        }
+        for t in trace {
+            if let Trace::Enter(i) = *t {
+                let inst = &mut self.instances[i];
+                inst.torn = true;
+                inst.alive = false;
             }
         }
     }

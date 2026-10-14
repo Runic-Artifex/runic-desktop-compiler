@@ -63,6 +63,11 @@ try {
     } catch (e) {
       console.log(`${fixture}: interpreter failed: ${e.code ?? ''} ${e.message}`);
       mismatches++;
+      // The browser's text still shows what the framework does (expected rejections).
+      if (show)
+        b.steps.forEach((s, i) =>
+          console.log(`${fixture} step ${i} (${JSON.stringify(s.action)})`, texts(s.dom)),
+        );
       continue;
     }
     b.steps.forEach((s, i) => {

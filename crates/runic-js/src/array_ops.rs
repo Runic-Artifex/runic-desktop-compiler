@@ -27,6 +27,7 @@ use crate::{
     SetData, StrictEq, Throw, ToMapKey, array, mutation_epoch, number_to_string, own_into,
 };
 use indexmap::map::Entry;
+use std::ops::Range;
 
 /// `Array.prototype.join` over a slice (nullish elements → "").
 pub fn join_elements<T: ArrayElement>(items: &[T], separator: &JsString) -> JsString {
@@ -178,28 +179,71 @@ pub fn push<T>(a: &JsArray<T>, items: Vec<T>) -> f64 {
     v.extend(items);
     v.len() as f64
 }
-pub fn pop<T>(a: &JsArray<T>) -> Maybe<T> {
-    if a.borrow().is_empty() {
+/// The elements `a` holds after a mutator whose spec steps, run through a
+/// proxy's traps, set the indices `set` once each (docs/design/REACTIVITY-ALIASING.md,
+/// R4): such an index is written only where its value changes
+/// (`element_changes`, as Svelte's sources and Vue's set trap ignore equal
+/// sets; new indices always), indices past the new length (deleted) are
+/// written, and so is the length where it changes. The caller has read what
+/// the steps get. Elements the steps neither read nor set keep their place,
+/// so a proxy's untaken ones stay untaken.
+fn replace_elements<T: Clone + StrictEq>(a: &JsArray<T>, next: Vec<T>, set: Range<usize>) {
+    let old_len = a.peek().len();
+    let new_len = next.len();
+    let mut slots: Vec<u32> = (old_len != new_len).then_some(0).into_iter().collect();
+    {
+        let old = a.peek();
+        slots.extend(
+            set.filter(|&i| i >= old_len || element_changes(a, i, &old[i], &next[i]))
+                .map(|i| i as u32 + 1),
+        );
+    }
+    slots.extend((new_len..old_len).map(|i| i as u32 + 1));
+    if !slots.is_empty() {
+        *a.write_slots(&slots) = next;
+    }
+}
+
+/// As Array.prototype.pop through a proxy: it reads the length and the last
+/// element, deletes it and sets the length.
+pub fn pop<T: Clone + StrictEq>(a: &JsArray<T>) -> Maybe<T> {
+    let len = a.read_slot(0).len();
+    if len == 0 {
         return Maybe::Undefined;
     }
-    match a.borrow_mut().pop() {
+    let last = element(a, len - 1);
+    let mut next = a.peek().clone();
+    next.pop();
+    replace_elements(a, next, 0..0);
+    match last {
         Some(v) => Maybe::Some(v),
         None => Maybe::Undefined,
     }
 }
-pub fn shift<T>(a: &JsArray<T>) -> Maybe<T> {
-    if a.borrow().is_empty() {
+/// As Array.prototype.shift through a proxy: it reads every element, sets
+/// each to the next one, deletes the last and sets the length.
+pub fn shift<T: Clone + StrictEq>(a: &JsArray<T>) -> Maybe<T> {
+    let len = a.read_slot(0).len();
+    if len == 0 {
         return Maybe::Undefined;
     }
-    Maybe::Some(a.borrow_mut().remove(0))
+    let values: Vec<T> = (0..len).filter_map(|i| element(a, i)).collect();
+    let first = values[0].clone();
+    replace_elements(a, values[1..].to_vec(), 0..len - 1);
+    Maybe::Some(first)
 }
-pub fn unshift<T>(a: &JsArray<T>, items: Vec<T>) -> f64 {
+/// As Array.prototype.unshift through a proxy: it reads every element, sets
+/// each `items.len()` places later, then the items, then the length.
+pub fn unshift<T: Clone + StrictEq>(a: &JsArray<T>, items: Vec<T>) -> f64 {
     if items.is_empty() {
         return length(a);
     }
-    let mut v = a.borrow_mut();
-    v.splice(0..0, items);
-    v.len() as f64
+    let len = a.read_slot(0).len();
+    let mut next = items;
+    next.extend((0..len).filter_map(|i| element(a, i)));
+    let n = next.len();
+    replace_elements(a, next, 0..n);
+    n as f64
 }
 pub fn slice<T: Clone>(a: &JsArray<T>, start: Maybe<f64>, end: Maybe<f64>) -> JsArray<T> {
     let items = a.borrow();
@@ -215,26 +259,47 @@ pub fn slice<T: Clone>(a: &JsArray<T>, start: Maybe<f64>, end: Maybe<f64>) -> Js
 /// `delete_count` absent (`Maybe::Undefined`) removes everything from `start`;
 /// an explicit `undefined` argument must be passed as `Maybe::Null` (both
 /// convert to 0).
-pub fn splice<T: Clone>(
+///
+/// As Array.prototype.splice through a proxy: it reads the length and the
+/// removed elements, and where the count of items differs from the count
+/// removed, reads and moves every element after them; it sets the moved
+/// elements and the items, deletes indices past the new length and sets the
+/// length (`replace_elements`), so elements before `start`, and after the
+/// removed ones where nothing moves, are not written.
+pub fn splice<T: Clone + StrictEq>(
     a: &JsArray<T>,
     start: f64,
     delete_count: Maybe<f64>,
     items: Vec<T>,
 ) -> JsArray<T> {
-    let len = a.borrow().len();
+    let len = a.read_slot(0).len();
     let actual_start = relative_index(start, len);
     let count = match delete_count {
         Maybe::Undefined => len - actual_start,
         other => to_integer_or_infinity(arg_number(&other)).clamp(0.0, (len - actual_start) as f64)
             as usize,
     };
-    if count == 0 && items.is_empty() {
-        return array(Vec::new());
-    }
-    let removed: Vec<T> = a
-        .borrow_mut()
-        .splice(actual_start..actual_start + count, items)
+    let removed: Vec<T> = (actual_start..actual_start + count)
+        .filter_map(|i| element(a, i))
         .collect();
+    let moved = if items.len() != count {
+        actual_start + count..len
+    } else {
+        len..len
+    };
+    let tail: Vec<T> = moved.clone().filter_map(|i| element(a, i)).collect();
+    // Elements after the removed ones that nothing moves keep their place.
+    let mut next: Vec<T> = a.peek()[..actual_start].to_vec();
+    let set_end = actual_start + items.len();
+    next.extend(items);
+    let set = if moved.is_empty() {
+        next.extend_from_slice(&a.peek()[actual_start + count..]);
+        actual_start..set_end
+    } else {
+        next.extend(tail);
+        actual_start..next.len()
+    };
+    replace_elements(a, next, set);
     array(removed)
 }
 pub enum ConcatArg<T> {

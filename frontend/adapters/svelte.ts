@@ -6107,11 +6107,13 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
     components,
     root: units.get(rootFile!)!.index,
     // Delegated listeners and microtask flushes (the defaults); teardowns
-    // read state as it was before the batch that destroys or re-runs them.
+    // read state as it was before the batch that destroys or re-runs them,
+    // and run where the effect tree walk destroys their block (case
+    // teardown-order).
     // Svelte 5 runs its template listeners of the kinds in its
     // DELEGATED_EVENTS (svelte/src/utils.js) from its delegation roots, the
     // mount targets (M6 script DOM: ordered with listeners script adds).
-    schedule: { cleanupReadsPrevious: true, delegation: SVELTE_DELEGATED },
+    schedule: { cleanupReadsPrevious: true, teardown: 'at-removal', delegation: SVELTE_DELEGATED },
     ...(fragments.list.length ? { fragments: fragments.list } : {}),
   };
   lower.widenRecords(ir);

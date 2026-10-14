@@ -1,0 +1,21 @@
+{
+  "description": "pop, shift, unshift and splice on a Svelte $state array and a Vue deep ref's array get, set and delete elements one by one through the proxy (R4): effects (a watchEffect) reading single elements and the length run again only for the elements and the length a call changes; a splice setting an element to its value changes nothing",
+  "fixtures": ["array-methods-svelte", "array-methods-vue"],
+  "actions": [
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "pop" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "shift" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "unshift" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "splice-cut" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "splice-same" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "splice-add" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "reset" },
+    { "kind": "click", "id": "dump" }
+  ]
+}

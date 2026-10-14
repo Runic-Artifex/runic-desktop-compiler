@@ -173,6 +173,10 @@ pub struct Schedule {
     pub change_with_click: bool,
     #[serde(default)]
     pub cleanups: Cleanups,
+    /// When the cleanups of instances an update destroys run (2026-10-14,
+    /// additive within schema 5).
+    #[serde(default, skip_serializing_if = "Teardown::is_deferred")]
+    pub teardown: Teardown,
     /// Writes from post effects queue the next flush as a default task
     /// instead of updating in the same flush.
     #[serde(
@@ -251,6 +255,48 @@ pub enum Cleanups {
     /// destroyed under it (each in its `unmount.order`), then its live
     /// children, then its own cleanups (`interp::Machine::batched_cleanups`).
     Batched,
+}
+
+/// When the cleanups of instances an update destroys run, relative to the
+/// update of the rest of the tree (each effect's `unmount` places it within a
+/// destroyed subtree).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Teardown {
+    /// After the whole tree has updated, before the layout effects (under
+    /// batched cleanups, those of layout and post effects in their phase's
+    /// walk; React).
+    #[default]
+    Deferred,
+    /// All of them where the update removes the block that holds the
+    /// instance: those `before` removal while its DOM is still in the
+    /// document, then the removal, then the others, in tree order with the
+    /// cleanups of the block's attachments; a block replacing another (an
+    /// `if` switching branch, an `each` and its `else`) is created first.
+    /// Svelte destroys a block where its effect tree walk reaches it
+    /// (`destroy_effect`), before the components after it update.
+    AtRemoval,
+    /// Those `before` removal where the update removes the block, before
+    /// its DOM leaves the document; the others after the tree has updated.
+    /// A block replacing another is created after it is removed. Vue's
+    /// patch unmounts a component where it reaches it (`unmountComponent`:
+    /// `onBeforeUnmount`, the watchers' cleanups) and queues `onUnmounted`
+    /// for its post flush.
+    BeforeAtRemoval,
+}
+
+impl Teardown {
+    fn is_deferred(&self) -> bool {
+        *self == Teardown::Deferred
+    }
+    /// Whether cleanups of this removal class run where the block is removed.
+    pub fn at_removal(self, removal: Removal) -> bool {
+        match self {
+            Teardown::Deferred => false,
+            Teardown::AtRemoval => true,
+            Teardown::BeforeAtRemoval => removal == Removal::Before,
+        }
+    }
 }
 
 /// When the initial mount's flush (its layout and post effects) runs.
@@ -1981,16 +2027,22 @@ pub struct Adopt {
     pub args: Vec<Expr>,
 }
 
-/// Keyed reorder strategy of an `each` node (see runic-runtime's `reorder`).
+/// The keyed diff of an `each` node: which blocks move, and the order in
+/// which blocks are created, updated and removed (`runic_js::reorder`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Reorder {
-    /// Prefix/suffix sync, then a longest increasing subsequence stays.
+    /// Prefix/suffix sync, then a longest increasing subsequence stays
+    /// (Vue): prefix updated forward, suffix backward, the middle's old
+    /// blocks updated or removed in their order, new ones created backward.
     #[default]
     Lis,
-    /// Blocks whose previous position is below the highest placed one move.
+    /// Blocks whose previous position is below the highest placed one move
+    /// (React): created and updated in the new order.
     Forward,
-    /// Stashed and matched runs; the shorter run moves.
+    /// Stashed and matched runs; the shorter run moves (Svelte): new blocks
+    /// created first in array order, the old ones removed, then the others
+    /// updated in the new order.
     Stash,
 }
 

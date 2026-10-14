@@ -548,6 +548,16 @@ export interface Schedule {
    * subtrees under it, then its live children, then its own cleanups.
    */
   cleanups?: 'interleaved' | 'batched';
+  /**
+   * When the cleanups of instances an update destroys run (default
+   * `deferred`: after the whole tree updated). `at-removal`: all of them
+   * where the update removes their block (`before` ones before its DOM
+   * leaves, the others after, with its attachments' cleanups in tree order;
+   * a replacing block is created first: Svelte). `before-at-removal`: the
+   * `before` ones there, the others deferred (a replacing block is created
+   * after the removal: Vue).
+   */
+  teardown?: 'deferred' | 'at-removal' | 'before-at-removal';
   /** Writes from post effects update in a later default-priority task. */
   postWritesDeferred?: boolean;
   /** When the initial mount's effects run (default: a microtask). */

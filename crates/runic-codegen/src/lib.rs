@@ -702,6 +702,9 @@ struct Out {
     dispose: String,
     nodes: String,
     instances: String,
+    /// The cleanups of the block's instances and attachments in render
+    /// order (`teardown_s`, `schedule.teardown`).
+    teardown: String,
     /// Type definitions emitted after the scope (slot blocks).
     extra: String,
 }
@@ -826,6 +829,20 @@ impl Gen<'_> {
         let first = first_of(&scope.items, "None");
         let prelude = self.prelude(k, "t");
         let n = self.p.components[k].cells.len();
+        // A removed block's cleanups where the update removes it (`schedule.teardown`).
+        let remove = match self.p.schedule.teardown {
+            Teardown::Deferred => format!(
+                "let events = dom.focus_loss(&ns); if !events.is_empty() {{ run_commit_nested(cx, events); }} dispose_s{id}(s, cx); for n in ns {{ dom.remove(n); }}"
+            ),
+            // Svelte's destroy_effect: the DOM leaves, then the teardowns in tree order.
+            Teardown::AtRemoval => format!(
+                "teardown_s{id}(s, cx, false); let events = dom.focus_loss(&ns); if !events.is_empty() {{ run_commit_nested(cx, events); }} for n in &ns {{ dom.remove(*n); }} teardown_s{id}(s, cx, true); torn_s{id}(s, cx); dispose_s{id}(s, cx);"
+            ),
+            // Vue's unmountComponent: onBeforeUnmount and the watchers' cleanups, then the DOM leaves.
+            Teardown::BeforeAtRemoval => format!(
+                "teardown_s{id}(s, cx, false); torn_s{id}(s, cx); let events = dom.focus_loss(&ns); if !events.is_empty() {{ run_commit_nested(cx, events); }} dispose_s{id}(s, cx); for n in ns {{ dom.remove(n); }}"
+            ),
+        };
         format!(
             "pub struct S{id} {{ {fields}}}\n\
              #[allow(unused_variables, unused_mut)]\nfn mount_s{id}(cx: &mut Cx, dom: &mut Dom, inst: &I{k}, t: &Rc<RefCell<T{k}>>, parent: NodeId, before: Option<NodeId>) -> JsResult<Box<S{id}>> {{\n{prelude}{mount}Ok(Box::new(S{id} {{ {inits}}}))\n}}\n\
@@ -835,7 +852,12 @@ impl Gen<'_> {
              #[allow(unused_variables)]\nfn nodes_s{id}(s: &S{id}, out: &mut Vec<NodeId>) {{\n{nodes}}}\n\
              #[allow(unused_variables)]\nfn walk_s{id}(s: &S{id}, parent: usize, out: &mut Vec<(Rc<dyn Inst>, usize)>) {{\n{instances}}}\n\
              fn first_s{id}(s: &S{id}) -> Option<NodeId> {{ {first} }}\n\
-             fn remove_s{id}(s: &S{id}, cx: &mut Cx, dom: &mut Dom) {{ let mut ns = Vec::new(); nodes_s{id}(s, &mut ns); let events = dom.focus_loss(&ns); if !events.is_empty() {{ run_commit_nested(cx, events); }} dispose_s{id}(s, cx); for n in ns {{ dom.remove(n); }} }}\n{extra}\n",
+             /// The cleanups (before or after DOM removal) of the block's instances and attachments, in render order: an instance's pre-ordered ones as it is entered, its post-ordered ones as it is left.\n\
+             #[allow(unused_variables)]\nfn teardown_s{id}(s: &S{id}, cx: &mut Cx, after: bool) {{\n{teardown}}}\n\
+             /// The block's instances ran the cleanups `schedule.teardown` runs at removal.\n\
+             #[allow(dead_code)]\nfn torn_s{id}(s: &S{id}, cx: &mut Cx) {{ let mut w = Vec::new(); walk_s{id}(s, 0, &mut w); for (i, _) in w {{ cx.torn.insert(i.key()); }} }}\n\
+             fn remove_s{id}(s: &S{id}, cx: &mut Cx, dom: &mut Dom) {{ let mut ns = Vec::new(); nodes_s{id}(s, &mut ns); {remove} }}\n{extra}\n",
+            teardown = o.teardown,
             extra = o.extra,
             mount = o.mount,
             update = o.update,
@@ -887,6 +909,7 @@ impl Gen<'_> {
                  fn nodes(&self, out: &mut Vec<NodeId>) {{ nodes_s{body}(&self.s, out); }}\n\
                  fn first(&self) -> Option<NodeId> {{ first_s{body}(&self.s) }}\n\
                  fn walk(&self, parent: usize, out: &mut Vec<(Rc<dyn Inst>, usize)>) {{ walk_s{body}(&self.s, parent, out); }}\n\
+                 fn teardown(&self, cx: &mut Cx, after: bool) {{ teardown_s{body}(&self.s, cx, after); }}\n\
                  }}"
             );
         }
@@ -943,13 +966,26 @@ impl Gen<'_> {
             } else {
                 String::new()
             };
+            // `schedule.teardown` at-removal (Svelte's unmount destroys the
+            // root effect): the cleanups before removal in tree order, the
+            // DOM leaves, then the others in tree order with the content's
+            // attachments; `unmount_portal` leaves them to this.
+            let remove = if self.p.schedule.teardown == Teardown::AtRemoval {
+                format!(
+                    "let i: Rc<dyn Inst> = Rc::new(H{c}(Rc::clone(&self.ci))); unmount_cleanups(cx, &i, false, false); teardown_s{root}(&self.cs, cx, false); unmount_cleanups(cx, &i, false, true); \
+                     let mut ns = Vec::new(); nodes_s{root}(&self.cs, &mut ns); let events = dom.focus_loss(&ns); if !events.is_empty() {{ run_commit_nested(cx, events); }} for n in &ns {{ dom.remove(*n); }} dom.remove(self.anchor); \
+                     unmount_cleanups(cx, &i, true, false); teardown_s{root}(&self.cs, cx, true); unmount_cleanups(cx, &i, true, true); torn_s{root}(&self.cs, cx); cx.torn.insert(i.key()); dispose_s{root}(&self.cs, cx);"
+                )
+            } else {
+                format!("remove_s{root}(&self.cs, cx, dom); dom.remove(self.anchor);")
+            };
             let _ = writeln!(
                 out,
                 "pub struct PortalI{c} {{ ci: I{c}, ct: Rc<RefCell<T{c}>>, cs: Box<S{root}>, body: NodeId, anchor: NodeId }}\n\
                  impl Portal for PortalI{c} {{\n\
                  fn update(&mut self, cx: &mut Cx, dom: &mut Dom) {{ {pre}let via = std::mem::take(&mut cx.via); let r = update_s{root}(&mut self.cs, cx, dom, &self.ci, &self.ct, false, self.body, Some(self.anchor)); cx.via = via; if let Err(e) = r {{ runic_runtime::render_error(&e); }} if let Err(e) = sync_s{root}(&self.cs, cx, dom, &self.ci, &self.ct) {{ runic_runtime::render_error(&e); }} }}\n\
                  fn walk(&self, out: &mut Vec<(Rc<dyn Inst>, usize)>) {{ out.push((Rc::new(H{c}(Rc::clone(&self.ci))) as Rc<dyn Inst>, 0)); walk_s{root}(&self.cs, Rc::as_ptr(&self.ci) as *const u8 as usize, out); }}\n\
-                 fn remove(&self, cx: &mut Cx, dom: &mut Dom) {{ remove_s{root}(&self.cs, cx, dom); dom.remove(self.anchor); }}\n\
+                 fn remove(&self, cx: &mut Cx, dom: &mut Dom) {{ {remove} }}\n\
                  fn destroy(&self, cx: &mut Cx) {{ destroy_i{c}(cx, &self.ci); }}\n\
                  }}"
             );
@@ -1274,6 +1310,11 @@ impl Gen<'_> {
                         );
                     }
                     let _ = writeln!(o.dispose, "for a in &s.att{key} {{ cx.detach(a); }}");
+                    // Removed with its block, before its children (Svelte's attachment effects are created there).
+                    let _ = writeln!(
+                        o.teardown,
+                        "if after {{ for a in &s.att{key} {{ cx.detach_now(a); }} }}"
+                    );
                 }
                 // A text control adopting the value its attributes gave it:
                 // the handler runs once at mount for an input event of it.
@@ -1465,16 +1506,32 @@ impl Gen<'_> {
                 );
                 let anchor = first_of(following, tail);
                 let guard = self.guard(k, &[test]);
+                // The branch replacing the other: created after its removal,
+                // or (`schedule.teardown` at-removal: Svelte creates the new
+                // branch, then destroys the old) before it.
+                let switch = if self.p.schedule.teardown == Teardown::AtRemoval {
+                    format!(
+                        "let (old_then, old_else) = (s.then{key}.take(), s.else{key}.take());\n\
+                         let fresh = if c {{ mount_s{th}(cx, dom, inst, t, {up}, anchor).map(|b| s.then{key} = Some(b)) }} else {{ mount_s{el}(cx, dom, inst, t, {up}, anchor).map(|b| s.else{key} = Some(b)) }};\n\
+                         if let Some(b) = old_then {{ remove_s{th}(&b, cx, dom); }}\n\
+                         if let Some(b) = old_else {{ remove_s{el}(&b, cx, dom); }}\n\
+                         s.t{key} = c; fresh?;\n"
+                    )
+                } else {
+                    format!(
+                        "if let Some(b) = s.then{key}.take() {{ remove_s{th}(&b, cx, dom); }}\n\
+                         if let Some(b) = s.else{key}.take() {{ remove_s{el}(&b, cx, dom); }}\n\
+                         if c {{ s.then{key} = Some(mount_s{th}(cx, dom, inst, t, {up}, anchor)?); }} else {{ s.else{key} = Some(mount_s{el}(cx, dom, inst, t, {up}, anchor)?); }}\n\
+                         s.t{key} = c;\n"
+                    )
+                };
                 let _ = writeln!(
                     o.update,
                     "{{\n\
                      let c = if {guard} {{ {test_rs} }} else {{ s.t{key} }};\n\
                      let anchor = {anchor};\n\
                      if c != s.t{key} {{\n\
-                     if let Some(b) = s.then{key}.take() {{ remove_s{th}(&b, cx, dom); }}\n\
-                     if let Some(b) = s.else{key}.take() {{ remove_s{el}(&b, cx, dom); }}\n\
-                     if c {{ s.then{key} = Some(mount_s{th}(cx, dom, inst, t, {up}, anchor)?); }} else {{ s.else{key} = Some(mount_s{el}(cx, dom, inst, t, {up}, anchor)?); }}\n\
-                     s.t{key} = c;\n\
+                     {switch}\
                      }} else {{\n\
                      if let Some(b) = s.then{key}.as_mut() {{ update_s{th}(b, cx, dom, inst, t, tl, {up}, anchor)?; }}\n\
                      if let Some(b) = s.else{key}.as_mut() {{ update_s{el}(b, cx, dom, inst, t, tl, {up}, anchor)?; }}\n\
@@ -1492,6 +1549,10 @@ impl Gen<'_> {
                 let _ = writeln!(
                     o.instances,
                     "if let Some(b) = &s.then{key} {{ walk_s{th}(b, parent, out); }}\nif let Some(b) = &s.else{key} {{ walk_s{el}(b, parent, out); }}"
+                );
+                let _ = writeln!(
+                    o.teardown,
+                    "if let Some(b) = &s.then{key} {{ teardown_s{th}(b, cx, after); }}\nif let Some(b) = &s.else{key} {{ teardown_s{el}(b, cx, after); }}"
                 );
             }
             Item::Component {
@@ -1625,6 +1686,10 @@ impl Gen<'_> {
                     o.instances,
                     "out.push((Rc::new(H{c}(Rc::clone(&s.ci{key}))) as Rc<dyn Inst>, parent));\nwalk_s{root}(&s.cs{key}, Rc::as_ptr(&s.ci{key}) as *const u8 as usize, out);"
                 );
+                let _ = writeln!(
+                    o.teardown,
+                    "{{ let i: Rc<dyn Inst> = Rc::new(H{c}(Rc::clone(&s.ci{key}))); unmount_cleanups(cx, &i, after, false); teardown_s{root}(&s.cs{key}, cx, after); unmount_cleanups(cx, &i, after, true); }}"
+                );
             }
             Item::Slot {
                 key,
@@ -1669,6 +1734,10 @@ impl Gen<'_> {
                 let _ = writeln!(
                     o.instances,
                     "if let Some(b) = &s.sl{key} {{ b.walk(parent, out); }}\nif let Some(b) = &s.fb{key} {{ walk_s{fb}(b, parent, out); }}"
+                );
+                let _ = writeln!(
+                    o.teardown,
+                    "if let Some(b) = &s.sl{key} {{ b.teardown(cx, after); }}\nif let Some(b) = &s.fb{key} {{ teardown_s{fb}(b, cx, after); }}"
                 );
             }
             Item::Each {
@@ -1724,43 +1793,63 @@ impl Gen<'_> {
                 );
                 let anchor = first_of(following, tail);
                 let guard = self.guard(k, &[items]);
+                // `schedule.teardown` at-removal: Svelte creates the `else`
+                // content before it destroys the blocks it replaces.
+                let else_first = if self.p.schedule.teardown == Teardown::AtRemoval {
+                    format!(
+                        "if fresh.is_empty() && s.else{key}.is_none() {{ s.else{key} = Some(mount_s{el}(cx, dom, inst, t, {up}, after_list)?); else_new = true; }}\n"
+                    )
+                } else {
+                    String::new()
+                };
                 let _ = writeln!(
                     o.update,
                     "{{\n\
                      let after_list = {anchor};\n\
+                     #[allow(unused_mut)] let mut else_new = false;\n\
                      if {guard} {{\n\
                      let items = {items_rs}; let values: Vec<_> = items.borrow().clone(); let mut seen = std::collections::HashSet::new();\n\
                      // Keys first: a throwing key or a duplicate leaves the blocks as they are.\n\
                      let mut fresh = Vec::with_capacity(values.len());\n\
                      for (i, x) in values.into_iter().enumerate() {{\n{block}\nfresh.push((bk, t2));\n}}\n\
+                     {else_first}\
                      let old_len = s.e{key}.len();\n\
                      let mut old: std::collections::HashMap<js::MapKey, (usize, Rc<RefCell<T{k}>>, Box<S{bd}>)> = s.e{key}.drain(..).enumerate().map(|(i, (k, t, b))| (k, (i, t, b))).collect();\n\
-                     let mut next: Vec<(js::MapKey, Rc<RefCell<T{k}>>, Option<Box<S{bd}>>, Option<usize>)> = Vec::new();\n\
+                     let n = fresh.len();\n\
+                     let (mut keys, mut locals, mut blocks, mut prev) = (Vec::with_capacity(n), Vec::with_capacity(n), Vec::<Option<Box<S{bd}>>>::with_capacity(n), Vec::with_capacity(n));\n\
                      for (bk, t2) in fresh {{\n\
-                     match old.remove(&bk) {{ Some((oi, ot, ob)) => {{ let v = t2.borrow().clone(); *ot.borrow_mut() = v; next.push((bk, ot, Some(ob), Some(oi))); }} None => next.push((bk, t2, None, None)) }}\n\
+                     match old.remove(&bk) {{ Some((oi, ot, ob)) => {{ let v = t2.borrow().clone(); *ot.borrow_mut() = v; locals.push(ot); blocks.push(Some(ob)); prev.push(Some(oi)); }} None => {{ locals.push(t2); blocks.push(None); prev.push(None); }} }}\n\
+                     keys.push(bk);\n\
                      }}\n\
-                     let mut gone: Vec<_> = old.into_values().collect(); gone.sort_by_key(|g| g.0);\n\
-                     for (_, _, ob) in gone {{ remove_s{bd}(&ob, cx, dom); }}\n\
-                     let keep = runic_runtime::reorder::keep(runic_runtime::reorder::Reorder::{reorder:?}, &next.iter().map(|e| e.3).collect::<Vec<_>>(), old_len);\n\
-                     let mut anchor = after_list;\n\
-                     let mut out = Vec::with_capacity(next.len());\n\
-                     // Every block is placed even if one throws (no block is lost with its DOM); the first error is returned after.\n\
+                     let mut gone: Vec<Option<Box<S{bd}>>> = (0..old_len).map(|_| None).collect();\n\
+                     for (_, (oi, _, ob)) in old {{ gone[oi] = Some(ob); }}\n\
+                     // The framework's keyed diff orders the steps (its components' setup and pre effects run as blocks are created and updated).\n\
+                     let (steps, keep) = runic_runtime::reorder::schedule(runic_runtime::reorder::Reorder::{reorder:?}, &prev, old_len);\n\
+                     // Blocks in their final place: reused ones that stay, and those mounted or moved since. A block goes before the first node of the nearest following one, which keeps the DOM order whatever the steps' order.\n\
+                     let mut fixed = keep;\n\
+                     // Every step runs even if one throws (no block is lost with its DOM); the first error is returned after.\n\
                      let mut err = None;\n\
-                     for (j, (bk, tt, b, _)) in next.into_iter().enumerate().rev() {{\n\
-                     let b = match b {{\n\
-                     Some(mut b) => {{ if !keep[j] {{ let mut ns = Vec::new(); nodes_s{bd}(&b, &mut ns); let events = dom.focus_loss(&ns); if !events.is_empty() {{ run_commit_nested(cx, events); }} dom.insert_all({up}, &ns, anchor); }} if let Err(e) = update_s{bd}(&mut b, cx, dom, inst, &tt, true, {up}, anchor) {{ err.get_or_insert(e); }} Some(b) }}\n\
-                     None => match mount_s{bd}(cx, dom, inst, &tt, {up}, anchor) {{ Ok(b) => Some(b), Err(e) => {{ err.get_or_insert(e); None }} }},\n\
-                     }};\n\
-                     if let Some(b) = b {{ if let Some(f) = first_s{bd}(&b) {{ anchor = Some(f); }} out.push((bk, tt, b)); }}\n\
+                     for step in steps {{\n\
+                     let j = match step {{ runic_runtime::reorder::Step::Remove(o) => {{ if let Some(ob) = gone[o].take() {{ remove_s{bd}(&ob, cx, dom); }} continue; }} runic_runtime::reorder::Step::Mount(j) | runic_runtime::reorder::Step::Patch(j) | runic_runtime::reorder::Step::Move(j) => j }};\n\
+                     let anchor = (j + 1..n).find_map(|i| if fixed[i] {{ blocks[i].as_deref().and_then(first_s{bd}) }} else {{ None }}).or(after_list);\n\
+                     match step {{\n\
+                     runic_runtime::reorder::Step::Mount(_) => match mount_s{bd}(cx, dom, inst, &locals[j], {up}, anchor) {{ Ok(b) => blocks[j] = Some(b), Err(e) => {{ err.get_or_insert(e); }} }},\n\
+                     runic_runtime::reorder::Step::Patch(_) => if let Some(b) = blocks[j].as_mut() {{ if let Err(e) = update_s{bd}(b, cx, dom, inst, &locals[j], true, {up}, anchor) {{ err.get_or_insert(e); }} }},\n\
+                     _ => if let Some(b) = blocks[j].as_deref() {{ let mut ns = Vec::new(); nodes_s{bd}(b, &mut ns); let events = dom.focus_loss(&ns); if !events.is_empty() {{ run_commit_nested(cx, events); }} dom.insert_all({up}, &ns, anchor); }},\n\
                      }}\n\
-                     out.reverse(); s.e{key} = out;\n\
+                     fixed[j] = true;\n\
+                     }}\n\
+                     s.e{key} = keys.into_iter().zip(locals).zip(blocks).filter_map(|((k, t), b)| b.map(|b| (k, t, b))).collect();\n\
                      if let Some(e) = err {{ return Err(e); }}\n\
                      }} else {{\n\
-                     let mut anchor = after_list;\n\
-                     for (_, tt, b) in s.e{key}.iter_mut().rev() {{ update_s{bd}(b, cx, dom, inst, tt, tl, {up}, anchor)?; if let Some(f) = first_s{bd}(b) {{ anchor = Some(f); }} }}\n\
+                     // Document order (every framework updates unchanged lists so); a block's anchor is the first node of the nearest following one, taken before the blocks update.\n\
+                     let mut anchors = vec![after_list; s.e{key}.len()];\n\
+                     let mut a = after_list;\n\
+                     for (j, (_, _, b)) in s.e{key}.iter().enumerate().rev() {{ anchors[j] = a; if let Some(f) = first_s{bd}(b) {{ a = Some(f); }} }}\n\
+                     for (j, (_, tt, b)) in s.e{key}.iter_mut().enumerate() {{ update_s{bd}(b, cx, dom, inst, tt, tl, {up}, anchors[j])?; }}\n\
                      }}\n\
                      if s.e{key}.is_empty() {{\n\
-                     match s.else{key}.as_mut() {{ Some(b) => update_s{el}(b, cx, dom, inst, t, tl, {up}, after_list)?, None => s.else{key} = Some(mount_s{el}(cx, dom, inst, t, {up}, after_list)?) }}\n\
+                     if !else_new {{ match s.else{key}.as_mut() {{ Some(b) => update_s{el}(b, cx, dom, inst, t, tl, {up}, after_list)?, None => s.else{key} = Some(mount_s{el}(cx, dom, inst, t, {up}, after_list)?) }} }}\n\
                      }} else if let Some(b) = s.else{key}.take() {{ remove_s{el}(&b, cx, dom); }}\n\
                      }}"
                 );
@@ -1775,6 +1864,10 @@ impl Gen<'_> {
                 let _ = writeln!(
                     o.instances,
                     "for (_, _, b) in &s.e{key} {{ walk_s{bd}(b, parent, out); }}\nif let Some(b) = &s.else{key} {{ walk_s{el}(b, parent, out); }}"
+                );
+                let _ = writeln!(
+                    o.teardown,
+                    "for (_, _, b) in &s.e{key} {{ teardown_s{bd}(b, cx, after); }}\nif let Some(b) = &s.else{key} {{ teardown_s{el}(b, cx, after); }}"
                 );
             }
         }
@@ -2564,6 +2657,14 @@ const INSTANCE_SERVICES: &str = r#"impl Cx {
             self.detached.push(c);
         }
     }
+    /// An attachment removed with its block where `schedule.teardown` runs cleanups at removal: its cleanup runs now.
+    fn detach_now(&mut self, a: &Attached) {
+        if let AttState::Ran(Some(c)) = std::mem::replace(&mut *a.state.borrow_mut(), AttState::Gone) {
+            if let Err(e) = c(self) {
+                eprintln!("runic: uncaught exception in an attachment cleanup: {e}");
+            }
+        }
+    }
     /// Run the new attachments of the elements instance `owner` renders, in order (untracked).
     fn run_attachments(&mut self, owner: usize) {
         let (mine, mut rest): (Vec<_>, Vec<_>) = std::mem::take(&mut self.attach_queue).into_iter().partition(|a| a.0 == owner);
@@ -2635,11 +2736,15 @@ fn unmount_portal(cx: &mut Cx, p: Box<dyn Portal>) {
     p.walk(&mut tree);
     let set: std::collections::HashSet<usize> = tree.iter().map(|(i, _)| i.key()).collect();
     let root = Rc::clone(&tree[0].0);
-    teardown_at(cx, &root, &|m| !m.1, &set, &tree);
+    // Under `schedule.teardown` at-removal, `remove` runs them all in tree order.
+    let own = !TEARDOWN_AT_REMOVAL[1] || cx.dom.dom_mut().is_none();
+    if own { teardown_at(cx, &root, &|m| !m.1, &set, &tree); }
     if let Some(mut dom) = cx.dom.dom_mut() { p.remove(cx, &mut dom); }
     cx.destroyed.retain(|d| !set.contains(&d.key()));
     p.destroy(cx);
-    teardown_at(cx, &root, &|m| m.1, &set, &tree);
+    if own { teardown_at(cx, &root, &|m| m.1, &set, &tree); }
+    // Their keys may name new instances once these are dropped.
+    for k in &set { cx.torn.remove(k); }
     cx.jobs.queue_flush();
 }
 "#;
@@ -3121,6 +3226,7 @@ pub fn generate(
          fn nodes(&self, out: &mut Vec<NodeId>);\n\
          fn first(&self) -> Option<NodeId>;\n\
          fn walk(&self, parent: usize, out: &mut Vec<(Rc<dyn Inst>, usize)>);\n\
+         fn teardown(&self, cx: &mut Cx, after: bool);\n\
          }\n\
          /// A live component instance, for tree walks and effects.\n\
          pub trait Inst {\n\
@@ -3183,9 +3289,16 @@ pub fn generate(
          }\n\
          /// Cleanups of destroyed instances at unmount: those before DOM removal, then those after, each at its tree position.\n\
          /// Under batched cleanups those of layout and post effects run in their phase's walk instead (`batched_cleanups`).\n\
+         /// Instances torn down where their block was removed (`schedule.teardown`) ran the cleanups the policy runs there.\n\
          fn teardown(cx: &mut Cx, tree: &[(Rc<dyn Inst>, usize)], set: &std::collections::HashSet<usize>, batched: bool) {\n\
          if set.is_empty() { return; }\n\
-         for after in [false, true] { for (i, p) in tree { if set.contains(&i.key()) && !set.contains(p) { teardown_at(cx, i, &|m| m.1 == after && !(batched && m.0 != 0), set, tree); } } }\n\
+         for after in [false, true] { let set: std::collections::HashSet<usize> = set.iter().copied().filter(|k| !(TEARDOWN_AT_REMOVAL[after as usize] && cx.torn.contains(k))).collect(); for (i, p) in tree { if set.contains(&i.key()) && !set.contains(p) { teardown_at(cx, i, &|m| m.1 == after && !(batched && m.0 != 0), &set, tree); } } }\n\
+         }\n\
+         /// The cleanups of instance `i`'s effects of one removal class (before or after DOM removal) and unmount order, at its block's removal (`teardown_s`).\n\
+         #[allow(dead_code)]\n\
+         fn unmount_cleanups(cx: &mut Cx, i: &Rc<dyn Inst>, after: bool, post: bool) {\n\
+         if cx.torn.contains(&i.key()) { return; }\n\
+         for (e, m) in i.fx_meta().iter().enumerate() { if m.1 == after && m.2 == post { i.fx_cleanup(cx, e); } }\n\
          }\n\
          /// The batched cleanups of `phase` in the subtree of live instance `i`: children first, and at each\n\
          /// instance the instances destroyed under it (`before` tree, each subtree in unmount order) before its live\n\
@@ -3431,6 +3544,11 @@ pub fn generate(
     };
     let owned_only_v = owned_only(p);
     let cleanup_previous_v = p.schedule.cleanup_reads_previous;
+    let teardown_at_removal = format!(
+        "[{}, {}]",
+        p.schedule.teardown.at_removal(Removal::Before),
+        p.schedule.teardown.at_removal(Removal::After)
+    );
     // Teardowns read deep state as before the flush too (R5).
     let before_images = cleanup_previous_v && owned_only(p);
     out.push_str(SCRIPT_EVENTS);
@@ -3518,13 +3636,13 @@ pub fn generate(
          }}\n\
          /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
          #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
-         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub body: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub element_host: Vec<(u64, Event, usize, u32)>, pub custom_host: Vec<(u64, JsString, usize, u32)>, pub targets: Vec<(u64, JsString, usize, bool, u32)>, pub viewport_host: Vec<(Event, usize, u32)>, pub capture_host: Vec<(bool, Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub listener_generations: Vec<u64>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub defer: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, pub uids: u64, pub creating: Vec<Rc<dyn Inst>>, pub via: Vec<Rc<Contexts>>, pub attach_queue: Vec<(usize, NodeId, Rc<dyn std::any::Any>, Rc<RefCell<AttState>>)>, pub detached: Vec<Lst>, pub mounted: Vec<Rc<RefCell<MountState>>>, pub roots: Vec<RootFx>, pub root_stack: Vec<usize>, pub in_effect: bool, pub running_fx: Vec<(Rc<dyn Inst>, usize)>, {resize_fields}{io_fields}{mo_fields}{anim_fields}{img_fields}{live}{globals}}}\n\
+         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub body: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub element_host: Vec<(u64, Event, usize, u32)>, pub custom_host: Vec<(u64, JsString, usize, u32)>, pub targets: Vec<(u64, JsString, usize, bool, u32)>, pub viewport_host: Vec<(Event, usize, u32)>, pub capture_host: Vec<(bool, Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub listener_generations: Vec<u64>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub defer: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, pub torn: std::collections::HashSet<usize>, pub uids: u64, pub creating: Vec<Rc<dyn Inst>>, pub via: Vec<Rc<Contexts>>, pub attach_queue: Vec<(usize, NodeId, Rc<dyn std::any::Any>, Rc<RefCell<AttState>>)>, pub detached: Vec<Lst>, pub mounted: Vec<Rc<RefCell<MountState>>>, pub roots: Vec<RootFx>, pub root_stack: Vec<usize>, pub in_effect: bool, pub running_fx: Vec<(Rc<dyn Inst>, usize)>, {resize_fields}{io_fields}{mo_fields}{anim_fields}{img_fields}{live}{globals}}}\n\
          impl runic_runtime::Microtasks for Cx {{ fn queue_microtask(&mut self, job: Lst) {{ self.jobs.queue(job); }} }}\n\
          /// Effects track the heap objects they read only where references are owned (proxied state, signal fields).\nconst OWNED_ONLY: bool = {owned_only_v};\n\
-         /// Cleanups read the values before the writes that re-run their effects (`schedule.cleanupReadsPrevious`).\nconst CLEANUP_READS_PREVIOUS: bool = {cleanup_previous_v};\n\
+         /// Cleanups read the values before the writes that re-run their effects (`schedule.cleanupReadsPrevious`).\nconst CLEANUP_READS_PREVIOUS: bool = {cleanup_previous_v};\n/// Which cleanup classes (before, after DOM removal) of destroyed instances run where the update removes their block (`schedule.teardown`).\nconst TEARDOWN_AT_REMOVAL: [bool; 2] = {teardown_at_removal};\n\
          /// Proxies keep their values before the flush for teardowns (R5).\nconst KEEP_BEFORE_IMAGES: bool = {before_images};\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), body: runic_runtime::css::Root::with_attrs([{body_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), element_host: Vec::new(), custom_host: Vec::new(), targets: Vec::new(), viewport_host: Vec::new(), capture_host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), listener_generations: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, defer: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), mounted: Vec::new(), roots: Vec::new(), root_stack: Vec::new(), in_effect: false, running_fx: Vec::new(), {resize_init}{io_init}{mo_init}{anim_init}{img_init}{live_init}{globals_init}}} }}\n\
+         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), body: runic_runtime::css::Root::with_attrs([{body_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), element_host: Vec::new(), custom_host: Vec::new(), targets: Vec::new(), viewport_host: Vec::new(), capture_host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), listener_generations: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, defer: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), torn: std::collections::HashSet::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), mounted: Vec::new(), roots: Vec::new(), root_stack: Vec::new(), in_effect: false, running_fx: Vec::new(), {resize_init}{io_init}{mo_init}{anim_init}{img_init}{live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); self.listener_generations[k as usize] += 1; k }} None => {{ self.listeners.push(Some(f)); self.listener_generations.push(0); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );
@@ -3733,6 +3851,7 @@ pub fn generate(
          // Attachments the render removed are cleaned up as their elements go.\n\
          self.cx.run_detached();\n\
          teardown(&mut self.cx, &tree, &destroyed, {batched});\n\
+         self.cx.torn.clear();\n\
          let after = self.walk();\n\
          let post = post_order(&after);\n\
          let keys: std::collections::HashSet<usize> = after.iter().map(|(i, _)| i.key()).collect();\n\

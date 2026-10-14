@@ -1689,7 +1689,6 @@ export async function lowerVue(graph: Graph): Promise<Lowering> {
     runtimeWritten: (k, cell) => templateRefsOf[k]?.cells.has(cell) ?? false,
     fail,
   });
-  rejectUnmountOrder();
   checkRadioGroups(components, units.get(rootFile!)!.index);
   checkControlModels();
   checkCancelledRadios();
@@ -1937,92 +1936,6 @@ export async function lowerVue(graph: Graph): Promise<Lowering> {
           w.e.source,
         );
       }
-  }
-
-  /**
-   * Vue unmounts a removed component (onBeforeUnmount, watcher cleanups) where
-   * the patch removes it, before it patches or creates the components after
-   * it (their watchers, onBeforeMount); Runic creates and updates instances
-   * while rendering and unmounts after the render. Trees where a removable
-   * component with such unmount work comes before (in document order, or in
-   * another branch of the same v-if chain, or in the same list) a component
-   * with watchers or onBeforeMount are rejected.
-   */
-  function rejectUnmountOrder() {
-    type Flag = 'before' | 'create' | 'pre';
-    const memo = new Map<string, boolean>();
-    const has = (nodes: Node[] | undefined, flag: Flag): boolean =>
-      (nodes ?? []).some(n => {
-        switch (n.kind) {
-          case 'element':
-            return has(n.children, flag);
-          case 'if':
-            return has(n.then, flag) || has(n.else, flag);
-          case 'each':
-            return has(n.body, flag) || has(n.else, flag);
-          case 'component':
-            return n.slots?.some(s => has(s.body, flag)) || componentHas(n.component, flag);
-          default:
-            return false;
-        }
-      });
-    const componentHas = (k: number, flag: Flag): boolean => {
-      const key = `${k}:${flag}`;
-      if (memo.has(key)) return memo.get(key)!;
-      memo.set(key, false);
-      // The render effect only reads (it runs nothing observable).
-      const own = (components[k].effects ?? []).some(e =>
-        e.render
-          ? false
-          : flag === 'before'
-            ? // onBeforeUnmount, or a watcher that registers cleanups
-              e.unmount.removal === 'before' &&
-              (e.phase === 'post' || lower.functions[e.run].result !== 'void')
-            : flag === 'create'
-              ? e.phase === 'pre' && !(e.deps.kind === 'values' && e.deps.initial === false)
-              : e.phase === 'pre',
-      );
-      const result = own || has(components[k].template, flag);
-      memo.set(key, result);
-      return result;
-    };
-    const message =
-      'Vue unmounts a removed component (onBeforeUnmount, watcher cleanups) before it updates or creates the components after it (their watchers, onBeforeMount), which Runic does not model yet';
-    /** The first removable region with unmount work seen so far (document order). */
-    let removal: Source | undefined;
-    const walk = (nodes: Node[] | undefined) => {
-      for (const n of nodes ?? []) {
-        if (n.kind === 'element') walk(n.children);
-        else if (n.kind === 'component') {
-          if (removal && componentHas(n.component, 'pre'))
-            fail(
-              'E_EFFECT',
-              `${message}: this conditional or list comes before ${components[n.component].name} (line ${n.source?.line})`,
-              removal,
-            );
-          n.slots?.forEach(s => walk(s.body));
-          walk(components[n.component].template);
-        } else if (n.kind === 'if') {
-          const [a, b] = [n.then, n.else ?? []];
-          if ((has(a, 'before') && has(b, 'create')) || (has(b, 'before') && has(a, 'create')))
-            fail(
-              'E_EFFECT',
-              `${message}: one branch of this v-if chain replaces the other`,
-              n.source,
-            );
-          walk(n.then);
-          walk(n.else);
-          if (has(a, 'before') || has(b, 'before')) removal ??= n.source;
-        } else if (n.kind === 'each') {
-          if (has(n.body, 'before') && has(n.body, 'pre'))
-            fail('E_EFFECT', `${message}: items of this list`, n.source);
-          walk(n.body);
-          walk(n.else);
-          if (has(n.body, 'before') || has(n.else, 'before')) removal ??= n.source;
-        }
-      }
-    };
-    walk(components[units.get(rootFile!)!.index].template);
   }
 
   /**
@@ -4970,12 +4883,15 @@ export async function lowerVue(graph: Graph): Promise<Lowering> {
     // Listeners are attached to the elements themselves (a microtask
     // checkpoint after each); app.mount() runs onMounted before it returns;
     // watcher cleanups run right before their own watcher re-runs (the
-    // default `interleaved`) and read live state.
+    // default `interleaved`) and read live state; the patch unmounts a
+    // removed component where it reaches it (onBeforeUnmount, watcher
+    // cleanups) and onUnmounted waits for the post flush (case
+    // teardown-order).
     // Vue's template listeners are native listeners (invokers) Vue adds when
     // it creates an element, before script can reach it; a handler is never
     // added later (a handler that may be nullish is E_EVENT), so they run at
     // their elements in registration order with listeners script adds.
-    schedule: { checkpoint: 'listener', mount: 'sync', elementListeners: true },
+    schedule: { checkpoint: 'listener', mount: 'sync', teardown: 'before-at-removal', elementListeners: true },
   };
   lower.checkStyleSpreads(ir);
   lower.checkKeyOrders();

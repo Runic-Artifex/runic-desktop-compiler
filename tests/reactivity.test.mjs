@@ -239,15 +239,83 @@ test('Vue watchers whose order in a flush may differ from their declaration orde
       /instance created here after those of instances that follow it/,
     ),
   );
-  // Items of one list whose watchers prop updates trigger: Vue runs them in
-  // document order (`row 3 2 | row 1 2 | row 2 2` in Chromium), native code
-  // in reverse (`row 2 2 | row 1 2 | row 3 2`: it updates a list's blocks
-  // from the last one; the differential found it, the interpreter agrees
-  // with Chromium).
-  await assert.rejects(
-    lowered('fixtures/watch-list-vue'),
-    failWith('E_EFFECT', 'App.vue', /other items of this list.*in reverse order/),
+});
+
+test('a removed block is torn down where each framework’s update removes it (schedule.teardown)', async () => {
+  // Case teardown-order in Chromium. Svelte 5.57.1 (at-removal): the DOM
+  // leaves, then the teardowns in tree order with the attachment's cleanup
+  // (attachRef sees its node disconnected), before the later pre effects;
+  // a replacing branch or list item is created first.
+  const actions = ['dump', 'drop', 'dump', 'replace', 'dump', 'clear', 'dump', 'refill', 'dump'];
+  const rest = ['flip', 'dump', 'hide', 'dump'];
+  const svelte = interpret(
+    (await lowered('fixtures/teardown-order-svelte')).ir,
+    [...actions, ...rest].map(click),
+    {},
   );
+  assert.match(
+    shown(svelte[3], 'log'),
+    /\| cell cleanup 0 0 \| cleanup 2 0 \| detach 2 \| cell cleanup 2 0 \| cell destroy 2 \| effect cleanup 2 0 \| destroy 2 \| cleanup 1 0 \| row 1 1 \|/,
+  );
+  assert.match(shown(svelte[7], 'log'), /\| row 99 3 \| cleanup 4 2 \| detach 4 \|/);
+  assert.match(shown(svelte[11], 'log'), /\| row 20 5 \| cleanup 10 4 \| detach 10 \|/);
+  // Vue 3.5.43 (before-at-removal): onBeforeUnmount, then the watcher's
+  // cleanup, parent first, where the patch unmounts; onUnmounted last; a
+  // v-else branch mounted after the old one is unmounted.
+  const vue = interpret(
+    (await lowered('fixtures/teardown-order-vue')).ir,
+    [...actions, ...rest].map(click),
+    {},
+  );
+  assert.equal(
+    shown(vue[3], 'log'),
+    'cleanup 0 0 | row 0 1 | cleanup 1 0 | row 1 1 | cleanup 3 0 | row 3 1 | destroy 2 | cleanup 2 0 | cell destroy 2 | cleanup 10 0 | row 10 1 | cleanup 9 0 | row 9 1 | unmounted 2',
+  );
+  assert.match(
+    shown(vue[11], 'log'),
+    /\| destroy 10 \| cleanup 10 4 \| cell destroy 10 \| row 20 5 \|/,
+  );
+});
+
+test('keyed list items create and update in the order of each framework’s keyed diff', async () => {
+  // Case list-order in Chromium. Svelte 5.57.1: new items (their
+  // $effect.pre) first, in array order, then the others in document order.
+  const actions = ['dump', 'bump', 'dump', 'front', 'dump', 'back', 'dump', 'reverse', 'dump'];
+  const svelte = interpret(
+    (await lowered('fixtures/list-order-svelte')).ir,
+    [...actions, 'rotate', 'dump', 'shuffle', 'dump'].map(click),
+    {},
+  );
+  assert.equal(
+    shown(svelte[7], 'log'),
+    'row 5 3 | cell 5 3 | cleanup 4 2 | row 4 3 | cell 4 3 | cleanup 1 2 | row 1 3 | cell 1 3 | cleanup 2 2 | row 2 3 | cell 2 3 | cleanup 3 2 | row 3 3 | cell 3 3',
+  );
+  assert.match(
+    shown(svelte[13], 'log'),
+    /^row 6 6 \| cell 6 6 \| row 7 6 \| cell 7 6 \| cleanup 5 5/,
+  );
+  // Vue 3.5.43 (patchKeyedChildren): the common suffix backward before a
+  // mount at the front, the middle in its previous order, mounts backward.
+  const vue = interpret(
+    (await lowered('fixtures/list-order-vue')).ir,
+    [...actions, 'rotate', 'dump', 'shuffle', 'dump'].map(click),
+    {},
+  );
+  assert.equal(shown(vue[5], 'log'), 'row 3 2 | row 2 2 | row 1 2 | row 4 2');
+  assert.equal(shown(vue[9], 'log'), 'row 4 4 | row 1 4 | row 2 4 | row 3 4 | row 5 4');
+  assert.equal(
+    shown(vue[13], 'log'),
+    'row 3 6 | row 2 6 | row 1 6 | row 4 6 | row 5 6 | row 7 6 | row 6 6',
+  );
+  // Prop-triggered watchers of list items are no longer rejected (R10):
+  // case watch-list (formerly the expected rejection watch-list-vue).
+  const list = interpret(
+    (await lowered('fixtures/watch-list-vue')).ir,
+    ['bump', 'dump', 'front', 'bump', 'dump', 'show', 'front', 'bump', 'dump'].map(click),
+    {},
+  );
+  assert.equal(shown(list[5], 'log'), 'row 3 2 | row 1 2 | row 2 2');
+  assert.equal(shown(list[9], 'log'), 'row 0 3 | row 4 3 | row 3 3 | row 1 3 | row 2 3');
 });
 
 test('Vue watchers in a proven order agree with Chromium', async () => {
@@ -292,6 +360,31 @@ test('Vue watchers in a proven order agree with Chromium', async () => {
     shown(teardown[6], 'log'),
     'cleanup 3/13 3/13 d26 | watch cleanup 3/13 13 | before unmount 13 3 | child cleanup 3/3 13 | unmounted 13 3',
   );
+});
+
+test('pop, shift, unshift and splice write only the elements they change (R4)', async () => {
+  // Case array-methods in Chromium: through Svelte's and Vue's proxies the
+  // spec's steps get, set and delete element by element; an element left as
+  // it is, or set to its value, is not written.
+  const actions = ['dump', 'pop', 'dump', 'shift', 'dump', 'unshift', 'dump', 'splice-cut', 'dump'];
+  const more = ['splice-same', 'dump', 'splice-add', 'dump'];
+  const svelte = interpret(
+    (await lowered('fixtures/array-methods-svelte')).ir,
+    [...actions, ...more].map(click),
+    {},
+  );
+  assert.equal(shown(svelte[3], 'log'), 'len 4');
+  assert.equal(shown(svelte[9], 'log'), 'c 4 | len 3');
+  assert.equal(shown(svelte[11], 'log'), '');
+  assert.equal(shown(svelte[13], 'log'), 'len 4');
+  const vue = interpret(
+    (await lowered('fixtures/array-methods-vue')).ir,
+    [...actions, ...more].map(click),
+    {},
+  );
+  assert.equal(shown(vue[3], 'log'), '');
+  assert.equal(shown(vue[9], 'log'), '');
+  assert.equal(shown(vue[13], 'log'), '');
 });
 
 test('writes of an equal value change nothing; reverse, sort and fill write the elements they change (R4)', async () => {

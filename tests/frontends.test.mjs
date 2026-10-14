@@ -1651,7 +1651,12 @@ test('Vue rejects watcher forms and orders Runic does not model, with locations'
     ),
     failWith('E_EFFECT', 'App.vue'),
   );
-  // Vue unmounts a removed branch before it creates or updates later components.
+  // Vue unmounts a removed branch before it creates or updates later
+  // components, as Runic does since 2026-10-14 (`schedule.teardown`
+  // before-at-removal; case teardown-order lowers, tests/reactivity.test.mjs).
+  // These two stay rejected for another reason: the watchers of a branch
+  // shown before a sibling, which a write triggers directly, run by creation
+  // order in Vue (R10).
   const panel = '<Panel v-if="show" :count="count" :note="note" />';
   for (const to of [
     panel + '<Panel v-else :count="count" :note="note" />',
@@ -1659,7 +1664,7 @@ test('Vue rejects watcher forms and orders Runic does not model, with locations'
   ])
     await assert.rejects(
       lower(await edit('effects-vue', 'App.vue', panel, to)),
-      failWith('E_EFFECT', 'App.vue'),
+      failWith('E_EFFECT', 'App.vue', /created here after those of instances that follow it/),
       to,
     );
   await assert.rejects(

@@ -39,7 +39,9 @@ Adversarial fixtures, first run in Chromium and the reference interpreter
 | `watch-instances-deep-vue` | watchers a write triggers run by instance creation: `row 1 3 \| row 2 3 \| row 3 3 \| row 0 3` | document order: `row 0 3 \| row 3 3 \| row 1 3 \| row 2 3` | rejected (R10) |
 | `watch-declared`, `watch-instances` (Vue) | the shapes R10 accepts run in declaration and document order | interpreter agrees | regression cases |
 | `watch-list-vue` | prop-triggered watchers of list items run in document order: `row 3 2 \| row 1 2 \| row 2 2` | interpreter agrees; native code reverses them (`row 2 2 \| row 1 2 \| row 3 2`: it updates a list's blocks from the last one) | rejected (R10), backend gap row |
-| `equal-writes-vue` | a write of the value a deep ref's slot holds notifies nothing | the watchEffect reading it runs again (`run 0 1 0`) | open (step 7 resume list) |
+| `equal-writes-vue` | a write of the value a deep ref's slot holds notifies nothing | the watchEffect reading it runs again (`run 0 1 0`) | fixed (R4) |
+| `list-order` (Svelte, Vue, React) | Svelte creates new list items (their `$effect.pre`) first, in array order, then runs the others' in document order; Vue patches items in its keyed diff's order (an insert at the front: `row 3 2 \| row 2 2 \| row 1 2 \| row 4 2`); React's effects run in the commit in document order | the interpreter used document order (`… \| row 3 3 \| row 5 3` after an append, Svelte), native code the reverse | fixed (list order) |
+| `list-order`'s first version (Svelte, Vue) | a removed block's teardowns run where the walk removes it, before later components' pre effects | Runic runs every teardown after the DOM update (Vue: rejected by `rejectUnmountOrder`; Svelte: silent) | open (teardown policy, approved 2026-10-14) |
 
 ## Step 1: reads through aliases (R1/R2)
 
@@ -405,3 +407,115 @@ Rebased onto main 8246eb9 (CSS slice 2b):
 - `npm test` 513/513 and `cargo test --workspace` (185) pass; the example
   census lowers the same 280 of 404 examples before and after, with no
   first-diagnostic change (`artifacts/census-before`, `census-after`).
+
+## List order (2026-10-14)
+
+Each framework creates and updates a keyed list's blocks in the order of
+its own keyed diff, named by the list's `reorder` strategy;
+`runic_js::reorder::schedule` gives the steps (create, update, move,
+remove), which the interpreter and generated code now follow (before:
+document order in the interpreter, reverse order natively). Checked in
+Chromium first with case `list-order` (an insert at the front and at the
+back, a reversal, a rotation and a shuffle that inserts two items, each
+with a prop update in the same handler):
+
+- Svelte 5.57.1 (`stash`): new items first, in array order (`row 5 3 |
+  cell 5 3` before `cleanup 4 2 | row 4 3 | …` after an append), then the
+  others' pre effects in document order.
+- Vue 3.5.43 (`lis`, `patchKeyedChildren`): prefix forward, suffix backward
+  (`row 3 2 | row 2 2 | row 1 2 | row 4 2` after an insert at the front),
+  the middle in its previous order (`row 4 4 | row 1 4 | row 2 4 | row 3 4 |
+  row 5 4` after a reversal), mounts backward (`… | row 7 6 | row 6 6`).
+- React 19.3.0 (`forward`): layout and passive effects in the commit in
+  document order (unchanged; a regression case).
+
+R10's list exception is lifted: prop-triggered watchers of two items of one
+list are accepted (case `watch-list`, formerly the expected rejection
+`watch-list-vue`). Generated code inserts each block before the first node
+of the nearest following block already in its final place, so the steps'
+order does not change the DOM.
+
+- Interpreter vs Chromium (`conformance/interp-vs-browser.mjs`):
+  `list-order` (3 fixtures, 14 steps each) and `watch-list` agree.
+- Native conformance with pixels, 800x600 and 420x600
+  (`artifacts/reactivity/list-order-1`, `-2`): `list-order` 6/6;
+  `watch-list`, `watch-instances`, `components`, `effects`, `slots`,
+  `keyed-replace`, `reorder` (all three frameworks where they have them)
+  30/30.
+- `npm test` 514/514; `runic-js` reorder unit tests (the schedules of the
+  Chromium observations).
+- Found with the first version of `list-order`: a removed block's
+  teardowns run where the walk removes it (Svelte and Vue); the next step.
+
+## Teardown order (2026-10-14)
+
+The frameworks tear down a block an update removes where their update walk
+reaches it, before what follows it updates; Runic ran every teardown after
+the whole tree updated (Svelte: silent; Vue: rejected by
+`rejectUnmountOrder`). A new adapter-declared schedule policy,
+`schedule.teardown` (additive within schema 5, user decision 2026-10-14),
+selects each framework's behaviour; the interpreter and generated code
+implement each. Checked in Chromium first with case `teardown-order` (a
+list item removed, a list emptied into its `else` and refilled, an item
+replaced, an if/else switched, a branch hidden and shown, each with a prop
+update in the same handler):
+
+- Svelte 5.57.1 (`at-removal`): the block's DOM leaves, then its effects'
+  teardowns run in tree order, attachments included (`cleanup 2 0 | detach
+  2 | cell cleanup 2 0 | cell destroy 2 | effect cleanup 2 0 | destroy 2`
+  before the surviving items' `cleanup 1 0 | row 1 1`); new items, the
+  `else` content and a replacing branch are created before what they
+  replace is destroyed. Before: every teardown after the update, and
+  attachRef's cleanup then ran after the instances' (in the interpreter its
+  node still read as connected during the render).
+- Vue 3.5.43 (`before-at-removal`): `onBeforeUnmount`, then the watchers'
+  cleanups, parent first, where the patch unmounts the component (`destroy
+  2 | cleanup 2 0 | cell destroy 2` between the suffix's patches and the
+  next sibling's), a `v-else` branch mounted after; `onUnmounted` in the post
+  flush. `rejectUnmountOrder` is removed.
+- React 19.3.0 (`deferred`): unchanged.
+
+Imperatively mounted content (`mount`/`unmount`) follows the same policy at
+`unmount`.
+
+- Interpreter vs Chromium: `teardown-order` (2 fixtures, 16 steps each)
+  agrees; `tests/reactivity.test.mjs` pins its key steps.
+- Native conformance with pixels, 800x600 and 420x600
+  (`artifacts/reactivity/teardown-1`, `-2`): `teardown-order`,
+  `list-order` and `effects` 16/16; `portal`, `bits-dialog`, `toolbelt`,
+  `roving` (attachments), `teardown-vue`, `teardown-proxy`,
+  `unmount-updates`, `effect-root`, `effect-order`, `todomvc` and
+  `7guis-crud` (all three frameworks) 30/30.
+- `npm test` 515/515 (the effects-vue edits that `rejectUnmountOrder`
+  rejected are still rejected, now by R10's instance rule, which they also
+  meet).
+- Example census (404 examples, `conformance/triage.mjs`): 280 lowered
+  before (a copy of 15889dd) and after, with the same first diagnostics
+  (`artifacts/census-base`, `census-after` of the worktree).
+
+## pop, shift, unshift and splice element by element (2026-10-14)
+
+Through Svelte's and Vue's proxies these methods get, set and delete
+elements one by one (their spec steps through the traps), so an element
+they neither move nor change, or set to its value, is not written; natively
+(and in the interpreter, the same heap model) they read and wrote the whole
+array. Case `array-methods` in Chromium (Svelte 5.57.1 with effects on the
+first three elements and the length; Vue 3.5.43 with one watchEffect on the
+second element, as several logging watchers over array signals are an R10
+rejection): `pop` reruns only `len 4` (Vue: nothing); `splice(2, 1)` reruns
+`c 4 | len 3`; `splice(1, 1, items[1])` nothing; `splice(3, 0, 8)` at the end
+`len 4`. Before: every effect after every call (16 mismatches). `copyWithin`
+is not a supported built-in (`E_BUILTIN`; the old gap row named it).
+
+- Interpreter vs Chromium: `array-methods` agrees (2 fixtures, 16 steps),
+  as do `array-writes`, `equal-writes`, `derived-arrays`, `push-effect`,
+  `effect-self`, `deep-tracking`, `collections-vue`, `ownership`,
+  `proxy-lazy`, `proxy-target` and `keyed-replace`.
+- `runic-js` tests pass (array vectors from Node included; a no-op `splice`
+  still advances no mutation epoch).
+- Native conformance with pixels, 800x600 and 420x600
+  (`artifacts/reactivity/arrays-1`): `array-methods`, `array-writes`,
+  `equal-writes`, `derived-arrays`, `push-effect`, `collections-vue` and
+  `keyed-replace` 16/16.
+- `npm test` 516/516; `cargo test` of runic-js, runic-ir and runic-codegen
+  (144) pass.
