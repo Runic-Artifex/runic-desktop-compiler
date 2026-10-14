@@ -236,6 +236,40 @@ fn control_disabled(doc: &BaseDocument, node: NodeId) -> bool {
     })
 }
 
+/// Whether `node` is a `button`, `input`, `select` or `textarea` with a
+/// `disabled` attribute (React's `shouldPreventMouseEvent`: its mouse
+/// handlers do not run on one, IR `rootDispatch.skipDisabled`).
+fn interactive_disabled(doc: &BaseDocument, node: NodeId) -> bool {
+    doc.get_node(node).is_some_and(|n| {
+        n.element_data().is_some_and(|e| {
+            matches!(
+                e.name.local.as_ref(),
+                "button" | "input" | "select" | "textarea"
+            )
+        }) && n.attr("disabled".into()).is_some()
+    })
+}
+
+/// Whether `node` is a checkbox or a radio button (their framework change
+/// listeners run with the click under `schedule.changeWithClick`).
+fn checkable(doc: &BaseDocument, node: NodeId) -> bool {
+    doc.get_node(node).is_some_and(|n| {
+        n.element_data().is_some_and(|e| &*e.name.local == "input")
+            && n.attr("type".into()).is_some_and(|t| {
+                t.eq_ignore_ascii_case("checkbox") || t.eq_ignore_ascii_case("radio")
+            })
+    })
+}
+
+/// The framework's root listeners (IR `schedule.rootDispatch`, React's).
+#[derive(Clone, Default)]
+pub struct RootDispatch {
+    /// The kinds the root listens for in both phases.
+    pub kinds: Vec<Event>,
+    /// Kinds whose template listeners skip disabled controls.
+    pub skip_disabled: Vec<Event>,
+}
+
 /// Listener registrations: element → (event, listener key of the app).
 #[derive(Default)]
 pub(crate) struct Listeners {
@@ -270,6 +304,16 @@ pub(crate) struct Listeners {
     /// The framework's template listeners are native listeners of their
     /// elements in registration order (IR `schedule.elementListeners`).
     pub(crate) element_listeners: bool,
+    /// The framework runs its template listeners from its root's listeners
+    /// (IR `schedule.rootDispatch`; none: not declared).
+    pub(crate) root_dispatch: Option<RootDispatch>,
+    /// IR `schedule.changeWithClick`: with `root_dispatch`, a checkbox's
+    /// change template listeners run in the click's root group.
+    pub(crate) change_with_click: bool,
+    /// The change event of the checkbox click being dispatched (linked to
+    /// the click, `runic_js::Event::linked`): its template listeners join
+    /// the root's click group.
+    pub(crate) click_change: Option<runic_js::Event>,
     raw: std::collections::HashSet<u32>,
     /// An element that lost focus because a list move detached it.
     pub(crate) blurred: Option<NodeId>,
@@ -380,11 +424,24 @@ impl Listeners {
             .map(|(_, h)| *h)
     }
 
-    /// A delegation root (IR `schedule.delegation`): where the framework
+    /// A delegation root (IR `schedule.delegation`, or `schedule.rootDispatch`'s
+    /// root in both phases): where the framework
     /// mounts (the container, the body for imperative mounts) it listens
-    /// for its delegated kinds once, at the end of the mount; the root's
+    /// for its kinds once, at the start of the mount; the root's
     /// position among the node's listeners is that registration.
     pub fn delegation_root(&mut self, node: NodeId) {
+        if let Some(root) = self.root_dispatch.clone() {
+            // (React's root: a capture and a bubbling listener per kind.)
+            for map in [&mut self.map, &mut self.capture] {
+                let list = map.entry(node).or_default();
+                for &kind in &root.kinds {
+                    if !list.contains(&(kind, DELEGATION_ROOT)) {
+                        list.push((kind, DELEGATION_ROOT));
+                    }
+                }
+            }
+            return;
+        }
         let Some(kinds) = self.delegation.clone() else {
             return;
         };
@@ -394,6 +451,107 @@ impl Listeners {
                 list.push((kind, DELEGATION_ROOT));
             }
         }
+    }
+
+    /// Whether the framework runs template listeners of `event` from its
+    /// root (`schedule.rootDispatch`).
+    fn root_dispatched(&self, event: Event) -> bool {
+        self.root_dispatch
+            .as_ref()
+            .is_some_and(|r| r.kinds.contains(&event))
+    }
+
+    /// Whether the root's group skips the template listeners of `event` at
+    /// `at` (`path[0]` being the target): Svelte skips a disabled control
+    /// other than the target; React skips disabled interactive elements
+    /// for its mouse handlers (`rootDispatch.skipDisabled`), and a
+    /// checkbox's change listeners, which run with the click, in the
+    /// change event's group.
+    fn group_skips(&self, doc: &BaseDocument, path: &[NodeId], at: NodeId, event: Event) -> bool {
+        match &self.root_dispatch {
+            Some(root) => {
+                (root.skip_disabled.contains(&event) && interactive_disabled(doc, at))
+                    || (event == Event::Change && self.change_with_click && checkable(doc, at))
+            }
+            None => at != path[0] && control_disabled(doc, at),
+        }
+    }
+
+    /// The template (not script-added) listeners of `node` for `event` in
+    /// one phase, in registration order.
+    fn template_keys(&self, node: NodeId, event: Event, capture: bool) -> Vec<u32> {
+        let keys: Vec<u32> = if capture {
+            self.all_capture(node, event).collect()
+        } else {
+            self.all(node, event).collect()
+        };
+        keys.into_iter()
+            .filter(|k| !self.script_keys.contains(k))
+            .collect()
+    }
+
+    /// The capture phase's deliveries at `path[i]` (`path`: the target and
+    /// its ancestors), in the framework's order where it runs its template
+    /// listeners from its root (`schedule.rootDispatch`): when the event
+    /// reaches the root's capture listener, the template's capture
+    /// listeners of `path[..i]` run from the root down to the target, as one
+    /// callback with it; every other capture listener at its element.
+    pub(crate) fn capture_stage(
+        &self,
+        doc: &BaseDocument,
+        path: &[NodeId],
+        i: usize,
+        event: Event,
+        e: &runic_js::Event,
+    ) -> Vec<crate::Delivery> {
+        let node = path[i];
+        let rooted = self.root_dispatched(event);
+        let delivery =
+            |listener: u32, current: NodeId, delegated: Option<(u64, bool)>, joined: bool| {
+                crate::Delivery {
+                    listener,
+                    event: e.clone(),
+                    current: current.as_u64(),
+                    delegated,
+                    joined,
+                    capture: true,
+                }
+            };
+        let keys: Vec<u32> = self
+            .capture
+            .get(&node)
+            .into_iter()
+            .flatten()
+            .filter(|(k, _)| *k == event)
+            .map(|(_, h)| *h)
+            .collect();
+        let mut out = vec![];
+        for key in keys {
+            if key == DELEGATION_ROOT {
+                if !rooted {
+                    continue;
+                }
+                // (React collects the capture handlers from the target up
+                // and runs them in reverse: the root down.)
+                let mut first = true;
+                for &at in path[..i].iter().rev() {
+                    if self.group_skips(doc, path, at, event) {
+                        continue;
+                    }
+                    for k in self.template_keys(at, event, true) {
+                        out.push(delivery(k, at, Some((node.as_u64(), first)), !first));
+                        first = false;
+                    }
+                }
+                continue;
+            }
+            if rooted && !self.script_keys.contains(&key) {
+                // (A template listener: run from the root.)
+                continue;
+            }
+            out.push(delivery(key, node, None, false));
+        }
+        out
     }
 
     /// The bubbling phase's deliveries at `path[i]` (`path`: the target and
@@ -418,7 +576,8 @@ impl Listeners {
         let delegated = self
             .delegation
             .as_ref()
-            .is_some_and(|kinds| kinds.contains(&event));
+            .is_some_and(|kinds| kinds.contains(&event))
+            || self.root_dispatched(event);
         let delivery =
             |listener: u32, current: NodeId, delegated: Option<(u64, bool)>, joined: bool| {
                 crate::Delivery {
@@ -460,13 +619,34 @@ impl Listeners {
             if framework && from < i {
                 let mut first = true;
                 for &at in &path[from..i] {
-                    let disabled = at != path[0] && control_disabled(doc, at);
-                    for k in self.all(at, event) {
-                        if self.script_keys.contains(&k) || disabled {
-                            continue;
-                        }
+                    if self.group_skips(doc, path, at, event) {
+                        continue;
+                    }
+                    for k in self.template_keys(at, event, false) {
                         out.push(delivery(k, at, Some((node.as_u64(), first)), !first));
                         first = false;
+                    }
+                }
+                // (React's onChange of a checkbox or radio button, from the
+                // click: after the click's handlers, with an event of its own.)
+                if let (Event::Click, Some(change), true, true) = (
+                    event,
+                    &self.click_change,
+                    key == DELEGATION_ROOT,
+                    self.root_dispatch.is_some(),
+                ) {
+                    let target = path[0];
+                    let mut first_change = true;
+                    for k in self.template_keys(target, Event::Change, false) {
+                        out.push(crate::Delivery {
+                            listener: k,
+                            event: change.clone(),
+                            current: target.as_u64(),
+                            delegated: Some((node.as_u64(), first_change)),
+                            joined: !(first && first_change),
+                            capture: false,
+                        });
+                        first_change = false;
                     }
                 }
                 from = i;
@@ -490,7 +670,7 @@ impl Listeners {
             .get(&node)
             .into_iter()
             .flatten()
-            .filter(move |(e, _)| *e == event)
+            .filter(move |(e, h)| *e == event && *h != DELEGATION_ROOT)
             .map(|(_, h)| *h)
     }
 
@@ -514,7 +694,7 @@ impl Listeners {
     pub(crate) fn order_conflict(&self, path: &[NodeId], event: Event) -> Option<String> {
         // (A framework that declares its delegation, or that its template
         // listeners are its elements' own, is run in its order.)
-        if self.delegation.is_some() || self.element_listeners {
+        if self.delegation.is_some() || self.element_listeners || self.root_dispatch.is_some() {
             return None;
         }
         // (Frameworks delegate only events that bubble: a non-bubbling
@@ -552,24 +732,14 @@ impl Listeners {
     /// first, then its ancestors): from the root down to the target.
     pub(crate) fn capture_deliveries(
         &self,
+        doc: &BaseDocument,
         chain: &[NodeId],
         event: Event,
         e: &runic_js::Event,
     ) -> Vec<crate::Delivery> {
-        chain
-            .iter()
+        (0..chain.len())
             .rev()
-            .flat_map(|&n| {
-                self.all_capture(n, event)
-                    .map(move |listener| crate::Delivery {
-                        listener,
-                        event: e.clone(),
-                        current: n.as_u64(),
-                        delegated: None,
-                        joined: false,
-                        capture: true,
-                    })
-            })
+            .flat_map(|i| self.capture_stage(doc, chain, i, event, e))
             .collect()
     }
 
@@ -741,6 +911,26 @@ impl Host {
         })
     }
 
+    /// The capture phase's listeners at `path[i]` for a nested or script
+    /// dispatch, read when the dispatch reaches the node
+    /// (`Listeners::capture_stage`): (key, current target, root and first).
+    pub fn capture_stage(
+        &self,
+        path: &[u64],
+        i: usize,
+        event: Event,
+        e: &runic_js::Event,
+    ) -> Vec<(u32, u64, Option<(u64, bool)>)> {
+        self.dom().map_or(vec![], |dom| {
+            let path: Vec<NodeId> = path.iter().map(|&n| NodeId::from_u64(n)).collect();
+            dom.listeners
+                .capture_stage(dom.doc, &path, i, event, e)
+                .into_iter()
+                .map(|d| (d.listener, d.current, d.delegated))
+                .collect()
+        })
+    }
+
     /// The kind of event target `node` is (M6 script DOM, slice 3).
     pub fn target_kind(&self, node: u64) -> runic_js::TargetKind {
         use runic_js::TargetKind;
@@ -813,6 +1003,12 @@ impl Host {
     pub fn template_on_path(&self, path: &[u64], event: Event) -> bool {
         self.dom().is_some_and(|dom| {
             if dom.listeners.delegation.is_some() || dom.listeners.element_listeners {
+                return false;
+            }
+            // (React's root: its change handlers of text controls run by its
+            // value tracker, which an event script dispatches does not
+            // change.)
+            if dom.listeners.root_dispatch.is_some() && event != Event::Input {
                 return false;
             }
             path.iter().any(|&n| {
@@ -2547,7 +2743,9 @@ pub(crate) fn click_event(
         cancelable: kind.cancelable(),
         ..Default::default()
     });
-    let mut deliveries = dom.listeners.capture_deliveries(&chain, kind, &event);
+    let mut deliveries = dom
+        .listeners
+        .capture_deliveries(dom.doc, &chain, kind, &event);
     deliveries.extend(chain.iter().flat_map(|&n| {
         let event = &event;
         dom.listeners
@@ -2586,7 +2784,9 @@ fn focus_event(
         ..Default::default()
     });
     // The elements' capture listeners first, from the root to the target.
-    let mut deliveries = dom.listeners.capture_deliveries(&chain, kind, &event);
+    let mut deliveries = dom
+        .listeners
+        .capture_deliveries(dom.doc, &chain, kind, &event);
     deliveries.extend(path.iter().flat_map(|&n| {
         let event = &event;
         dom.listeners

@@ -59,6 +59,29 @@ pub fn unsupported(what: &str) {
     eprintln!("runic: unsupported: {what}");
 }
 
+thread_local! {
+    /// Re-renders of instances so far, and the count when the event being
+    /// dispatched started (`rendered_since_event`).
+    static RENDERS: std::cell::Cell<(u64, u64)> = const { std::cell::Cell::new((0, 0)) };
+}
+
+/// An instance re-rendered (a run of its render effect).
+pub fn note_render() {
+    RENDERS.with(|r| r.set((r.get().0 + 1, r.get().1)));
+}
+
+/// The runtime starts dispatching an input event.
+pub(crate) fn event_started() {
+    RENDERS.with(|r| r.set((r.get().0, r.get().0)));
+}
+
+/// Whether an instance re-rendered since the runtime started dispatching
+/// the current input event (IR `schedule.rootDispatch`: React re-applies
+/// controlled values at such a commit, before its change handlers run).
+pub fn rendered_since_event() -> bool {
+    RENDERS.with(|r| r.get().0 != r.get().1)
+}
+
 /// What the heap could not reproduce: an array stored in `$state` changed in
 /// place other than through its proxy (docs/design/REACTIVITY-ALIASING.md, R3).
 pub fn heap_reports() {
@@ -321,6 +344,11 @@ pub trait App: 'static {
     /// The framework's template listeners are native listeners of their
     /// elements in registration order (IR `schedule.elementListeners`).
     const ELEMENT_LISTENERS: bool = false;
+    /// The framework runs its template listeners from its root's listeners
+    /// (IR `schedule.rootDispatch`: the kinds, those skipping disabled
+    /// controls, those whose listeners script adds are reported; None: not
+    /// declared).
+    const ROOT_DISPATCH: Option<(&'static [Event], &'static [Event], &'static [Event])> = None;
     /// Dispatch one event: run its listeners in order (each unless the event's
     /// propagation was stopped) with the framework's microtask checkpoints,
     /// then the jobs they queued (which update the DOM). On a text-domain

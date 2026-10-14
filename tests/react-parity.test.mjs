@@ -244,9 +244,15 @@ test('React parity rejects what it does not model, with locations', async () => 
       "function Box({ ...rest }) { return <div {...rest}>a</div>; }\nexport function App() { return <Box style={{ color: 'red' }} />; }",
       /rest props/,
     ],
-    // Capture-phase handlers, and focus events' synthetic type and cancellation.
-    ['E_EVENT', 'export function App() { return <input onFocusCapture={() => {}} />; }', /capture/],
-    ['E_EVENT', 'export function App() { return <input onBlurCapture={() => {}} />; }', /capture/],
+    // Capture-phase handlers of kinds React does not run from its root here
+    // (onFocusCapture and the others of root-dispatched kinds lower, IR
+    // schedule.rootDispatch), and focus events' synthetic type and cancellation.
+    ['E_EVENT', 'export function App() { return <div onScrollCapture={() => {}} />; }', /capture/],
+    [
+      'E_EVENT',
+      'export function App() { return <input onChangeCapture={() => {}} />; }',
+      /capture/,
+    ],
     [
       'E_EVENT',
       "export function App() { const [t, setT] = useState(''); return <input onFocus={e => setT(e.type)} />; }",

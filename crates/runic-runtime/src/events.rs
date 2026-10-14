@@ -1063,8 +1063,23 @@ impl<A: App> Handler<'_, A> {
         doc: &mut BaseDocument,
         chain: &[NodeId],
         kind: Event,
-        mut data: EventData,
+        data: EventData,
     ) -> Option<runic_js::Event> {
+        self.fire_linked(doc, chain, kind, data, None)
+    }
+
+    /// `fire`, with the framework's event of another type `linked` standing
+    /// on this one (`runic_js::Event::linked`: a checkbox's change listeners
+    /// in the click's root group, `Listeners::bubble_stage`).
+    fn fire_linked(
+        &mut self,
+        doc: &mut BaseDocument,
+        chain: &[NodeId],
+        kind: Event,
+        mut data: EventData,
+        linked: Option<EventData>,
+    ) -> Option<runic_js::Event> {
+        crate::event_started();
         let elements: Vec<NodeId> = chain
             .iter()
             .copied()
@@ -1105,10 +1120,14 @@ impl<A: App> Handler<'_, A> {
         if let Some(why) = self.listeners.order_conflict(&chain, kind) {
             crate::unsupported(&why);
         }
-        let mut deliveries: Vec<Delivery> = self.listeners.capture_deliveries(&chain, kind, &event);
+        let mut deliveries: Vec<Delivery> =
+            self.listeners.capture_deliveries(doc, &chain, kind, &event);
         // (The bubbling phase in the framework's order where it declares its
         // delegation: `Listeners::bubble_stage`.)
         let mut from = 0;
+        // (A checkbox's change event of the framework's own, from the click:
+        // `schedule.changeWithClick` with `schedule.rootDispatch`.)
+        self.listeners.click_change = linked.map(|data| runic_js::Event::linked(data, &event));
         for i in 0..path.len() {
             let (stage, next) = self
                 .listeners
@@ -1116,6 +1135,7 @@ impl<A: App> Handler<'_, A> {
             deliveries.extend(stage);
             from = next;
         }
+        let linked = self.listeners.click_change.take();
         // The capture listeners of the window, then the document, first.
         self.capture(doc, kind, &event, true);
         self.dispatch(doc, &deliveries);
@@ -1123,6 +1143,9 @@ impl<A: App> Handler<'_, A> {
             self.host(doc, kind, &event);
         }
         event.finish();
+        if let Some(change) = linked {
+            change.finish();
+        }
         Some(event)
     }
 
@@ -1650,7 +1673,14 @@ impl<A: App> Handler<'_, A> {
             checked: now,
             ..Default::default()
         };
-        let click = if A::CHANGE_WITH_CLICK {
+        let rooted = self.listeners.root_dispatch.is_some();
+        let click = if A::CHANGE_WITH_CLICK && rooted {
+            // The framework's change listeners run in the click's root group
+            // (React's onChange from the click), with an event of their own
+            // linked to the click; the native change event follows the click
+            // as in the browser, for the other listeners.
+            self.fire_linked(doc, &chain, Event::Click, click_data, Some(change_data(id)))
+        } else if A::CHANGE_WITH_CLICK {
             // One dispatch: the click listeners, then `change` (delivered
             // with the click, whatever its listeners do).
             let mut data = click_data;
@@ -1706,7 +1736,7 @@ impl<A: App> Handler<'_, A> {
             }
             return;
         }
-        if !A::CHANGE_WITH_CLICK {
+        if !A::CHANGE_WITH_CLICK || rooted {
             self.fire(doc, &[id], Event::Change, change_data(id));
         }
     }

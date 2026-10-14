@@ -70,7 +70,7 @@ Part of the [gap register](../GAPS.md). Locations as of commit `9add179` (2026-1
 | Lazy `useState` initialisers; destructuring in component bodies; body statements other than const/hooks/functions (`if`, early return, `let`, loops); components not returning JSX | E_STATE / E_COMPONENT | — | — | react.ts:1009-1151 |
 | Callback refs, refs to components, shared refs, refs in lists or slots, render-time ref reads, refs holding objects | E_REF | "planned for a later milestone" | — | react.ts:1196-1265,1943-1950,2949 |
 | Nested prop destructuring; object/array prop defaults; children/render-prop defaults | E_PROPS | — | — | react.ts:913-967 |
-| Events outside the list (`onSubmit`, `onKeyPress`, `onInput`, touch, drag, animation/transition end, paste); capture handlers; `onWheel` | E_EVENT | Passive root listener for wheel | — | react.ts:1783,1789,2370 |
+| Events outside the list (`onKeyPress`, `onInput`, touch, drag, animation/transition end, paste); `onWheel` (capture handlers: see PLATFORM P3) | E_EVENT | Passive root listener for wheel | — | react.ts (`EVENT_PROPS`, `wheelUnsupported`) |
 | Style strings, computed keys, spreads in style objects | E_JSX | — | — | react.ts:1805-1927 |
 | `select multiple`, `defaultValue`, uncontrolled controls, controlled controls without `onChange` | E_JSX | "planned for later / M5" | Uncontrolled checkboxes and radios: lower them as the Svelte adapter does (the IR has them since 2026-10-13) | react.ts:2376-2547 |
 | Recursive components; region unmount order; continuous-lane cases (timers from scroll listeners, window scroll/resize listeners) | E_COMPONENT / E_EVENT | — | — | react.ts:802,3342-3846 |

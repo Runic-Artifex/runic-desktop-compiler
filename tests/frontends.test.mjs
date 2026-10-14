@@ -582,7 +582,7 @@ test('React rejects uncovered behaviour with locations', async () => {
     ],
     // Checkboxes are controlled; capture-phase handlers are not modelled.
     ['function App(){return <input type="checkbox"/>;}', 'E_JSX'],
-    ['function App(){return <input onFocusCapture={()=>1}/>;}', 'E_EVENT'],
+    ['function App(){return <div onScrollCapture={()=>1}/>;}', 'E_EVENT'],
     [
       'function App(){const[xs,set]=useState([()=>{}]);return <p>{xs.map(f=><b onClick={f}>a</b>)}</p>;}',
       'E_EVENT',

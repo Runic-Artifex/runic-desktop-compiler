@@ -1,0 +1,27 @@
+{
+  "description": "React 19's root dispatch (IR schedule.rootDispatch): its handlers run from listeners createRoot adds at the container in both phases, onXCapture handlers root down at the container's capture listener and onX handlers target up at its bubbling listener, each phase as one callback; listeners script adds below the root run between them, and those it adds at the container after createRoot after React's in each phase. A native stopPropagation below the root (bubbling at the target, or capturing) keeps React's bubbling handlers from running; React's stopPropagation in a capture handler ends its capture handlers and the native propagation after the container's invocation, in a bubbling handler the rest of its bubbling handlers and the propagation to the document. A checkbox's onChange runs in the click's group after the onClick handlers, with an event of its own (an onClick stop does not skip it), and its native change event follows for script listeners; onSubmit runs from the root after a native submit listener; nested click() and dispatchEvent take the same path, and a script click at a disabled button skips its onClick",
+  "fixtures": [
+    "root-dispatch-react"
+  ],
+  "actions": [
+    { "kind": "click", "id": "target" },
+    { "kind": "click", "id": "nested-click" },
+    { "kind": "click", "id": "nested-dispatch" },
+    { "kind": "click", "id": "box" },
+    { "kind": "click", "id": "submit" },
+    { "kind": "click", "id": "disabled-dispatch" },
+    { "kind": "click", "id": "mode-tb-stop" },
+    { "kind": "click", "id": "target" },
+    { "kind": "click", "id": "nested-dispatch" },
+    { "kind": "click", "id": "mode-tc-stop" },
+    { "kind": "click", "id": "target" },
+    { "kind": "click", "id": "mode-roc-stop" },
+    { "kind": "click", "id": "target" },
+    { "kind": "click", "id": "nested-click" },
+    { "kind": "click", "id": "mode-rtb-stop" },
+    { "kind": "click", "id": "target" },
+    { "kind": "click", "id": "box" },
+    { "kind": "click", "id": "mode-open" },
+    { "kind": "click", "id": "target" }
+  ]
+}

@@ -828,6 +828,18 @@ pub struct Machine<'p> {
     /// Delegation roots (IR `schedule.delegation`): the node and its
     /// registration among the script listeners'.
     delegation_roots: Vec<(u64, u64)>,
+    /// The roots' capture listeners (IR `schedule.rootDispatch`): the node
+    /// and its registration.
+    capture_roots: Vec<(u64, u64)>,
+    /// Re-renders of instances so far, and the count when the dispatch of
+    /// the current input event started (the runtime's
+    /// `rendered_since_event`).
+    renders_total: u64,
+    event_renders: u64,
+    /// The change event of the checkbox click being dispatched, linked to
+    /// the click (`schedule.changeWithClick` with `schedule.rootDispatch`):
+    /// its template listeners join the root's click group.
+    click_change: Option<js::Event>,
     /// The visual viewport's listeners (M6 overlays).
     viewport_listeners: Vec<(EventKind, Val)>,
     /// MediaQueryList change listeners: each list (in creation order) with
@@ -1387,6 +1399,10 @@ impl<'p> Machine<'p> {
             target_listeners: vec![],
             template_custom: HashMap::new(),
             delegation_roots: vec![],
+            capture_roots: vec![],
+            renders_total: 0,
+            event_renders: 0,
+            click_change: None,
             viewport_listeners: vec![],
             media_lists: vec![],
             root: runic_css::Root::with_attrs(
@@ -6245,7 +6261,16 @@ impl<'p> Machine<'p> {
                         .iter()
                         .map(|a| self.eval(a, frame))
                         .collect::<Res<Vec<_>>>()?;
-                    refs.push((l.event, self.listeners.len()));
+                    // (A capture-phase template listener: the element's
+                    // capture list, as attribute bags' are.)
+                    if l.capture {
+                        self.capture_elements
+                            .entry(id)
+                            .or_default()
+                            .push((l.event, self.listeners.len()));
+                    } else {
+                        refs.push((l.event, self.listeners.len()));
+                    }
                     self.listeners.push(ListenerRef {
                         instance: self.current,
                         handler: l.handler,
@@ -7626,6 +7651,7 @@ impl<'p> Machine<'p> {
         let effect = self.effect_at(i, e);
         if effect.render {
             self.instances[i].renders += 1;
+            self.renders_total += 1;
         }
         // An effect the instance created runs its function value.
         let statics = self.program.components[self.instances[i].component]
@@ -9098,29 +9124,6 @@ impl<'p> Machine<'p> {
             .and_then(|h| h.source.clone())
     }
 
-    fn dispatch_element_nested_stage(
-        &mut self,
-        current: u64,
-        capture: bool,
-        kind: EventKind,
-        event: &js::Event,
-    ) {
-        if kind == EventKind::Submit && event.propagation_stopped() {
-            return;
-        }
-        let calls = self.nested_element_listeners(current, kind, capture);
-        for (r, registration) in calls {
-            let live = self.element_listener_live(current, capture, kind, &r, registration);
-            if !live || !event.enter(js::Element(current), capture) {
-                continue;
-            }
-            let result = self.call_element_listener(&r, event);
-            if let Err(t) = result {
-                self.uncaught.push(t);
-            }
-        }
-    }
-
     /// Dispatch nested in the running script, with an owned event path and
     /// a fresh snapshot when each target/phase is reached. No task or microtask
     /// checkpoint is inserted; callback exceptions are reported.
@@ -9163,8 +9166,19 @@ impl<'p> Machine<'p> {
             self.dispatch_host_nested_stage(window, true, kind, &event);
         }
         if elements {
-            for &current in upward.iter().rev() {
-                self.dispatch_element_nested_stage(current, true, kind, &event);
+            for i in (0..upward.len()).rev() {
+                for (r, current, delegated, _, _) in self.capture_stage(&upward, i, kind) {
+                    let enters = match delegated {
+                        Some((root, first)) => self.enter_group(&event, root, current, first, true),
+                        None => event.enter(js::Element(current), true),
+                    };
+                    if !enters {
+                        continue;
+                    }
+                    if let Err(t) = self.call_element_listener(&r, &event) {
+                        self.uncaught.push(t);
+                    }
+                }
             }
             // (The bubbling phase in the framework's order where it declares
             // its delegation: `bubble_stage`.)
@@ -9180,10 +9194,10 @@ impl<'p> Machine<'p> {
                 }
                 let (stage, next) = self.bubble_stage(&bubble, i, from, kind);
                 from = next;
-                for (r, current, delegated, _) in stage {
+                for (r, current, delegated, _, _) in stage {
                     let enters = match delegated {
                         Some((root, first)) => {
-                            event.enter_delegated(js::Element(root), js::Element(current), first)
+                            self.enter_group(&event, root, current, first, false)
                         }
                         None => event.enter(js::Element(current), false),
                     };
@@ -9246,7 +9260,50 @@ impl<'p> Machine<'p> {
             event.finish();
             return Ok(Some(event));
         }
-        if self.program.schedule.checkpoint == Checkpoint::Listener {
+        if self.program.schedule.root_dispatch.is_some() {
+            // (The framework's root listeners: each target and phase's
+            // listeners read when the dispatch reaches it, the root's group
+            // one callback, every other listener one; the container and
+            // what is above it included, as in `dispatch`.)
+            let tops: Vec<u64> = self
+                .event_path(target)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|&n| {
+                    matches!(
+                        js::Element(n),
+                        CONTAINER | js::Element::BODY | js::Element::HTML
+                    )
+                })
+                .collect();
+            let upward: Vec<u64> = path.iter().chain(&tops).copied().collect();
+            let mut from = 0;
+            let stages: Vec<(usize, bool)> = (0..upward.len())
+                .rev()
+                .map(|i| (i, true))
+                .chain((0..upward.len()).map(|i| (i, false)))
+                .collect();
+            for (i, capture) in stages {
+                if event.propagation_stopped() {
+                    break;
+                }
+                let stage = if capture {
+                    self.capture_stage(&upward, i, kind)
+                } else {
+                    let (stage, next) = self.bubble_stage(&upward, i, from, kind);
+                    from = next;
+                    stage
+                };
+                let entries: Vec<Entry> = stage
+                    .into_iter()
+                    .map(|(r, current, delegated, joined, _)| {
+                        (r, event.clone(), current, delegated, joined, capture)
+                    })
+                    .collect();
+                s.ran |= !entries.is_empty();
+                self.run_entries(entries, s);
+            }
+        } else if self.program.schedule.checkpoint == Checkpoint::Listener {
             for (current, capture) in stages {
                 if event.propagation_stopped() {
                     break;
@@ -9356,6 +9413,7 @@ impl<'p> Machine<'p> {
         };
         fill(&mut data, kind);
         let event = js::Event::new(data);
+        self.event_renders = self.renders_total;
         let path: Vec<&VNode> = if kind.bubbles() {
             nodes.iter().rev().copied().collect()
         } else {
@@ -9382,31 +9440,27 @@ impl<'p> Machine<'p> {
             .collect();
         self.check_listener_order(&upward, kind)
             .map_err(throw_diag)?;
-        // (Each entry: the listener, the event, the current target, the
-        // delegation root it runs from and whether it is the first of its
-        // group, and whether it joins the previous entry's callback.)
-        // (And whether it is a capture-phase listener.)
-        type Entry = (ListenerRef, js::Event, u64, Option<(u64, bool)>, bool, bool);
         let mut entries: Vec<Entry> = vec![];
         // The elements' capture listeners first, from the root to the target
-        // (M6 overlays), those script added after the template's.
-        for &id in upward.iter().rev() {
-            for &(k, l) in self.capture_elements.get(&id).into_iter().flatten() {
-                if k == kind {
-                    entries.push((
-                        self.listeners[l].clone(),
-                        event.clone(),
-                        id,
-                        None,
-                        false,
-                        true,
-                    ));
-                }
-            }
-            for r in self.script_refs(id, kind.name(), true) {
-                entries.push((r, event.clone(), id, None, false, true));
+        // (M6 overlays), those script added after the template's, from the
+        // framework's root where it declares one (`capture_stage`).
+        for i in (0..upward.len()).rev() {
+            for (r, current, delegated, joined, _) in self.capture_stage(&upward, i, kind) {
+                entries.push((r, event.clone(), current, delegated, joined, true));
             }
         }
+        // (A checkbox's change event of the framework's own, linked to the
+        // click: `schedule.changeWithClick` with `schedule.rootDispatch`.)
+        let rooted = self.program.schedule.root_dispatch.is_some();
+        let mut with = with;
+        let mut linked = None;
+        if rooted {
+            if let Some((k2, mut d2)) = with.take() {
+                fill(&mut d2, k2);
+                linked = Some(js::Event::linked(d2, &event));
+            }
+        }
+        self.click_change = linked.clone();
         // The bubbling phase, in the framework's order where it declares its
         // delegation (`bubble_stage`).
         let bubble: Vec<u64> = if kind.bubbles() {
@@ -9418,10 +9472,19 @@ impl<'p> Machine<'p> {
         for i in 0..bubble.len() {
             let (stage, next) = self.bubble_stage(&bubble, i, from, kind);
             from = next;
-            entries.extend(stage.into_iter().map(|(r, current, delegated, joined)| {
-                (r, event.clone(), current, delegated, joined, false)
-            }));
+            entries.extend(
+                stage
+                    .into_iter()
+                    .map(|(r, current, delegated, joined, change)| {
+                        let e = match (&linked, change) {
+                            (Some(l), true) => l.clone(),
+                            _ => event.clone(),
+                        };
+                        (r, e, current, delegated, joined, false)
+                    }),
+            );
         }
+        self.click_change = None;
         let _ = path;
         let mut second = None;
         if let Some((k2, mut d2)) = with {
@@ -9448,79 +9511,9 @@ impl<'p> Machine<'p> {
         // The capture listeners of the window, then the document, first,
         // each a callback of its own.
         self.dispatch_capture(kind, &event, true, s);
-        // One task per event, or per listener where each listener ends with a
-        // microtask checkpoint; an exception does not stop later listeners.
-        // A listener script added with `addEventListener` is a callback of
-        // its own (M6 script DOM, slice 3): a checkpoint follows it. Where
-        // the framework declares its delegation, every native listener is a
-        // callback of its own, a delegation root's template listeners one.
-        let per_listener = self.program.schedule.checkpoint == Checkpoint::Listener;
-        let delegation = self.program.schedule.delegation.is_some();
-        let mut tasks: Vec<Vec<Entry>> = vec![];
-        let mut joined = false;
-        for r in refs {
-            if delegation {
-                match tasks.last_mut() {
-                    Some(t) if r.4 => t.push(r),
-                    _ => tasks.push(vec![r]),
-                }
-                continue;
-            }
-            let own = per_listener || r.0.script.is_some();
-            if own || !joined {
-                tasks.push(vec![r]);
-                joined = !own;
-            } else {
-                tasks.last_mut().expect("a task").push(r);
-            }
-        }
-        for listeners in tasks {
-            let source = {
-                let (r, ..) = &listeners[0];
-                let c = self.instances[r.instance].component;
-                self.program.components[c]
-                    .handlers
-                    .get(r.handler)
-                    .filter(|_| r.closure.is_none())
-                    .and_then(|h| h.source.clone())
-            };
-            // Updates from continuous events (React) are not discrete.
-            let kind = listeners[0].1.data().kind.to_rust();
-            let discrete = !self
-                .program
-                .schedule
-                .continuous
-                .iter()
-                .any(|k| k.name() == kind);
-            let result = self.task(source.as_ref(), discrete, |m| {
-                let mut error = None;
-                for (r, event, current, delegated, _, capture) in listeners {
-                    let enters = match delegated {
-                        Some((root, first)) => {
-                            event.enter_delegated(js::Element(root), js::Element(current), first)
-                        }
-                        None => event.enter(js::Element(current), capture),
-                    };
-                    if !enters {
-                        continue;
-                    }
-                    let result = match (&r.script, &r.closure) {
-                        (Some(l), _) => m.call_target(l, &event),
-                        (None, Some(f)) => m.call_value(f, vec![Val::Event(event)]).map(|_| ()),
-                        (None, None) => m.run(r.instance, r.handler, r.args, Some(event)),
-                    };
-                    if let Err(t) = result {
-                        if t.name.to_rust() == "RunicDomainError" {
-                            return Err(t);
-                        }
-                        error.get_or_insert(t);
-                    }
-                }
-                error.map_or(Ok(()), Err)
-            });
-            if let Err(d) = result {
-                s.error.get_or_insert(d);
-            }
+        self.run_entries(refs, s);
+        if let Some(l) = linked {
+            l.finish();
         }
         if kind.bubbles() {
             self.dispatch_globals(kind, &event, s);
@@ -9653,17 +9646,9 @@ impl<'p> Machine<'p> {
     }
 
     /// The listeners script added to node `id` for events of type `kind` in
-    /// one phase, in registration order: those added with
-    /// `addEventListener` (slice 3) and, outside the capture phase, the
-    /// element listeners of `on()` (M6 overlays).
-    fn script_refs(&self, id: u64, kind: &str, capture: bool) -> Vec<ListenerRef> {
-        self.script_registrations(id, kind, capture)
-            .into_iter()
-            .map(|(_, r)| r)
-            .collect()
-    }
-
-    /// `script_refs` with each registration number.
+    /// one phase, in registration order, with each registration number:
+    /// those added with `addEventListener` (slice 3) and, outside the
+    /// capture phase, the element listeners of `on()` (M6 overlays).
     fn script_registrations(&self, id: u64, kind: &str, capture: bool) -> Vec<(u64, ListenerRef)> {
         let mut out: Vec<(u64, ListenerRef)> = vec![];
         if !capture {
@@ -9700,9 +9685,6 @@ impl<'p> Machine<'p> {
         out
     }
 
-    /// A mount's target becomes a delegation root (IR
-    /// `schedule.delegation`): the framework listens for its delegated kinds
-    /// there once, at the end of the mount.
     /// The container's attributes: the app's HTML template's (absent:
     /// `id="root"`), then those the framework sets on it.
     fn container_attrs(&self) -> Vec<(String, String)> {
@@ -9719,12 +9701,243 @@ impl<'p> Machine<'p> {
         attrs
     }
 
+    /// A mount's target becomes a delegation root (IR `schedule.delegation`,
+    /// or the root of `schedule.rootDispatch`): the framework listens for its
+    /// kinds there once, at the start of the mount (React's root in both
+    /// phases).
     fn delegation_root(&mut self, node: u64) {
-        if self.program.schedule.delegation.is_some()
+        let rooted = self.program.schedule.root_dispatch.is_some();
+        if (self.program.schedule.delegation.is_some() || rooted)
             && !self.delegation_roots.iter().any(|r| r.0 == node)
         {
             let registration = self.next_listener_registration();
             self.delegation_roots.push((node, registration));
+            // (React's root: a capture listener too.)
+            if rooted {
+                let registration = self.next_listener_registration();
+                self.capture_roots.push((node, registration));
+            }
+        }
+    }
+
+    /// Whether the framework runs template listeners of `kind` from its root
+    /// (`schedule.rootDispatch`).
+    fn root_dispatched(&self, kind: EventKind) -> bool {
+        self.program
+            .schedule
+            .root_dispatch
+            .as_ref()
+            .is_some_and(|r| r.kinds.contains(&kind))
+    }
+
+    /// Whether a root's group skips the template listeners of `kind` at
+    /// `at` (the runtime's `Listeners::group_skips`).
+    fn group_skips(&self, path: &[u64], at: u64, kind: EventKind) -> bool {
+        match &self.program.schedule.root_dispatch {
+            Some(root) => {
+                (root.skip_disabled.contains(&kind) && self.interactive_disabled(at))
+                    || (kind == EventKind::Change
+                        && self.program.schedule.change_with_click
+                        && self.checkable(at))
+            }
+            None => at != path[0] && self.control_disabled(at),
+        }
+    }
+
+    /// Whether `id` is a `button`, `input`, `select` or `textarea` with a
+    /// `disabled` attribute (React's `shouldPreventMouseEvent`).
+    fn interactive_disabled(&self, id: u64) -> bool {
+        matches!(
+            chain_nodes(&self.last_tree, id).and_then(|n| n.last().copied()),
+            Some(VNode::Element { tag, attrs, .. })
+                if matches!(tag.as_str(), "button" | "input" | "select" | "textarea")
+                    && attrs.contains_key("disabled")
+        )
+    }
+
+    /// Whether `id` is a checkbox or a radio button.
+    fn checkable(&self, id: u64) -> bool {
+        matches!(
+            chain_nodes(&self.last_tree, id).and_then(|n| n.last().copied()),
+            Some(VNode::Element { tag, attrs, .. })
+                if tag == "input"
+                    && attrs.get("type").is_some_and(|t| t.eq_ignore_ascii_case("checkbox") || t.eq_ignore_ascii_case("radio"))
+        )
+    }
+
+    /// The template's capture listeners of element `id` for `kind`.
+    fn template_capture_refs(&self, id: u64, kind: EventKind) -> Vec<ListenerRef> {
+        self.capture_elements
+            .get(&id)
+            .into_iter()
+            .flatten()
+            .filter(|(k, _)| *k == kind)
+            .map(|&(_, l)| self.listeners[l].clone())
+            .collect()
+    }
+
+    /// The capture phase's listeners at `path[i]` (the runtime's
+    /// `Listeners::capture_stage`): where the framework runs its template
+    /// listeners from its root (`schedule.rootDispatch`), the template's
+    /// capture listeners of `path[..i]` run from the root down to the
+    /// target when the event reaches the root's capture listener, as one
+    /// callback; every other capture listener at its element. Entries as
+    /// `bubble_stage`'s.
+    #[allow(clippy::type_complexity)]
+    fn capture_stage(&self, path: &[u64], i: usize, kind: EventKind) -> Vec<StageEntry> {
+        let node = path[i];
+        let rooted = self.root_dispatched(kind);
+        enum Entry {
+            Template(ListenerRef),
+            Root,
+            Script(ListenerRef),
+        }
+        let mut list: Vec<(u64, Entry)> = self
+            .template_capture_refs(node, kind)
+            .into_iter()
+            .map(|r| (0, Entry::Template(r)))
+            .collect();
+        if let Some(&(_, reg)) = self.capture_roots.iter().find(|r| r.0 == node) {
+            if rooted {
+                list.push((reg, Entry::Root));
+            }
+        }
+        list.extend(
+            self.script_registrations(node, kind.name(), true)
+                .into_iter()
+                .map(|(reg, r)| (reg, Entry::Script(r))),
+        );
+        list.sort_by_key(|(reg, _)| *reg);
+        let mut out = vec![];
+        for (_, entry) in list {
+            match entry {
+                Entry::Template(r) if !rooted => out.push((r, node, None, false, false)),
+                Entry::Template(_) => {}
+                Entry::Root => {
+                    let mut first = true;
+                    for &at in path[..i].iter().rev() {
+                        if self.group_skips(path, at, kind) {
+                            continue;
+                        }
+                        for r in self.template_capture_refs(at, kind) {
+                            out.push((r, at, Some((node, first)), !first, false));
+                            first = false;
+                        }
+                    }
+                }
+                Entry::Script(r) => out.push((r, node, None, false, false)),
+            }
+        }
+        out
+    }
+
+    /// Before a template listener a framework runs from a root: React's
+    /// root group (`Event::enter_root`) or a delegation root's.
+    fn enter_group(
+        &self,
+        event: &js::Event,
+        root: u64,
+        current: u64,
+        first: bool,
+        capture: bool,
+    ) -> bool {
+        if self.program.schedule.root_dispatch.is_some() {
+            event.enter_root(js::Element(root), js::Element(current), first, capture)
+        } else {
+            event.enter_delegated(js::Element(root), js::Element(current), first)
+        }
+    }
+
+    /// Run `entries` (listeners with their events, from `capture_stage` and
+    /// `bubble_stage`) as callbacks: one task per event, or per listener
+    /// where each listener ends with a microtask checkpoint; an exception
+    /// does not stop later listeners. A listener script added with
+    /// `addEventListener` is a callback of its own (M6 script DOM, slice 3):
+    /// a checkpoint follows it. Where the framework runs template listeners
+    /// from roots, every native listener is a callback of its own, a root's
+    /// group one.
+    fn run_entries(&mut self, refs: Vec<Entry>, s: &mut Run) {
+        let per_listener = self.program.schedule.checkpoint == Checkpoint::Listener;
+        let delegation = self.program.schedule.delegation.is_some()
+            || self.program.schedule.root_dispatch.is_some();
+        let mut tasks: Vec<Vec<Entry>> = vec![];
+        let mut joined = false;
+        for r in refs {
+            if delegation {
+                match tasks.last_mut() {
+                    Some(t) if r.4 => t.push(r),
+                    _ => tasks.push(vec![r]),
+                }
+                continue;
+            }
+            let own = per_listener || r.0.script.is_some();
+            if own || !joined {
+                tasks.push(vec![r]);
+                joined = !own;
+            } else {
+                tasks.last_mut().expect("a task").push(r);
+            }
+        }
+        for listeners in tasks {
+            // (React decides whether its change handlers run by its value
+            // tracker, which a commit since the input changed the control
+            // resets: reported.)
+            if self.program.schedule.root_dispatch.is_some()
+                && listeners.iter().any(|(_, ev, _, d, _, _)| {
+                    d.is_some() && (ev.is_linked() || ev.data().kind.to_rust() == "input")
+                })
+                && self.renders_total != self.event_renders
+            {
+                let what = "a framework render during the dispatch of an event at a controlled control before its root's change handlers run (the framework re-applies the controlled value at that commit and its value tracker then sees no change)";
+                self.unsupported.get_or_insert(what.to_string());
+                s.error
+                    .get_or_insert(throw_diag(Throw::new("RunicUnsupportedError", what)));
+                return;
+            }
+            let source = {
+                let (r, ..) = &listeners[0];
+                let c = self.instances[r.instance].component;
+                self.program.components[c]
+                    .handlers
+                    .get(r.handler)
+                    .filter(|_| r.closure.is_none())
+                    .and_then(|h| h.source.clone())
+            };
+            // Updates from continuous events (React) are not discrete.
+            let kind = listeners[0].1.data().kind.to_rust();
+            let discrete = !self
+                .program
+                .schedule
+                .continuous
+                .iter()
+                .any(|k| k.name() == kind);
+            let result = self.task(source.as_ref(), discrete, |m| {
+                let mut error = None;
+                for (r, event, current, delegated, _, capture) in listeners {
+                    let enters = match delegated {
+                        Some((root, first)) => m.enter_group(&event, root, current, first, capture),
+                        None => event.enter(js::Element(current), capture),
+                    };
+                    if !enters {
+                        continue;
+                    }
+                    let result = match (&r.script, &r.closure) {
+                        (Some(l), _) => m.call_target(l, &event),
+                        (None, Some(f)) => m.call_value(f, vec![Val::Event(event)]).map(|_| ()),
+                        (None, None) => m.run(r.instance, r.handler, r.args, Some(event)),
+                    };
+                    if let Err(t) = result {
+                        if t.name.to_rust() == "RunicDomainError" {
+                            return Err(t);
+                        }
+                        error.get_or_insert(t);
+                    }
+                }
+                error.map_or(Ok(()), Err)
+            });
+            if let Err(d) = result {
+                s.error.get_or_insert(d);
+            }
         }
     }
 
@@ -9765,14 +9978,15 @@ impl<'p> Machine<'p> {
         i: usize,
         from: usize,
         kind: EventKind,
-    ) -> (Vec<(ListenerRef, u64, Option<(u64, bool)>, bool)>, usize) {
+    ) -> (Vec<StageEntry>, usize) {
         let node = path[i];
         let delegated = self
             .program
             .schedule
             .delegation
             .as_ref()
-            .is_some_and(|k| k.contains(&kind));
+            .is_some_and(|k| k.contains(&kind))
+            || self.root_dispatched(kind);
         // (Template listeners first: registered when the element was
         // created; then the root and script's by registration.)
         enum Entry {
@@ -9800,7 +10014,7 @@ impl<'p> Machine<'p> {
         let mut from = from;
         for (_, entry) in list {
             match entry {
-                Entry::Template(r) if !delegated => out.push((r, node, None, false)),
+                Entry::Template(r) if !delegated => out.push((r, node, None, false, false)),
                 Entry::Template(_) => {}
                 Entry::Root | Entry::Script(_)
                     if delegated
@@ -9812,21 +10026,42 @@ impl<'p> Machine<'p> {
                 {
                     let mut first = true;
                     for &at in &path[from..i] {
-                        if at != path[0] && self.control_disabled(at) {
+                        if self.group_skips(path, at, kind) {
                             continue;
                         }
                         for r in self.template_refs(at, kind) {
-                            out.push((r, at, Some((node, first)), !first));
+                            out.push((r, at, Some((node, first)), !first, false));
                             first = false;
+                        }
+                    }
+                    // (React's onChange of a checkbox or radio button, from
+                    // the click: after the click's handlers, with an event of
+                    // its own.)
+                    if let (EventKind::Click, Some(_), true, Entry::Root) = (
+                        kind,
+                        &self.click_change,
+                        self.program.schedule.root_dispatch.is_some(),
+                        &entry,
+                    ) {
+                        let mut first_change = true;
+                        for r in self.template_refs(path[0], EventKind::Change) {
+                            out.push((
+                                r,
+                                path[0],
+                                Some((node, first_change)),
+                                !(first && first_change),
+                                true,
+                            ));
+                            first_change = false;
                         }
                     }
                     from = i;
                     if let Entry::Script(r) = entry {
-                        out.push((r, node, None, !first));
+                        out.push((r, node, None, !first, false));
                     }
                 }
                 Entry::Root => {}
-                Entry::Script(r) => out.push((r, node, None, false)),
+                Entry::Script(r) => out.push((r, node, None, false, false)),
             }
         }
         (out, from)
@@ -9904,6 +10139,22 @@ impl<'p> Machine<'p> {
                 "RunicUnsupportedError",
                 format!(
                     "a listener of {name} events at a target the runtime does not fire them at (Chromium does)"
+                ),
+            ));
+        }
+        // (Kinds the framework's root uses in an order the IR does not
+        // model, `rootDispatch.reported`.)
+        if EventKind::parse(&name).is_some_and(|k| {
+            self.program
+                .schedule
+                .root_dispatch
+                .as_ref()
+                .is_some_and(|r| r.reported.contains(&k))
+        }) {
+            return Err(Throw::new(
+                "RunicUnsupportedError",
+                format!(
+                    "a {name} listener added with addEventListener in a program whose framework runs its enter and leave handlers from {name} events at its root, in an order the IR does not model"
                 ),
             ));
         }
@@ -10024,7 +10275,10 @@ impl<'p> Machine<'p> {
     fn check_listener_order(&self, path: &[u64], kind: EventKind) -> Res<()> {
         // (A framework that declares its delegation, or that its template
         // listeners are its elements' own, is run in its order.)
-        if self.program.schedule.delegation.is_some() || self.program.schedule.element_listeners {
+        if self.program.schedule.delegation.is_some()
+            || self.program.schedule.element_listeners
+            || self.program.schedule.root_dispatch.is_some()
+        {
             return Ok(());
         }
         // (Frameworks delegate only events that bubble: a non-bubbling
@@ -10093,8 +10347,10 @@ impl<'p> Machine<'p> {
         };
         let native =
             EventKind::parse(&name).filter(|_| js::event::FIRED_TYPES.contains(&name.as_str()));
-        if let Some(kind) = native.filter(|_| {
-            self.program.schedule.delegation.is_none() && !self.program.schedule.element_listeners
+        if let Some(kind) = native.filter(|&k| {
+            self.program.schedule.delegation.is_none()
+                && !self.program.schedule.element_listeners
+                && (self.program.schedule.root_dispatch.is_none() || k == EventKind::Input)
         }) {
             for &n in &path {
                 if self.template_listens(n, kind, false) || self.template_listens(n, kind, true) {
@@ -10129,23 +10385,24 @@ impl<'p> Machine<'p> {
                     let i = bubble.iter().position(|&n| n == node).unwrap_or(0);
                     let (stage, next) = self.bubble_stage(&bubble, i, from, kind);
                     from = next;
-                    stage.into_iter().map(|(r, c, d, _)| (r, c, d)).collect()
+                    stage.into_iter().map(|(r, c, d, _, _)| (r, c, d)).collect()
                 }
                 (Some(kind), true) if !host => {
-                    let mut calls: Vec<(ListenerRef, u64, Option<(u64, bool)>)> = self
-                        .capture_elements
-                        .get(&node)
-                        .into_iter()
-                        .flatten()
-                        .filter(|(k, _)| *k == kind)
-                        .map(|&(_, l)| (self.listeners[l].clone(), node, None))
+                    // (From the framework's root where it declares one:
+                    // `capture_stage` over the element nodes of the path.)
+                    let nodes: Vec<u64> = path
+                        .iter()
+                        .copied()
+                        .filter(|&n| {
+                            js::Element(n) != js::Element::WINDOW
+                                && js::Element(n) != js::Element::DOCUMENT
+                        })
                         .collect();
-                    calls.extend(
-                        self.dispatch_refs(node, &name, native, true)
-                            .into_iter()
-                            .map(|r| (r, node, None)),
-                    );
-                    calls
+                    let i = nodes.iter().position(|&n| n == node).unwrap_or(0);
+                    self.capture_stage(&nodes, i, kind)
+                        .into_iter()
+                        .map(|(r, c, d, _, _)| (r, c, d))
+                        .collect()
                 }
                 _ => self
                     .dispatch_refs(node, &name, native, capture)
@@ -10155,9 +10412,7 @@ impl<'p> Machine<'p> {
             };
             for (r, current, delegated) in calls {
                 let enters = match delegated {
-                    Some((root, first)) => {
-                        ev.enter_delegated(js::Element(root), js::Element(current), first)
-                    }
+                    Some((root, first)) => self.enter_group(ev, root, current, first, capture),
                     None => ev.enter(js::Element(current), capture),
                 };
                 if !enters {
@@ -11201,6 +11456,19 @@ fn document_query(
     let mut path = vec![html(), body()];
     Ok(first(&tree[split..], &mut path, selector))
 }
+
+/// A listener of a dispatch stage (`capture_stage`, `bubble_stage`): the
+/// listener, the current target, the root it runs from and whether it is
+/// the first of its group, whether it joins the previous entry's callback,
+/// and whether it takes the linked change event (a checkbox's, from the
+/// click).
+type StageEntry = (ListenerRef, u64, Option<(u64, bool)>, bool, bool);
+
+/// A listener with its event (`run_entries`): the listener, the event, the
+/// current target, the root it runs from and whether it is the first of its
+/// group, whether it joins the previous entry's callback, and whether it is
+/// a capture-phase listener.
+type Entry = (ListenerRef, js::Event, u64, Option<(u64, bool)>, bool, bool);
 
 fn chain_nodes(tree: &[VNode], id: u64) -> Option<Vec<&VNode>> {
     fn walk<'t>(nodes: &'t [VNode], id: u64, out: &mut Vec<&'t VNode>) -> bool {

@@ -284,7 +284,7 @@ pub(crate) fn begin(
         ..Default::default()
     });
     let chain = crate::events::element_chain(doc, form);
-    let mut deliveries = listeners.capture_deliveries(&chain, kind, &event);
+    let mut deliveries = listeners.capture_deliveries(doc, &chain, kind, &event);
     deliveries.extend(chain.iter().flat_map(|&node| {
         let event = &event;
         listeners

@@ -1,0 +1,13 @@
+{
+  "description": "Listeners script adds below React's root, of types known only at run time (submit, click), run before React's bubbling handlers, which React runs from its root (IR schedule.rootDispatch), also for nested dispatches: requestSubmit and dispatchEvent of a native click from a handler",
+  "fixtures": [
+    "nested-order-react"
+  ],
+  "actions": [
+    { "kind": "click", "id": "count" },
+    { "kind": "click", "id": "request" },
+    { "kind": "click", "id": "dispatch" },
+    { "kind": "click", "id": "other" },
+    { "kind": "click", "id": "request" }
+  ]
+}

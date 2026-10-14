@@ -483,6 +483,8 @@ export interface Listener {
   event: EventKind;
   handler: number;
   args?: Expr[];
+  /** A listener of the capture phase (M6 script DOM; React's `onClickCapture`). */
+  capture?: true;
 }
 
 export interface Component {
@@ -574,6 +576,28 @@ export interface Schedule {
    * order with listeners script adds. Not together with `delegation`.
    */
   elementListeners?: true;
+  /**
+   * The framework runs its template listeners from listeners of its own at
+   * the container, one in the capture and one in the bubbling phase per
+   * kind, registered at the start of the mount (React's root; docs/IR.md
+   * "Delegation"). Not together with `delegation` or `elementListeners`.
+   */
+  rootDispatch?: RootDispatch;
+}
+
+/** `schedule.rootDispatch` (M6 script DOM; docs/IR.md "Delegation"). */
+export interface RootDispatch {
+  /**
+   * The kinds the root listens for: their template listeners run from the
+   * root's capture listener (capture ones, root down to the target) and its
+   * bubbling listener (the others, target up), each phase's as one callback.
+   * Template listeners of other kinds are native listeners of their elements.
+   */
+  kinds: EventKind[];
+  /** Kinds whose template listeners do not run on a disabled button, input, select or textarea. */
+  skipDisabled?: EventKind[];
+  /** Kinds whose listeners script adds are reported unsupported (an order the IR does not model). */
+  reported?: EventKind[];
 }
 
 /**

@@ -248,6 +248,7 @@ fn node(v: &Json, handlers: &[Json]) -> Result<Node> {
                     event: event_kind,
                     handler: event as usize,
                     args: vec![],
+                    capture: false,
                 });
             }
             Ok(Node::Element {

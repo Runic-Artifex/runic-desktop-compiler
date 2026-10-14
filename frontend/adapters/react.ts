@@ -239,6 +239,49 @@ const PAINT_ONLY_STYLES = new Set([
   'text-decoration-color',
   'caret-color',
 ]);
+/**
+ * React 19's event dispatch (react-dom 19.3, measured in Chromium 153;
+ * docs/design/M6-SCRIPT-DOM.md "React's root dispatch"), declared as IR
+ * `schedule.rootDispatch`: createRoot listens at the container for every
+ * event in both phases, before the first render; at its capture listener
+ * React runs the onXCapture handlers on the path, root down, at its
+ * bubbling listener the onX handlers, target up, each as one callback with
+ * a synthetic event of its own (stopPropagation ends the rest and the
+ * native propagation). These are the IR kinds it runs that way; scroll is
+ * listened at its element (nonDelegatedEvents), and enter and leave come
+ * from the over and out events (EnterLeaveEventPlugin, not modelled: they
+ * stay bound to the native enter and leave events). A later React version
+ * with another model changes this declaration, not the backend.
+ */
+const ROOT_KINDS: HandlerEvent[] = [
+  'click',
+  'dblclick',
+  'contextmenu',
+  'mousedown',
+  'mouseup',
+  'mousemove',
+  'mouseover',
+  'mouseout',
+  'pointerdown',
+  'pointerup',
+  'pointermove',
+  'pointerover',
+  'pointerout',
+  'keydown',
+  'keyup',
+  'focusin',
+  'focusout',
+  'input',
+  'change',
+  'submit',
+];
+/**
+ * React's `shouldPreventMouseEvent`: onClick, onDoubleClick, onMouseDown,
+ * onMouseMove and onMouseUp (and their capture forms) do not run on a
+ * disabled button, input, select or textarea (onMouseEnter too, which is
+ * not root-dispatched here: rejected on disabled controls below).
+ */
+const SKIP_DISABLED: HandlerEvent[] = ['click', 'dblclick', 'mousedown', 'mouseup', 'mousemove'];
 const ENTER_LEAVE = new Set<HandlerEvent>([
   'mouseenter',
   'mouseleave',
@@ -594,30 +637,31 @@ export async function lowerReact(graph: Graph): Promise<Lowering> {
   // source operator for React's later listener validation, including copies
   // made while remapping function locals. Membership tests stay unmarked.
   const eventInstanceOf: ts.BinaryExpression[] = [];
-  const elementSubmitRegistrations = new Set<ts.CallExpression>();
-  // Listeners script adds to nodes (M6 script DOM), by event kind: React
-  // runs its handlers from its root container, so where one of a kind it
-  // handles is in the program the order differs (located below).
+  // Listeners script adds (M6 script DOM), by event kind with a literal
+  // type: the first call of each, for the located rejection in checkEvents.
   const elementRegistrations = new Map<string, ts.CallExpression>();
   const registeredKind = (value: Expr): string | undefined => {
-    if (value.op === 'builtin')
+    if (value.op === 'builtin') {
+      // (The window's and the document's own forms: the kind first.)
+      if (/^(window|document)\.listen(-capture)?$/.test(value.name))
+        return value.args[0]?.op === 'lit' && typeof value.args[0].value === 'string'
+          ? value.args[0].value
+          : undefined;
       return (value.name === 'element.listen' || value.name === 'target.listen') &&
         value.args[1]?.op === 'lit' &&
         typeof value.args[1].value === 'string'
         ? value.args[1].value
         : undefined;
+    }
     if (value.op === 'with') return registeredKind(value.body);
     if (value.op === 'cond') return registeredKind(value.then) ?? registeredKind(value.else);
     return undefined;
   };
-  const registersElementSubmit = (value: Expr): boolean => registeredKind(value) === 'submit';
   const expression = lower.expr.bind(lower);
   lower.expr = (node, context) => {
     const value = expression(node, context);
     // Keep the original registration call for diagnostics, including calls
-    // wrapped by optional chaining. Host listeners have distinct builtins.
-    if (ts.isCallExpression(node) && registersElementSubmit(value))
-      elementSubmitRegistrations.add(node);
+    // wrapped by optional chaining.
     const kind = ts.isCallExpression(node) ? registeredKind(value) : undefined;
     if (kind && !elementRegistrations.has(kind))
       elementRegistrations.set(kind, node as ts.CallExpression);
@@ -1851,7 +1895,7 @@ export async function lowerReact(graph: Graph): Promise<Lowering> {
     fail(
       attr,
       'E_EVENT',
-      `${prop} is unsupported: React runs capture handlers in the capture phase, before the target's own handlers, while the IR's listeners run in the bubbling phase`,
+      `${prop} is unsupported: capture handlers are covered as element props of the kinds React runs from its root (${ROOT_KINDS.join(', ')}), not in rest props, for onChange, scroll or enter and leave`,
     );
   const wheelUnsupported = (attr: ts.Node): never =>
     fail(
@@ -2420,10 +2464,11 @@ export async function lowerReact(graph: Graph): Promise<Lowering> {
         // and the change event on selects.
         const event: HandlerEvent =
           raw === 'onChange' ? (checkbox || select ? 'change' : 'input') : EVENT_PROPS[raw];
-        // React DOM drops these listeners of disabled controls (getListener),
-        // while Chromium delivers mousemove and mouseenter to them.
+        // React DOM drops this listener of disabled controls (getListener),
+        // while Chromium delivers mouseenter to them (onMouseMove too: the
+        // root dispatch skips it, rootDispatch.skipDisabled).
         if (
-          (raw === 'onMouseMove' || raw === 'onMouseEnter') &&
+          raw === 'onMouseEnter' &&
           (name === 'button' || name === 'input') &&
           (restKeys.has('disabled') ||
             opening.attributes.properties.some(
@@ -2439,7 +2484,23 @@ export async function lowerReact(graph: Graph): Promise<Lowering> {
         continue;
       }
       if (raw === 'onWheel') wheelUnsupported(attr);
-      if (/^on[A-Z].*Capture$/.test(raw)) captureUnsupported(attr, raw);
+      // A capture handler (onClickCapture) of a kind React runs from its
+      // root: a capture-phase listener, run from the root's capture listener.
+      const captured = /^(on[A-Z].*)Capture$/.exec(raw)?.[1];
+      if (
+        captured &&
+        Object.hasOwn(EVENT_PROPS, captured) &&
+        ROOT_KINDS.includes(EVENT_PROPS[captured])
+      ) {
+        if (!init || !ts.isJsxExpression(init) || !init.expression)
+          fail(attr, 'E_EVENT', 'Event props need a handler expression');
+        listeners.push({
+          ...handlerFor((init as ts.JsxExpression).expression!, EVENT_PROPS[captured], attr),
+          capture: true,
+        });
+        continue;
+      }
+      if (captured) captureUnsupported(attr, raw);
       if (/^on[A-Z]/.test(raw))
         fail(
           attr,
@@ -2653,7 +2714,7 @@ export async function lowerReact(graph: Graph): Promise<Lowering> {
           );
       if (
         (name === 'button' || name === 'input') &&
-        (restKeys.has('onMouseMove') || restKeys.has('onMouseEnter')) &&
+        restKeys.has('onMouseEnter') &&
         (restKeys.has('disabled') ||
           opening.attributes.properties.some(
             p => ts.isJsxAttribute(p) && p.name.getText() === 'disabled',
@@ -2662,7 +2723,7 @@ export async function lowerReact(graph: Graph): Promise<Lowering> {
         fail(
           opening.attributes.properties[spreadAt],
           'E_EVENT',
-          'React ignores onMouseMove and onMouseEnter on disabled controls, which still receive the browser event; such rest props on a control that may be disabled are unsupported',
+          'React ignores onMouseEnter on disabled controls, which still receive the browser event; such rest props on a control that may be disabled are unsupported',
         );
       const bag: Expr = { op: 'cell', cell: cur.rest!.cell, read: 'snapshot' };
       spread =
@@ -3390,26 +3451,26 @@ export async function lowerReact(graph: Graph): Promise<Lowering> {
       ),
       ...bagListeners.map(l => ({ h: l, root: bagRoot(l) })),
     ];
-    // React 19.3 delegates submit to the root container. A native listener
-    // on an element runs before synthetic onSubmit, and can stop the event
-    // before it reaches React. The IR binds template handlers on the element.
-    const nativeSubmit = elementSubmitRegistrations.values().next().value;
-    if (nativeSubmit && listening.some(l => l.h.event === 'submit'))
-      fail(
-        nativeSubmit,
-        'E_EVENT',
-        'Native element submit listeners together with onSubmit are unsupported: React delegates onSubmit to its root, after native element listeners, while the runtime runs template handlers on the element first',
+    // Listeners script adds are ordered with React's handlers by the root
+    // dispatch (ROOT_KINDS, IR schedule.rootDispatch), except where React
+    // runs enter and leave handlers from the over and out events, which is
+    // not modelled: a listener script adds for that family's over or out
+    // events could see them in another order (or stop them).
+    for (const family of ['mouse', 'pointer'] as const) {
+      const enterLeave = listening.some(l =>
+        [`${family}enter`, `${family}leave`].includes(l.h.event),
       );
-    // The same for every kind (M6 script DOM): React's handlers run from its
-    // root container (bubbling handlers after, capturing ones before the
-    // listeners script adds below it), which the IR does not model.
-    for (const [kind, call] of elementRegistrations)
-      if (kind !== 'submit' && listening.some(l => l.h.event === kind))
-        fail(
-          call,
-          'E_EVENT',
-          `A ${kind} listener added with addEventListener together with React ${kind} handlers is unsupported: React runs its handlers from its root container, not ordered with the listeners script adds to elements (docs/gaps/PLATFORM.md)`,
-        );
+      if (!enterLeave) continue;
+      for (const kind of [`${family}over`, `${family}out`]) {
+        const call = elementRegistrations.get(kind);
+        if (call)
+          fail(
+            call,
+            'E_EVENT',
+            `A ${kind} listener added with addEventListener together with React's on${family === 'mouse' ? 'Mouse' : 'Pointer'}Enter or on${family === 'mouse' ? 'Mouse' : 'Pointer'}Leave handlers is unsupported: React dispatches those from the ${family}over and ${family}out events at its root, which the IR does not model (docs/gaps/PLATFORM.md)`,
+          );
+      }
+    }
     // Change listeners of selects (the others are on checkboxes and radio buttons).
     const selectChanges = new Set<unknown>();
     const selects = (k: number, nodes: Node[]) => {
@@ -3984,6 +4045,17 @@ export async function lowerReact(graph: Graph): Promise<Lowering> {
   lower.settleFunctionValues();
   checkListenerIdentity();
   checkEvents();
+  // The over and out kinds of families with enter or leave handlers
+  // (rootDispatch.reported; literal types are rejected in checkEvents).
+  const enterLeaveKinds = new Set<string>([
+    ...components.flatMap(c => c.handlers.map(h => h.event as string)),
+    ...bagListeners.map(l => l.event as string),
+  ]);
+  const reported: HandlerEvent[] = (['mouse', 'pointer'] as const).flatMap(family =>
+    enterLeaveKinds.has(`${family}enter`) || enterLeaveKinds.has(`${family}leave`)
+      ? [`${family}over` as HandlerEvent, `${family}out` as HandlerEvent]
+      : [],
+  );
   checkFocusCalls();
   checkDependencies();
   checkUnmountOrder();
@@ -4031,6 +4103,14 @@ export async function lowerReact(graph: Graph): Promise<Lowering> {
       // Updates from scroll events render in a scheduler task after the
       // frame (continuous priority), or with an earlier discrete update.
       continuous: ['scroll'],
+      // React 19's root dispatch (ROOT_KINDS above). Listeners script adds
+      // of an over or out kind whose family has enter or leave handlers are
+      // reported where their type is known only at run time.
+      rootDispatch: {
+        kinds: ROOT_KINDS,
+        skipDisabled: SKIP_DISABLED,
+        ...(reported.length ? { reported } : {}),
+      },
     },
     styles: {
       css: graph.css,
