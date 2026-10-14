@@ -68,17 +68,25 @@ framework's delegated template listeners may differ. Compiler on main
 | `npm test` | 515 passed, 0 failed (6 new in `tests/script-events.test.mjs`) |
 | `node compiler/cargo.mjs test --offline --workspace` | 186 passed, 0 failed (new: `event::submission_tests::listening_by_type_and_target`, `script_events_dispatch_once_at_a_time`) |
 
-## Svelte delegation (2026-10-14, in progress)
+## Svelte delegation and Vue's element listeners (2026-10-14)
 
 `schedule.delegation` (Svelte's delegated kinds run from its delegation
-roots; React programs `E_EVENT` where a listener script adds meets their
-handlers of its kind; Vue reported at run time) and bubbling events
-reaching the whole ancestor chain natively (`3389e92`).
+roots), bubbling events reaching the whole ancestor chain natively, and
+`schedule.elementListeners` (Vue's template listeners are native listeners of
+their elements, registered when Vue creates them). React programs get
+`E_EVENT` where a listener script adds meets their handlers of its kind, and
+a run-time report for types known only at run time. The report now runs for
+nested dispatches natively as well (`run_nested_inner`), as it already did
+in the interpreter. Rebased onto main `15889dd`.
 
 | Check | Result |
 |---|---|
-| bits-dropdown-menu, script-dom-events, `--pixels` | every gate passed at both viewports |
-| IR of every fixture (`analyze` at `7906771` and now; 6 expected rejections on both sides) | 91 identical (the React and Vue fixtures); 129 Svelte fixtures differ only by `schedule.delegation`; 8 differ by `target.listen` (bits-dropdown-menu, -popover, -select, -tooltip, floating, form-submit-element-listeners-svelte/-vue, form-submit-stops-vue) |
-| Svelte cases re-screened with `--pixels` (176 cases with a Svelte fixture, in batches of 25 under 2 h: `.cache/sv25-00` … `-07`) | batch 00 (25 cases, 83 viewport runs): every gate passed; batches 01–07 pending |
-| Full differential | pending |
-| `npm test`, `cargo test --workspace` | 515/515, 186/186 |
+| `node conformance/run.mjs element-listeners-vue --pixels` (new fixture `element-listeners-vue`, 12 clicks: script listeners after the template's at the target and its ancestors, capture at the target before bubble, a microtask after its listener, stopPropagation in a script listener below a template one, stopImmediatePropagation in a template listener, nested `dispatchEvent` and `requestSubmit` reaching second template listeners from a later task) | every gate passed at both viewports |
+| Native and interpreter reports on nested dispatches (React; new fixture `nested-order-react`) | both engines report `requestSubmit` (order check) and `dispatchEvent` of a native click (template listener on its path) with the same message; the probe stops (`.cache/tools/probe-report.mjs`); `tests/script-events.test.mjs` checks the interpreter and that generated code calls the check. The fixture is left out of the differential, which has no model of a run-time report |
+| Svelte cases with `--pixels` (176 cases with a Svelte fixture, in batches of 25 under 2 h: `.cache/sv25-00` … `-07`) | 25+25+25+25+25+25+25+1 cases, 83+79+72+69+75+89+72 viewport runs plus form-submit: every gate passed apart from declared known gaps (capitalize and fieldset pixels, reorder-navigation semantics, bits-toggle-group 420x700, text-elements pixels) |
+| Main's new cases (array-writes, equal-writes, deep-tracking, watch-declared, watch-instances, effect-self-react, unmount-updates, teardown-vue, animation-fill, animation-fill-api) and form-submit, `--pixels` | 27 runs, every gate passed |
+| Vue and React cases whose programs add listeners or submit by script (form-submit, -listeners, -listeners-physical, -element-listeners, -stops, -requests, -priority, -capture, shortcuts, classes), after `elementListeners` | every gate passed (form-submit-element-listeners-vue and form-submit-stops-vue again pass natively) |
+| Full differential (20 traces x 25 actions; 10 chunks, Vue and React fixtures rerun after `elementListeners`) | 240 fixtures: 186 complete, 54 incomplete, 0 failures, 98953 steps. Main `15889dd`: 234 fixtures, 181 complete, 53 incomplete, 0 failures. The incomplete fixtures are the known categories: layout reads, images, hidden pointer targets, focus events without a differential action, and the eight with no reason given on main too (blend, blitz-gradients, blitz-inline-baselines, media-preferences, portal, rest-react/-svelte/-vue). animation-fill-api-svelte, added to main after its run, reads layout (`getAnimations`). Before `elementListeners`, form-submit-stops-vue and form-submit-element-listeners-vue failed: the interpreter reported Vue's order on nested dispatches and native code never checked them |
+| IR of every fixture (`analyze` at `15889dd` and on the branch; 11 expected rejections the same on both sides) | 98 identical; 132 Svelte fixtures differ only by `schedule.delegation`; 8 by `target.listen` (bits-dropdown-menu, -popover, -select, -tooltip, floating, form-submit-element-listeners-svelte/-vue, form-submit-stops-vue). With `elementListeners`: the 49 Vue fixtures differ from the step before only by that field, nothing else changed |
+| `npm test`, `cargo test --workspace` | 520/520, 192/192 |
+| Found, not fixed (gap row) | a capture listener at an ancestor that stops propagation keeps the ancestor's own bubbling listeners from running in Chromium. Both engines still run them (`Event::can_enter`). The same holds on main. The case leaves out its mode-capture-stop steps |
