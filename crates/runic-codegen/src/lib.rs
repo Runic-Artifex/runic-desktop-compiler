@@ -3065,6 +3065,7 @@ pub fn generate(
         None => "None".into(),
     };
     let delegated_dispatch = p.schedule.delegation.is_some();
+    let element_listeners = p.schedule.element_listeners;
     let tracked = |t: Tracking| {
         p.components
             .iter()
@@ -3498,6 +3499,8 @@ pub fn generate(
          fn run_nested_inner(cx: &mut Cx, events: Vec<(js::Event, Event, Vec<runic_runtime::Delivery>)>, elements: bool) {{\n\
          for (ev, kind, deliveries) in events {{\n\
          let path = cx.dom.nested_event_path(ev.data().target.0);\n\
+         // (Where the framework declares neither its delegation nor element listeners, an order it may differ in is reported, as for the events the runtime dispatches.)\n\
+         if elements {{ cx.dom.check_listener_order(&path, kind); }}\n\
          // Window sentinel events keep their existing explicit-delivery route.\n\
          let fallback: Vec<_> = if path.is_empty() && elements {{ deliveries.iter().filter_map(|d| Some((d.listener, *cx.listener_generations.get(d.listener as usize)?, cx.listeners.get(d.listener as usize)?.clone()?, d.current))).collect() }} else {{ Vec::new() }};\n\
          for current in [js::Element::WINDOW.0, js::Element::DOCUMENT.0] {{ run_nested_stage(cx, &ev, kind, current, true); }}\n\
@@ -3755,6 +3758,7 @@ pub fn generate(
          {template_attrs}\
          const CHANGE_WITH_CLICK: bool = {change_with_click};\n\
          const DELEGATION: Option<&'static [Event]> = {delegation};\n\
+         const ELEMENT_LISTENERS: bool = {element_listeners};\n\
          fn new() -> Self {{\njs::keep_before_images(KEEP_BEFORE_IMAGES);\nlet mut cx = Cx::new();\n(|| -> JsResult<()> {{ let cx = &mut cx; {init_globals}Ok(()) }})().expect(\"module constants\");\nlet inst = new_i{ri}(&mut cx, None);\ninit_i{ri}(&mut cx, &inst).expect(\"initial state\");\n{root_pre}App {{ cx, inst, t: Rc::new(RefCell::new(T{ri}::default())), root: None }}\n}}\n\
          fn mount(&mut self, dom: &mut Dom, parent: NodeId) {{\n\
          self.cx.dom = runic_runtime::Host::attach(dom);\n\

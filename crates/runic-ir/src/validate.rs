@@ -2312,6 +2312,15 @@ pub fn validate(p: &Program) -> Result<()> {
     {
         return err("E_IR", "Invalid source hash", None);
     }
+    // (A framework either runs template listeners from a delegation root or
+    // registers them at their elements.)
+    if p.schedule.delegation.is_some() && p.schedule.element_listeners {
+        return err(
+            "E_IR",
+            "schedule.delegation and schedule.elementListeners are exclusive",
+            None,
+        );
+    }
     // (Frameworks delegate only events that bubble.)
     if let Some(kinds) = &p.schedule.delegation {
         if let Some(k) = kinds.iter().find(|k| !k.bubbles()) {

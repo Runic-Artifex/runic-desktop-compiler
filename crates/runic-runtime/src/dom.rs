@@ -267,6 +267,9 @@ pub(crate) struct Listeners {
     /// The kinds whose template listeners the framework runs from a
     /// delegation root (IR `schedule.delegation`; none: not declared).
     pub(crate) delegation: Option<Vec<Event>>,
+    /// The framework's template listeners are native listeners of their
+    /// elements in registration order (IR `schedule.elementListeners`).
+    pub(crate) element_listeners: bool,
     raw: std::collections::HashSet<u32>,
     /// An element that lost focus because a list move detached it.
     pub(crate) blurred: Option<NodeId>,
@@ -508,8 +511,9 @@ impl Listeners {
     /// container, with a template listener at its element or below it,
     /// their order may differ from Chromium's (M6 script DOM, slice 3).
     pub(crate) fn order_conflict(&self, path: &[NodeId], event: Event) -> Option<String> {
-        // (A framework that declares its delegation is run in its order.)
-        if self.delegation.is_some() {
+        // (A framework that declares its delegation, or that its template
+        // listeners are its elements' own, is run in its order.)
+        if self.delegation.is_some() || self.element_listeners {
             return None;
         }
         // (Frameworks delegate only events that bubble: a non-bubbling
@@ -806,7 +810,7 @@ impl Host {
     /// reported: the frameworks decide whether and when theirs run).
     pub fn template_on_path(&self, path: &[u64], event: Event) -> bool {
         self.dom().is_some_and(|dom| {
-            if dom.listeners.delegation.is_some() {
+            if dom.listeners.delegation.is_some() || dom.listeners.element_listeners {
                 return false;
             }
             path.iter().any(|&n| {

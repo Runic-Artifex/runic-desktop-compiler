@@ -4971,7 +4971,11 @@ export async function lowerVue(graph: Graph): Promise<Lowering> {
     // checkpoint after each); app.mount() runs onMounted before it returns;
     // watcher cleanups run right before their own watcher re-runs (the
     // default `interleaved`) and read live state.
-    schedule: { checkpoint: 'listener', mount: 'sync' },
+    // Vue's template listeners are native listeners (invokers) Vue adds when
+    // it creates an element, before script can reach it; a handler is never
+    // added later (a handler that may be nullish is E_EVENT), so they run at
+    // their elements in registration order with listeners script adds.
+    schedule: { checkpoint: 'listener', mount: 'sync', elementListeners: true },
   };
   lower.checkStyleSpreads(ir);
   lower.checkKeyOrders();

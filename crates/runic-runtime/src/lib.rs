@@ -315,6 +315,9 @@ pub trait App: 'static {
     /// The kinds whose template listeners the framework runs from a
     /// delegation root (IR `schedule.delegation`; None: not declared).
     const DELEGATION: Option<&'static [Event]> = None;
+    /// The framework's template listeners are native listeners of their
+    /// elements in registration order (IR `schedule.elementListeners`).
+    const ELEMENT_LISTENERS: bool = false;
     /// Dispatch one event: run its listeners in order (each unless the event's
     /// propagation was stopped) with the framework's microtask checkpoints,
     /// then the jobs they queued (which update the DOM). On a text-domain

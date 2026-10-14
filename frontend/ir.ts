@@ -567,6 +567,13 @@ export interface Schedule {
    * declared (the runtime then reports an order it cannot know).
    */
   delegation?: EventKind[];
+  /**
+   * The framework's template listeners are native listeners of their
+   * elements, registered when it creates the element (Vue's invokers;
+   * docs/IR.md "Delegation"): they run at their elements in registration
+   * order with listeners script adds. Not together with `delegation`.
+   */
+  elementListeners?: true;
 }
 
 /**

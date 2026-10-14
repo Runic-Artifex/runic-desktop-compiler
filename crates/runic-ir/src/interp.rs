@@ -9960,8 +9960,9 @@ impl<'p> Machine<'p> {
     /// template listener at its element or below it, their order may differ
     /// from Chromium's, and the run is reported unsupported.
     fn check_listener_order(&self, path: &[u64], kind: EventKind) -> Res<()> {
-        // (A framework that declares its delegation is run in its order.)
-        if self.program.schedule.delegation.is_some() {
+        // (A framework that declares its delegation, or that its template
+        // listeners are its elements' own, is run in its order.)
+        if self.program.schedule.delegation.is_some() || self.program.schedule.element_listeners {
             return Ok(());
         }
         // (Frameworks delegate only events that bubble: a non-bubbling
@@ -10030,7 +10031,9 @@ impl<'p> Machine<'p> {
         };
         let native =
             EventKind::parse(&name).filter(|_| js::event::FIRED_TYPES.contains(&name.as_str()));
-        if let Some(kind) = native.filter(|_| self.program.schedule.delegation.is_none()) {
+        if let Some(kind) = native.filter(|_| {
+            self.program.schedule.delegation.is_none() && !self.program.schedule.element_listeners
+        }) {
             for &n in &path {
                 if self.template_listens(n, kind, false) || self.template_listens(n, kind, true) {
                     return Err(Throw::new(

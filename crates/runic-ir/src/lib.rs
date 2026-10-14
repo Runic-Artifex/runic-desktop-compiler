@@ -225,6 +225,17 @@ pub struct Schedule {
     /// listener of its element.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delegation: Option<Vec<EventKind>>,
+    /// The framework's template listeners are native listeners of their
+    /// elements, registered when it creates the element (Vue's invokers;
+    /// M6 script DOM, docs/IR.md "Delegation"): they run at their elements
+    /// in registration order with listeners script adds, so no order is
+    /// reported. Not together with `delegation`.
+    #[serde(
+        default,
+        rename = "elementListeners",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub element_listeners: bool,
 }
 
 /// How cleanups of re-running effects are ordered within a phase.

@@ -11,7 +11,7 @@ import path from 'node:path';
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { collect, Diagnostic } from '../compiler/collect.mjs';
 import { lower } from '../compiler/frontend.mjs';
-import { interpret } from '../compiler/codegen.mjs';
+import { generate, interpret } from '../compiler/codegen.mjs';
 import { FIRED_TYPES, NATIVE_TYPES, NEVER_FIRED_TYPES } from '../frontend/event-types.ts';
 
 /** A Svelte app of `files` (App.svelte is the root); `run` gets its root. */
@@ -271,4 +271,45 @@ test("Svelte's delegated template listeners run from its root, after listeners s
       assert.equal(out(steps[3]), 'raw;button true;root false;raw;');
     },
   );
+});
+
+test("Vue's template listeners are its elements' own; nested dispatches check the order in both engines", async () => {
+  const log = step => text(byId(step.state.dom, 'log'));
+  // Vue declares schedule.elementListeners: its invokers run at their
+  // elements in registration order, before listeners script adds after
+  // mount, also for nested dispatches (Chromium: case element-listeners-vue).
+  const vue = (await lowered(path.resolve('fixtures/element-listeners-vue'))).ir;
+  assert.equal(vue.schedule.elementListeners, true);
+  assert.equal(vue.schedule.delegation, undefined);
+  const steps = interpret(vue, [
+    { kind: 'click', id: 'target' },
+    { kind: 'click', id: 'nested-click' },
+    { kind: 'click', id: 'nested-submit' },
+  ]);
+  assert.ok(
+    steps.every(s => !s.outcome?.rejected),
+    JSON.stringify(steps.map(s => s.outcome)),
+  );
+  assert.equal(log(steps[1]), 'soc stc tt st m ti si to');
+  assert.equal(
+    log(steps[3]),
+    'soc stc tt st m ti si to soc n< tx sx ts >n ti si to soc r< tf sf >r ti si to',
+  );
+  // React declares neither: a listener script adds below its root, of a type
+  // known only at run time, is reported where a nested dispatch reaches it,
+  // in the interpreter and in the generated code alike (the differential
+  // compares the two over nested-order-react).
+  const react = (await lowered(path.resolve('fixtures/nested-order-react'))).ir;
+  assert.equal(react.schedule.elementListeners, undefined);
+  // (requestSubmit: the order check of the nested dispatch; dispatchEvent
+  // of a native type: first the report of one reaching a template listener.)
+  for (const [id, message] of [
+    ['request', /submit listener added with addEventListener on the path of a template listener/],
+    ['dispatch', /dispatchEvent of a native click event reaching a template listener/],
+  ]) {
+    const [, step] = interpret(react, [{ kind: 'click', id }]);
+    assert.match(step.outcome?.rejected?.message ?? '', message, id);
+  }
+  const rust = generate(react);
+  assert.match(rust, /if elements \{ cx\.dom\.check_listener_order\(&path, kind\); \}/);
 });
