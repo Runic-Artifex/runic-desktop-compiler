@@ -38,6 +38,7 @@ Adversarial fixtures, first run in Chromium and the reference interpreter
 | `watch-cleanup-computed-vue` | a computed first evaluated in a watchEffect's cleanup moves the watchEffect behind the next watcher: `cleanup 0 d2 \| watch 1 \| watch 2 \| cleanup 1 d4 \| …` | `… \| cleanup 1 d4 \| watch 2 \| …` | rejected (R10) |
 | `watch-instances-deep-vue` | watchers a write triggers run by instance creation: `row 1 3 \| row 2 3 \| row 3 3 \| row 0 3` | document order: `row 0 3 \| row 3 3 \| row 1 3 \| row 2 3` | rejected (R10) |
 | `watch-declared`, `watch-instances` (Vue) | the shapes R10 accepts run in declaration and document order | interpreter agrees | regression cases |
+| `watch-list-vue` | prop-triggered watchers of list items run in document order: `row 3 2 \| row 1 2 \| row 2 2` | interpreter agrees; native code reverses them (`row 2 2 \| row 1 2 \| row 3 2`: it updates a list's blocks from the last one) | rejected (R10), backend gap row |
 | `equal-writes-vue` | a write of the value a deep ref's slot holds notifies nothing | the watchEffect reading it runs again (`run 0 1 0`) | open (step 7 resume list) |
 
 ## Step 1: reads through aliases (R1/R2)
@@ -313,7 +314,8 @@ Vue:
   triggers run by instance creation (`row 1 3 | row 2 3 | row 3 3 | row 0 3`),
   natively in document order. Watchers a prop update triggers run while the
   parent patches each instance, in document order, as natively (case
-  `watch-instances`).
+  `watch-instances`), except items of one list, which native code runs in
+  reverse (see the native verification below).
 - Decision (user, 2026-10-14, ROADMAP): a located rejection now (R10,
   `frontend/adapters/vue-watch-order.ts`), the exact model as a later
   schedule policy. Accepted shapes, each checked in Chromium: case
@@ -352,3 +354,37 @@ stores the value into each element as a set does.
   Before: `mid 2` after each method and `6 6` (11 mismatches).
 - Gap row added: `pop`, `shift`, `unshift`, `splice` and `copyWithin` still
   read and write the whole array natively.
+
+## Step 7 native verification
+
+On the branch at f75a4b6 and the follow-up (CPU renderer, pixels, 800x600
+and 420x600; `artifacts/reactivity/step7`, `step7-b`, `step7-c`):
+
+- Conformance passes 30 of 32 runs: `effect-self-react`, `unmount-updates`,
+  `teardown-vue`, `watch-declared`, `equal-writes`, `array-writes`,
+  `effect-self`, `push-effect`, `derived-arrays`, `keyed-replace`,
+  `collections-vue`, `alias-writes-vue`, `effects` (Svelte, Vue, React). The
+  first batch stopped at the background time limit after 18 runs, and the
+  rest ran as a second batch.
+- The two failures were the first `watch-instances` fixture at both
+  viewports, a list of `Row`s whose watchers prop updates trigger. Native
+  code logged `row 2 1 | row 1 1` where Chromium and the interpreter log
+  `row 1 1 | row 2 1`. The differential (interpreter vs native, 20 traces x
+  25 actions) failed on the same fixture and passed the other 11
+  (`array-writes-svelte`, `equal-writes-vue`, `effect-self-react`,
+  `unmount-updates-react`, `teardown-vue`, `watch-declared-vue`,
+  `effect-self-svelte`, `push-effect-svelte`, `derived-arrays-svelte`,
+  `collections-vue`, `alias-writes-vue`).
+- Cause: native code updates a keyed list's blocks from the last one, so
+  its items' pre effects run in reverse document order. R10 no longer
+  exempts two items of one list, and the list shape is the expected
+  rejection `watch-list-vue`. Case `watch-instances` keeps a branch shown
+  before two siblings (Chromium `row 0 2 | row 1 2 | row 2 2`). Gap rows:
+  the backend's list order, also for Svelte's `$effect.pre`.
+- With the restructured case, conformance passes both runs of
+  `watch-instances` (`step7-c`) and the differential passes
+  `watch-instances-vue`: 32 of 32 runs and 12 of 12 fixtures (6240 steps)
+  on the final fixtures.
+- `npm test` 513/513 and `cargo test --workspace` (185) pass; the example
+  census lowers the same 280 of 404 examples before and after, with no
+  first-diagnostic change (`artifacts/census-before`, `census-after`).

@@ -1033,12 +1033,15 @@ export function checkWatcherOrder(input: WatchOrderInput): void {
                 const ta = triggered(wa.src, w);
                 const tb =
                   a === b && handler ? ownTriggered(wb.src, w, b, handler) : triggered(wb.src, w);
-                const children = a === early.component && b === late.component;
+                // (Not two items of one list: native code updates a list's
+                // blocks from the last one, running their children's watchers
+                // in reverse document order; docs/gaps/FRAMEWORKS.md.)
+                const children = a === early.component && b === late.component && early !== late;
                 if (!ta.length || !tb.length || (children && propsOnly(ta) && propsOnly(tb)))
                   continue;
                 fail(
                   'E_EFFECT',
-                  `Vue may run the watcher at ${components[a].name} line ${wa.e.source?.line} of an instance created here after those of instances that follow it in the document${early === late ? ' (other items of this list)' : ` (${components[late.component].name}, line ${late.source?.line})`}, such as the watcher at ${components[b].name} line ${wb.e.source?.line}: it runs watchers a write triggers by instance creation order (those a prop update triggers while it patches the instance), Runic in document order, and both ${why}`,
+                  `Vue may run the watcher at ${components[a].name} line ${wa.e.source?.line} of an instance created here after those of instances that follow it in the document${early === late ? ' (other items of this list)' : ` (${components[late.component].name}, line ${late.source?.line})`}, such as the watcher at ${components[b].name} line ${wb.e.source?.line}: it runs watchers a write triggers by instance creation order (those a prop update triggers while it patches the instance), Runic in document order${early === late ? ' (and the items of a list in reverse order, as it updates their blocks from the last one)' : ''}, and both ${why}`,
                   early.source,
                 );
               }

@@ -71,13 +71,15 @@ Fixture `watch-cleanup-computed-vue` in Chromium (an expected rejection) shows t
 
 The adapter therefore also rejects a pair of instances in one parent's template where one may be created after the other but precedes it in the document. That is a component site inside a branch, list or slot region the later site is not in, or two items of one list. The rejection applies where watchers of their subtrees have effects that do not commute and a flush may trigger both. The exception is two children of that template triggered only through their props: one render of the parent patches both, in document order. Instances further down are patched by their own parents' renders, which run by uid when they re-render for their own state. Two instances never share their own cells.
 
+Items of one list get no exception. Native code updates a keyed list's blocks from the last one, to place each before the next, so it runs the watchers of the items' components in reverse document order. The interpreter and Vue use document order. The differential found this on the first `watch-instances` fixture (`row 2 1 | row 1 1`); it is now fixture `watch-list-vue`, an expected rejection, with a gap row for the backend. The same order applies to Svelte's `$effect.pre` in list items, which is not detected.
+
 Coverage:
 - Accepted shapes, each checked in Chromium:
   - case `watch-declared`: a later watcher's signals are a subset of an earlier one's, in both write orders and through a prop's record field; two watchers no handler triggers together;
   - case `teardown-vue`: a settled computed read in a cleanup;
-  - case `watch-instances`: instances triggered through their props only.
+  - case `watch-instances`: instances triggered through their props only, not items of one list.
 - Rejected:
-  - `watch-order-vue`, `watch-cleanup-computed-vue` and `watch-instances-deep-vue`;
+  - `watch-order-vue`, `watch-cleanup-computed-vue`, `watch-instances-deep-vue` and `watch-list-vue`;
   - `deep-tracking-vue`. This fixture has three watchEffects over deep refs logging into one array; their signals are array elements and lengths, which the analysis does not tell apart, so it moved from accepted to rejected.
 
 ### Planned: Vue's queue order as a schedule policy
@@ -129,7 +131,7 @@ For every template expression of an accepted program: whenever the value it comp
 4. **R3**: overlays in `runic_js::heap`, for the interpreter and generated code alike (cases `proxy-target`, `proxy-lazy`; `ownership`, `ownership-cycles` without its known gap). Done ([results](../../conformance/results/reactivity.md#step-4-proxies-as-overlays-r3)).
 5. **R5**: before-images for teardowns (case `teardown-proxy`). Done ([results](../../conformance/results/reactivity.md#step-5-teardowns-read-deep-state-as-before-the-flush-r5)).
 6. **R8**: aliases of deep state as proxies (case `alias-writes`). Done ([results](../../conformance/results/reactivity.md#step-6-writes-through-aliases-of-deep-state-r8)).
-7. React and Vue audit (the matrix below). Partly done: a regression case per row the native model already agreed on (`staleness` for React; `collections-vue`, `keyed-replace`, `derived-arrays`, `shared-state`), Vue's raw ref targets rejected (R6), its `watchEffect` writing what it reads and `shallowRef` mutated in place confirmed as rejections, writes through aliases of a ref's contents accepted (R8 for Vue, case `alias-writes-vue`), and Vue refs in plain modules recorded as a gap. The final verification of steps 4–6 found that a proxy taken lazily during an effect's run was not its dependency (case `deep-tracking`; fixed: it counts as created with the proxy that took it, R3).
+7. React and Vue audit (the matrix below). Done for the rows its plan named (2026-10-14, below). Earlier: a regression case per row the native model already agreed on (`staleness` for React; `collections-vue`, `keyed-replace`, `derived-arrays`, `shared-state`), Vue's raw ref targets rejected (R6), its `watchEffect` writing what it reads and `shallowRef` mutated in place confirmed as rejections, writes through aliases of a ref's contents accepted (R8 for Vue, case `alias-writes-vue`), and Vue refs in plain modules recorded as a gap. The final verification of steps 4–6 found that a proxy taken lazily during an effect's run was not its dependency (case `deep-tracking`; fixed: it counts as created with the proxy that took it, R3).
 
 The React and Vue rows (2026-10-14, [results](../../conformance/results/reactivity.md#step-7-react-and-vue-audit)), each checked in Chromium first:
 - React: effects whose dependencies include the state they set (case `effect-self-react`) and state updates from cleanups at unmount (case `unmount-updates`, with a cleanup reading a ref live) agreed: regression cases. `useRef` values (and module state) mutated while rendering were already located rejections (`E_REF`, `E_REACTIVITY`), now pinned by a test.
@@ -137,7 +139,8 @@ The React and Vue rows (2026-10-14, [results](../../conformance/results/reactivi
 
 Remaining plan (resume here; one conformance case per row that differs, checked in Chromium first, a fix or a located rejection with a gap row for each divergence):
 - Done (2026-10-14): a write of the value a Vue deep ref's slot already holds notifies nothing (case `equal-writes`); `reverse`, `sort` and `fill` read and set element by element, and `fill` stores a new proxy at each index (case `array-writes`; R4).
-- Next, the same per-element reads and writes for `pop`, `shift`, `unshift`, `splice` and `copyWithin` (gap row in FRAMEWORKS; an effect reading an element `splice` leaves before its start runs again natively).
+- Next, the backend's order of list items' pre effects (found by the differential, 2026-10-14): a keyed list's update runs its blocks from the last one, so the watchers (and Svelte `$effect.pre`) of its items' components run in reverse document order natively. The interpreter, Vue and Svelte use document order. To fix, run the items' pre effects in a forward pass before the reverse placement, or place blocks forward with anchors computed first. Then lift R10's list exception (fixture `watch-list-vue`) and the gap rows.
+- Then the same per-element reads and writes for `pop`, `shift`, `unshift`, `splice` and `copyWithin` (gap row in FRAMEWORKS; an effect reading an element `splice` leaves before its start runs again natively).
 - Svelte, recorded gaps, ordered by what they put at risk (none is the first blocker of a census example; the first is a silent divergence):
   - raw props whose value comes from a function's result or parameter (R6: accepted today; extend `raw_capable_props` with R8's facts for results and parameters, run the census for TodoMVC-like `{#each derived as item}` sites);
   - memoized template call expressions to accept `untrack` in templates (R7);

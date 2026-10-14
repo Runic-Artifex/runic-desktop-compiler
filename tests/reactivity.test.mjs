@@ -239,6 +239,15 @@ test('Vue watchers whose order in a flush may differ from their declaration orde
       /instance created here after those of instances that follow it/,
     ),
   );
+  // Items of one list whose watchers prop updates trigger: Vue runs them in
+  // document order (`row 3 2 | row 1 2 | row 2 2` in Chromium), native code
+  // in reverse (`row 2 2 | row 1 2 | row 3 2`: it updates a list's blocks
+  // from the last one; the differential found it, the interpreter agrees
+  // with Chromium).
+  await assert.rejects(
+    lowered('fixtures/watch-list-vue'),
+    failWith('E_EFFECT', 'App.vue', /other items of this list.*in reverse order/),
+  );
 });
 
 test('Vue watchers in a proven order agree with Chromium', async () => {
@@ -259,15 +268,15 @@ test('Vue watchers in a proven order agree with Chromium', async () => {
     'child effect 1 1 | child watch 1 | child effect 2 2 | child watch 2',
   );
   // Case watch-instances: watchers of instances a prop update triggers run
-  // while the parent patches them, in document order, also for instances
-  // created after the ones they precede.
+  // while the parent patches them, in document order, also for an instance
+  // created after the ones it precedes.
   const instances = interpret(
     (await lowered('fixtures/watch-instances-vue')).ir,
-    ['bump', 'dump', 'front', 'bump', 'dump', 'show', 'bump', 'dump'].map(click),
+    ['bump', 'dump', 'show', 'bump', 'dump'].map(click),
     {},
   );
-  assert.equal(shown(instances[5], 'log'), 'row 3 2 | row 1 2 | row 2 2');
-  assert.equal(shown(instances[8], 'log'), 'row 0 3 | row 3 3 | row 1 3 | row 2 3');
+  assert.equal(shown(instances[2], 'log'), 'row 1 1 | row 2 1');
+  assert.equal(shown(instances[5], 'log'), 'row 0 2 | row 1 2 | row 2 2');
   // Case teardown-vue: a computed value read in a cleanup is settled where
   // the template reads it at its root (cleanups read live values).
   const teardown = interpret(

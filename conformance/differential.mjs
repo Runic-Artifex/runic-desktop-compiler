@@ -323,7 +323,7 @@ const fixtures = positionals.length
       // Fixtures the compiler is expected to reject (tests/reactivity.test.mjs).
       .filter(n => !['unsupported-effect', 'effect-self-vue', 'prop-raw-svelte', 'raw-target-vue', 'shallow-vue',
         'untrack-template-svelte', 'watch-order-vue', 'watch-cleanup-computed-vue', 'deep-tracking-vue',
-        'watch-instances-deep-vue'].includes(n));
+        'watch-instances-deep-vue', 'watch-list-vue'].includes(n));
 const random = rng(Number(values.seed));
 let failures = 0;
 let partial = 0;
