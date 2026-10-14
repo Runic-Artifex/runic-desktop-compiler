@@ -115,18 +115,18 @@ fn publish(prefs: Preferences) {
     }
 }
 
-/// Starts reading the preferences, then following their changes, on a
-/// thread of their own ([`wait`] for the first reading).
+/// Starts reading the preferences ([`wait`] for the first reading), then
+/// follows their changes on a thread of their own. XSETTINGS are read at
+/// once (a few requests); the portal on that thread, while the app starts.
 pub fn start() {
-    let spawned = std::thread::Builder::new()
-        .name("runic-desktop".into())
-        .spawn(read);
-    if spawned.is_err() {
-        publish(Preferences {
-            reduced_motion: Err("the desktop settings could not be read"),
-            contrast_more: Err("the desktop settings could not be read"),
-        });
-    }
+    read();
+}
+
+/// Runs `f` on a thread of its own (the preferences stay as read if it
+/// cannot be started).
+#[cfg(target_os = "linux")]
+fn spawn(name: &str, f: impl FnOnce() + Send + 'static) {
+    let _ = std::thread::Builder::new().name(name.into()).spawn(f);
 }
 
 /// Waits for the first reading (Chromium reads the settings before it
@@ -153,7 +153,17 @@ fn read() {
                 contrast_more: Err(reason),
             }),
             Platform::X11 => x11::start(tracker),
-            Platform::Wayland(toolkits) => portal::start(tracker, toolkits),
+            Platform::Wayland(toolkits) => {
+                let spawned = std::thread::Builder::new()
+                    .name("runic-settings-portal".into())
+                    .spawn(move || portal::start(tracker, toolkits));
+                if spawned.is_err() {
+                    publish(Preferences {
+                        reduced_motion: Err("the settings portal could not be read"),
+                        contrast_more: Err("the settings portal could not be read"),
+                    });
+                }
+            }
             Platform::Unknown(reason) => {
                 publish(tracker.apply(&[Raw::unknown(reason)]));
             }
@@ -600,14 +610,14 @@ mod x11 {
     }
 
     impl Manager {
-        fn atom(conn: &RustConnection, name: &str) -> Option<Atom> {
-            Some(
-                conn.intern_atom(false, name.as_bytes())
-                    .ok()?
-                    .reply()
-                    .ok()?
-                    .atom,
-            )
+        /// The atoms of `names`, requested together.
+        fn atoms<const N: usize>(conn: &RustConnection, names: [&str; N]) -> Option<[Atom; N]> {
+            let cookies = names.map(|n| conn.intern_atom(false, n.as_bytes()).ok());
+            let atoms = cookies.map(|c| c.and_then(|c| c.reply().ok()).map(|r| r.atom));
+            atoms
+                .iter()
+                .all(Option::is_some)
+                .then(|| atoms.map(Option::unwrap_or_default))
         }
 
         /// gdk/x11/xsettings-client.c `check_manager_window`, then
@@ -661,11 +671,10 @@ mod x11 {
             return;
         };
         let root = conn.setup().roots[screen].root;
-        let (Some(selection), Some(property), Some(manager)) = (
-            Manager::atom(&conn, &format!("_XSETTINGS_S{screen}")),
-            Manager::atom(&conn, "_XSETTINGS_SETTINGS"),
-            Manager::atom(&conn, "MANAGER"),
-        ) else {
+        let selection_name = format!("_XSETTINGS_S{screen}");
+        let Some([selection, property, manager]) =
+            Manager::atoms(&conn, [&selection_name, "_XSETTINGS_SETTINGS", "MANAGER"])
+        else {
             publish(tracker.apply(&[super::Raw::unknown("the X display cannot be read")]));
             return;
         };
@@ -685,22 +694,24 @@ mod x11 {
         let mut last = Raw::unknown("not read");
         last.update(x11_raw(settings.as_deref()));
         publish(tracker.apply(std::slice::from_ref(&last)));
-        while let Ok(event) = m.conn.wait_for_event() {
-            let settings = match event {
-                Event::ClientMessage(e)
-                    if e.type_ == m.manager && e.data.as_data32()[1] == m.selection =>
-                {
-                    m.check()
-                }
-                Event::DestroyNotify(e) if e.window == m.window => m.check(),
-                Event::PropertyNotify(e) if e.window == m.window && e.atom == m.property => {
-                    m.read()
-                }
-                _ => continue,
-            };
-            last.update(x11_raw(settings.as_deref()));
-            publish(tracker.apply(std::slice::from_ref(&last)));
-        }
+        super::spawn("runic-xsettings", move || {
+            while let Ok(event) = m.conn.wait_for_event() {
+                let settings = match event {
+                    Event::ClientMessage(e)
+                        if e.type_ == m.manager && e.data.as_data32()[1] == m.selection =>
+                    {
+                        m.check()
+                    }
+                    Event::DestroyNotify(e) if e.window == m.window => m.check(),
+                    Event::PropertyNotify(e) if e.window == m.window && e.atom == m.property => {
+                        m.read()
+                    }
+                    _ => continue,
+                };
+                last.update(x11_raw(settings.as_deref()));
+                publish(tracker.apply(std::slice::from_ref(&last)));
+            }
+        });
     }
 }
 

@@ -165,12 +165,17 @@ async function until(check, timeout = 10000) {
 }
 
 // The reader and the test desktop.
-const build = spawnSync(
-  'node',
-  ['compiler/cargo.mjs', 'build', '--offline', '-p', 'runic-runtime', '--example', 'desktop-settings'],
-  { cwd: repository, stdio: 'inherit' },
-);
-if (build.status !== 0) process.exit(1);
+// (Built again after the app build below, which may clean the shared
+// target's workspace crates.)
+function buildTool() {
+  const build = spawnSync(
+    'node',
+    ['compiler/cargo.mjs', 'build', '--offline', '-p', 'runic-runtime', '--example', 'desktop-settings'],
+    { cwd: repository, stdio: 'inherit' },
+  );
+  if (build.status !== 0) process.exit(1);
+}
+buildTool();
 const tool = path.join(targetDir, 'debug', 'examples', 'desktop-settings');
 
 const scratch = mkdtempSync(path.join(os.tmpdir(), 'runic-desktop-'));
@@ -406,6 +411,7 @@ const NATIVE = {
 const nativeSelected = positionals.length ? positionals.filter(p => NATIVE[p]) : Object.keys(NATIVE);
 if (nativeSelected.length) {
   const { binary } = await buildProbe(path.join(repository, 'fixtures/media-preferences-svelte'));
+  buildTool();
   for (const name of nativeSelected) {
     const n = NATIVE[name];
     const row = (results[name] = { verdict: [] });

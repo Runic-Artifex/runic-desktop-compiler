@@ -11,7 +11,7 @@ CSS compatibility slice 2b. A native app reads `prefers-reduced-motion` and `pre
 
 ## The runtime
 
-The runtime reads the same settings on a thread of its own, started before the window system connects and waited for before the app mounts, and follows their changes (XSETTINGS property and manager events; the portal's `SettingChanged`). On Wayland it reads GTK 3's GSettings keys through the portal, whose GNOME and GTK backends serve GSettings, and computes both GTK versions' readings: a preference is known only where they agree. Where a preference cannot be read, media queries see no preference and the compiler's guards (`when: "desktop:<features>"`) report the rules testing it once they match an element; `matchMedia` of such a query is reported too. Reasons are given in the report (gaps: [PLATFORM](../../docs/gaps/PLATFORM.md)).
+The runtime reads the same settings when the process starts (XSETTINGS at once, the portal on a thread of its own while the app starts, awaited before it mounts) and follows their changes on that thread (XSETTINGS property and manager events; the portal's `SettingChanged`). On Wayland it reads GTK 3's GSettings keys through the portal, whose GNOME and GTK backends serve GSettings, and computes both GTK versions' readings: a preference is known only where they agree. Where a preference cannot be read, media queries see no preference and the compiler's guards (`when: "desktop:<features>"`) report the rules testing it once they match an element; `matchMedia` of such a query is reported too. Reasons are given in the report (gaps: [PLATFORM](../../docs/gaps/PLATFORM.md)).
 
 ## Verification
 
@@ -27,4 +27,4 @@ The runtime reads the same settings on a thread of its own, started before the w
 - `npm test` 509/509; `node compiler/cargo.mjs test --offline --workspace` passes (189 tests).
 - `node conformance/run.mjs media-preferences bits-select bits-command animations --pixels`: 12/12 runs pass semantics, geometry and pixels (probes still emulate the preferences).
 - `node conformance/differential.mjs media-preferences-svelte`: 20 mount steps, 0 failures; incomplete as before (the fixture has no actions to generate).
-- Native start-up: the reading runs while the window system connects and is awaited before the app mounts. MEASURE
+- Size and start-up (`counter-svelte`, release, CPU renderer, Xvfb): the binary grows from 14.86 to 16.02 MiB (zbus and its async runtime). Time to the first frame, medians of 21 interleaved runs against the base build: no change where nothing is read (KDE: 27.3 against 27.6 ms), +2.5 ms on X11 (31.5 against 29.0 ms, no manager), +8.3 ms with the session's portal (35.2 against 26.9 ms). Creating the event loop before the document, tried first to overlap the reading, cost about 11 ms and was dropped.
