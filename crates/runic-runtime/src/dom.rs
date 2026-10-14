@@ -2408,6 +2408,7 @@ impl Host {
             return Vec::new();
         };
         crate::layout::resolve(dom.doc);
+        crate::scroll_driven::report_get_animations(dom.doc, NodeId::from_u64(node));
         crate::animations::of(dom.doc, NodeId::from_u64(node))
     }
 

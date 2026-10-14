@@ -112,6 +112,8 @@ impl<A: App> Document for Native<A> {
         self.app.frame_starts(now);
         if self.animations_active() {
             self.animation_step(false);
+        } else {
+            self.report_scroll_driven_listeners();
         }
         let due = self.app.frames_due(now);
         self.listeners.settle(&mut self.doc);
@@ -294,6 +296,7 @@ impl<A: App> Native<A> {
     /// events the frame sampled are dispatched (CSS slice 3b,
     /// `animation_events`). `rendering`: inside a rendering step.
     pub(crate) fn animation_step(&mut self, rendering: bool) {
+        self.report_scroll_driven_listeners();
         if !self.animations_active() {
             return;
         }

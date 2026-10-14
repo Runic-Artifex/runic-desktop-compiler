@@ -159,6 +159,11 @@ pub(crate) fn observe(doc: &BaseDocument, now: f64) {
                     continue;
                 }
                 let kind = match (s.animation_name, s.transition_property) {
+                    // Scroll-driven animations have no time semantics
+                    // (`getAnimations()` on their element is reported).
+                    (Some(name), _) if crate::scroll_driven::is_scroll_driven(id, &name) => {
+                        continue;
+                    }
                     (Some(name), _) => Kind::Animation(name),
                     (None, Some(p)) => Kind::Transition(p, s.start_time.to_bits()),
                     (None, None) => continue,
