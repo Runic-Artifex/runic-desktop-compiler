@@ -70,12 +70,18 @@ export type Literal = boolean | number | string;
  * with `when` `"scroll-target"`, once such an element is scrolled into view;
  * with `"scroll-container:<axis>:<px>"` (a scroll padding of `block`,
  * `inline` or `both` axes, in pixels where known), once a target inside
- * such an element is scrolled into view where the padding would move it.
+ * such an element is scrolled into view where the padding would move it;
+ * with `"desktop:<features>"` (`prefers-reduced-motion`, `prefers-contrast`,
+ * comma-separated: a rule under a media query on desktop preferences),
+ * natively where the runtime cannot read one of them on the desktop.
  */
 export interface StyleGuard {
   selector: string;
   unless?: string;
-  when?: 'scroll-target' | `scroll-container:${'block' | 'inline' | 'both'}:${string}`;
+  when?:
+    | 'scroll-target'
+    | `scroll-container:${'block' | 'inline' | 'both'}:${string}`
+    | `desktop:${string}`;
   message: string;
 }
 

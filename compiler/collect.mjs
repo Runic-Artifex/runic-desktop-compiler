@@ -1086,22 +1086,25 @@ function withoutPseudoElements(selectors) {
 // GTK theme whose name contains "high" and "contrast",
 // ui/gtk/os_settings_provider_gtk.cc). `forced-colors` is not one of them:
 // Chromium on Linux never forces colors, and Stylo evaluates it as `none`.
-const DESKTOP_MEDIA_FEATURE = /\b(prefers-reduced-motion|prefers-contrast)\b/i;
+const DESKTOP_MEDIA_FEATURE = /\b(prefers-reduced-motion|prefers-contrast)\b/gi;
 
 /**
  * Guards of the rules whose media queries test a desktop preference
- * (DESKTOP_MEDIA_FEATURE). The Stylo fork evaluates them as Chromium does
- * without the preference set, as the harness's Chromium runs, and probes
- * set them as their actions emulate; a native app cannot read the desktop's
- * setting, so it reports such a rule once it matches an element (`when:
- * "native"`). Rules of other kinds inside the query (keyframes, font faces)
- * are reported at once (`:root`).
+ * (DESKTOP_MEDIA_FEATURE). The Stylo fork evaluates them with the
+ * preferences the runtime gives it: probes set them as their actions
+ * emulate, a native app reads the desktop's as Chromium does
+ * (runic_runtime::desktop) and reports such a rule once it matches an
+ * element where it cannot read one of the features the query tests
+ * (`when: "desktop:<features>"`). Rules of other kinds inside the query
+ * (keyframes, font faces) apply at once (`:root`).
  */
 function preferenceGuards(css, file) {
   const guards = [];
   css.walkAtRules(/^media$/i, at => {
-    const feature = DESKTOP_MEDIA_FEATURE.exec(at.params)?.[1].toLowerCase();
-    if (!feature) return;
+    const features = [
+      ...new Set([...at.params.matchAll(DESKTOP_MEDIA_FEATURE)].map(m => m[1].toLowerCase())),
+    ];
+    if (!features.length) return;
     const selectors = new Set();
     let anywhere = false;
     let outer = at.parent;
@@ -1118,9 +1121,13 @@ function preferenceGuards(css, file) {
         anywhere = true;
     });
     if (anywhere) selectors.add(':root');
-    const message = `the CSS rule @media ${at.params} (${file}, line ${at.source.start.line}) depends on the desktop's ${feature} setting, which the runtime cannot read`;
+    const message = `the CSS rule @media ${at.params} (${file}, line ${at.source.start.line}) depends on the desktop's ${features.join(' and ')} setting`;
     for (const selector of selectors)
-      guards.push({ selector, when: 'native', message: `${message}, and applies to ${selector}` });
+      guards.push({
+        selector,
+        when: `desktop:${features.join(',')}`,
+        message: `${message} and applies to ${selector}, and the runtime cannot read it here`,
+      });
   });
   return guards;
 }

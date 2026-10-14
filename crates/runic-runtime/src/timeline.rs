@@ -114,14 +114,25 @@ fn guarded(doc: &BaseDocument, (selector, unless, _, _): &Guard) -> Vec<NodeId> 
 /// reported as unsupported (once). Guards of scroll targets wait for one
 /// (`check_scroll_target`).
 fn check_style_guards(doc: &BaseDocument) {
-    // Rules of media queries on a desktop preference (`when` `"native"`):
-    // probes set the preference as their actions emulate it; a native app
-    // cannot read the desktop's.
+    // Rules of media queries on desktop preferences (`when`
+    // `"desktop:<features>"`): probes set the preferences as their actions
+    // emulate them; a native app reports a rule testing one it cannot read
+    // on this desktop (`desktop`).
     let native = !crate::probe_mode();
+    let prefs = crate::desktop::current();
+    let unread = |g: &Guard| {
+        g.2.strip_prefix("desktop:")?
+            .split(',')
+            .find_map(|f| prefs.feature(f).and_then(Result::err))
+    };
     report(
         doc,
-        |g| g.2.is_empty() || (native && g.2 == "native"),
+        |g| g.2.is_empty() || (native && unread(g).is_some()),
         |_| true,
+        |g| match unread(g) {
+            Some(reason) => format!("{}: {reason}", g.3),
+            None => g.3.to_owned(),
+        },
     );
 }
 
@@ -132,11 +143,17 @@ pub(crate) fn check_scroll_target(doc: &BaseDocument, target: NodeId) {
         doc,
         |g| g.2 == "scroll-target",
         |nodes| nodes.contains(&target),
+        |g| g.3.to_owned(),
     );
 }
 
-fn report(doc: &BaseDocument, kind: impl Fn(&Guard) -> bool, hit: impl Fn(&[NodeId]) -> bool) {
-    let matched: Vec<&'static str> = STYLE_GUARDS.with(|g| {
+fn report(
+    doc: &BaseDocument,
+    kind: impl Fn(&Guard) -> bool,
+    hit: impl Fn(&[NodeId]) -> bool,
+    message: impl Fn(&Guard) -> String,
+) {
+    let matched: Vec<String> = STYLE_GUARDS.with(|g| {
         let mut g = g.borrow_mut();
         let mut matched = vec![];
         g.retain(|guard| {
@@ -145,13 +162,13 @@ fn report(doc: &BaseDocument, kind: impl Fn(&Guard) -> bool, hit: impl Fn(&[Node
                 !nodes.is_empty() && hit(&nodes)
             };
             if fired {
-                matched.push(guard.3);
+                matched.push(message(guard));
             }
             !fired
         });
         matched
     });
     for message in matched {
-        crate::unsupported(message);
+        crate::unsupported(&message);
     }
 }

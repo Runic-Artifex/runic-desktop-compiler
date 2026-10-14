@@ -43,3 +43,7 @@ runic-js.workspace = true
 runic-css.workspace = true
 arboard.workspace = true
 getrandom.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb.workspace = true
+zbus.workspace = true
