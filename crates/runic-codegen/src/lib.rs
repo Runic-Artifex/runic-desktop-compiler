@@ -1904,10 +1904,23 @@ fn records(p: &Program) -> String {
                 false => format!("{}, ", probe_json(&f.ty, &format!("b.f{i}"))),
             })
             .collect();
+        // Svelte's deep_read of a record (`heap.deep-read`, script DOM
+        // slice 4): each field once, through the record (a dependency where
+        // it is a proxy).
+        let deep_reads: String = if rec.class {
+            builtins::deep_read_class()
+        } else {
+            rec.fields
+                .iter()
+                .enumerate()
+                .map(|(i, f)| builtins::deep_read(&f.ty, &format!("b.f{i}"), p))
+                .collect()
+        };
         let _ = writeln!(
             out,
             "#[allow(dead_code, unused_parens)]\nfn probe_r{r}(v: &JsRef<R{r}>) -> runic_runtime::Json {{ let Some(_v) = v.visit() else {{ return runic_runtime::Json::String(\"[Circular]\".into()); }}; let b = v.probe(); runic_runtime::Json::Array(vec![{probes}]) }}\n\
-             #[allow(dead_code, unused_parens)]\nfn clone_r{r}(v: &JsRef<R{r}>) -> JsRef<R{r}> {{ let b = v.borrow(); JsRef::new(R{r} {{ {clones}}}) }}\n"
+             #[allow(dead_code, unused_parens)]\nfn clone_r{r}(v: &JsRef<R{r}>) -> JsRef<R{r}> {{ let b = v.borrow(); JsRef::new(R{r} {{ {clones}}}) }}\n\
+             #[allow(dead_code, unused_parens, unused_variables)]\nfn deep_read_r{r}(v: &JsRef<R{r}>, seen: &mut Vec<usize>) {{ if seen.contains(&v.addr()) {{ return; }} seen.push(v.addr()); let b = v.borrow(); {deep_reads}}}\n"
         );
     }
     out.push_str(&class_refs(p));

@@ -90,3 +90,14 @@ in the interpreter. Rebased onto main `15889dd`.
 | IR of every fixture (`analyze` at `15889dd` and on the branch; 11 expected rejections the same on both sides) | 98 identical; 132 Svelte fixtures differ only by `schedule.delegation`; 8 by `target.listen` (bits-dropdown-menu, -popover, -select, -tooltip, floating, form-submit-element-listeners-svelte/-vue, form-submit-stops-vue). With `elementListeners`: the 49 Vue fixtures differ from the step before only by that field, nothing else changed |
 | `npm test`, `cargo test --workspace` | 520/520, 192/192 |
 | Found, not fixed (gap row) | a capture listener at an ancestor that stops propagation keeps the ancestor's own bubbling listeners from running in Chromium. Both engines still run them (`Event::can_enter`). The same holds on main. The case leaves out its mode-capture-stop steps |
+
+## Slice 4: actions, generic members (2026-10-14)
+
+Branch `worktree-agent-a3c51bf2617db872b` on `59625a2` (task 1 and 2 of the
+coordinator's queue below it).
+
+| Check | Result |
+|---|---|
+| `node conformance/run.mjs actions-update --pixels` (new fixture `actions-update-svelte`, 12 clicks: deep changes of a proxy value, of a proxy a plain object holds, of a proxy inside a plain object inside the value, a primitive changed and set to the same value, unrelated state, destroy and creation again) | every gate passed at both viewports |
+| `node conformance/differential.mjs actions-update-svelte` | 520 steps, complete, 0 failures |
+| IR of every fixture (`analyze` at `59625a2` and on the branch) | identical apart from bits-select (`!this.root.isMulti` folds as the same test does in conditions, to re-screen natively) |

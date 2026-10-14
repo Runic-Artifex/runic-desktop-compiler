@@ -176,6 +176,7 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             None => "false".into(),
         },
         ("", "structuredClone") => deep_clone(&types[0], &t[0], cx.p),
+        ("heap", "deep-read") => deep_read_state(&types[0], &t[0], cx.p),
         ("dyn", m) => {
             let qq = |s: String| cx.q(&s);
             crate::dynamic::emit(m, &t, &types, ty, cx.p, &qq)
@@ -2102,6 +2103,118 @@ pub fn deep_clone(t: &Type, v: &str, p: &Program) -> String {
         ),
         _ => format!("{v}.clone()"),
     }
+}
+
+/// Rust statements: Svelte 5's `deep_read(v)` of `v` of type `t`, inside a
+/// value reached from a proxy (`heap.deep-read`): every field and element
+/// once (`seen`), through the objects holding them, which records the reads
+/// of proxies as dependencies. Elements, functions and primitives hold
+/// nothing; maps and sets (Svelte reads a dictionary object's entries),
+/// class instances and dynamic values are reported unsupported.
+pub fn deep_read(t: &Type, v: &str, p: &Program) -> String {
+    let unsupported = |what: &str| {
+        format!(
+            "{{ runic_runtime::unsupported(\"a deep read (heap.deep-read) reached {what}, which it does not model\"); }} "
+        )
+    };
+    match t {
+        Type::Maybe(i) => format!(
+            "if let Maybe::Some(x) = &{v} {{ {}}} ",
+            deep_read(i, "(*x)", p)
+        ),
+        Type::Array(i) => format!(
+            "{{ let a = &{v}; if !seen.contains(&a.addr()) {{ seen.push(a.addr()); let items = a.borrow(); for x in items.iter() {{ {}}} }} }} ",
+            deep_read(i, "(*x)", p)
+        ),
+        Type::Record(r) if p.records[*r].class => unsupported("a class instance"),
+        Type::Record(r) => format!("deep_read_r{r}(&{v}, seen); "),
+        Type::Class(_) | Type::Classes(_) => unsupported("a class instance"),
+        Type::Map(..) | Type::Set(_) => unsupported("a map or set"),
+        Type::Dyn => unsupported("a dynamic value"),
+        Type::Union(ms) if ms.iter().any(|m| deep_object(m)) => unsupported("a union value"),
+        _ => String::new(),
+    }
+}
+
+/// Statements for a class instance reached by a deep read (`deep_read`).
+pub fn deep_read_class() -> String {
+    "{ runic_runtime::unsupported(\"a deep read (heap.deep-read) reached a class instance, which it does not model\"); } ".into()
+}
+
+/// Whether values of `t` may hold heap objects a deep read visits.
+fn deep_object(t: &Type) -> bool {
+    matches!(
+        t,
+        Type::Array(_)
+            | Type::Record(_)
+            | Type::Class(_)
+            | Type::Classes(_)
+            | Type::Map(..)
+            | Type::Set(_)
+            | Type::Dyn
+    ) || matches!(t, Type::Maybe(i) if deep_object(i))
+}
+
+/// Rust expression (a block of type `()`): Svelte 5's `deep_read_state(v)`
+/// of `v` of type `t` (`heap.deep-read`): deep into a proxy, or into the
+/// proxies a plain object holds in its own fields; a value that is neither
+/// is not read.
+pub fn deep_read_state(t: &Type, v: &str, p: &Program) -> String {
+    let body = match t {
+        Type::Maybe(i) => format!(
+            "if let Maybe::Some(x) = &{v} {{ {} }}",
+            deep_read_state(i, "(*x)", p)
+        ),
+        Type::Array(_) => format!(
+            "{{ let a = &{v}; if a.is_owned() {{ let mut seen: Vec<usize> = Vec::new(); let seen = &mut seen; {}}} }}",
+            deep_read(t, "(*a)", p)
+        ),
+        Type::Record(r) if p.records[*r].class => deep_read_class(),
+        Type::Record(r) => {
+            // (A plain object: its fields that are proxies.)
+            let fields: String = p.records[*r]
+                .fields
+                .iter()
+                .enumerate()
+                .map(|(i, f)| {
+                    let proxy = |x: &str, ft: &Type| match ft {
+                        Type::Record(fr) if !p.records[*fr].class => {
+                            format!("if {x}.is_owned() {{ {}}} ", deep_read(ft, x, p))
+                        }
+                        Type::Array(_) => {
+                            format!("if {x}.is_owned() {{ {}}} ", deep_read(ft, x, p))
+                        }
+                        // (Class instances are never proxies; a map may
+                        // stand for a dictionary object, which Svelte
+                        // proxies.)
+                        Type::Record(_) | Type::Class(_) | Type::Classes(_) => String::new(),
+                        _ if deep_object(ft) => deep_read(ft, x, p),
+                        _ => String::new(),
+                    };
+                    match &f.ty {
+                        Type::Maybe(inner) => {
+                            let read = proxy("(*x)", inner);
+                            if read.is_empty() {
+                                String::new()
+                            } else {
+                                format!("if let Maybe::Some(x) = &b.f{i} {{ {read}}} ")
+                            }
+                        }
+                        ft => proxy(&format!("b.f{i}"), ft),
+                    }
+                })
+                .collect();
+            format!(
+                "{{ let v = &{v}; let mut seen: Vec<usize> = Vec::new(); let seen = &mut seen; if v.is_owned() {{ deep_read_r{r}(v, seen); }} else {{ let b = v.borrow(); {fields}}} }}"
+            )
+        }
+        Type::Class(_) | Type::Classes(_) => deep_read_class(),
+        Type::Dyn => {
+            "{ runic_runtime::unsupported(\"a deep read (heap.deep-read) reached a dynamic value, which it does not model\"); }".into()
+        }
+        _ => String::new(),
+    };
+    format!("{{ {body} }}")
 }
 
 /// A `maybe<number>` value as an `Option<f64>`.

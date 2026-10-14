@@ -4469,6 +4469,10 @@ impl<'p> Machine<'p> {
                 self.destroy_root(a[0].num() as usize);
                 Val::Undefined
             }
+            ("heap", "deep-read") => {
+                deep_read_state(&a[0])?;
+                Val::Undefined
+            }
             ("reactive", "untrack-call") => {
                 let outer = self.tracking.take();
                 let heap_outer = js::begin_heap_reads(None);
@@ -12581,6 +12585,92 @@ mod union_tests {
 
 /// Whether `t` is the window, the document, the document element or the
 /// body (where Chromium makes wheel and touch listeners passive by default).
+/// Svelte 5's `deep_read_state(value)` (`heap.deep-read`, M6 script DOM,
+/// slice 4): deep into a proxy (`deep_read`), or into the proxies a plain
+/// object holds in its own fields; never into plain objects otherwise, and
+/// arrays that are not proxies are left alone. Class instances and dynamic
+/// objects are not covered (`deep_read` calls getters of their prototypes).
+fn deep_read_state(v: &Val) -> std::result::Result<(), Throw> {
+    let mut seen = Vec::new();
+    match v {
+        Val::Record(r) if r.is_owned() => deep_read(v, &mut seen),
+        Val::Array(a) if a.is_owned() => deep_read(v, &mut seen),
+        Val::Record(r) => {
+            let fields = {
+                let d = r.borrow();
+                if d.class {
+                    return Err(deep_read_unsupported("a class instance"));
+                }
+                d.fields.clone()
+            };
+            for f in &fields {
+                match f {
+                    Val::Record(x) if x.is_owned() => deep_read(f, &mut seen)?,
+                    Val::Array(x) if x.is_owned() => deep_read(f, &mut seen)?,
+                    // (A map may stand for a dictionary object, which
+                    // Svelte proxies.)
+                    Val::Map(_) | Val::Set(_) => return Err(deep_read_unsupported("a map or set")),
+                    Val::DynObject(_) | Val::Boxed(_) => {
+                        return Err(deep_read_unsupported("a dynamic value"));
+                    }
+                    _ => {}
+                }
+            }
+            Ok(())
+        }
+        Val::DynObject(_) | Val::Boxed(_) => Err(deep_read_unsupported("a dynamic value")),
+        _ => Ok(()),
+    }
+}
+
+/// Svelte 5's `deep_read`: every field and element reachable, read once each
+/// (the reads are dependencies of the running effect where they go through
+/// proxies); elements, functions and primitives have none. Maps and sets
+/// (Svelte reads a dictionary object's entries, which the IR's maps stand
+/// for too) and class instances are reported unsupported.
+fn deep_read(v: &Val, seen: &mut Vec<usize>) -> std::result::Result<(), Throw> {
+    match v {
+        Val::Record(r) => {
+            if seen.contains(&r.addr()) {
+                return Ok(());
+            }
+            seen.push(r.addr());
+            let fields = {
+                let d = r.borrow();
+                if d.class {
+                    return Err(deep_read_unsupported("a class instance"));
+                }
+                d.fields.clone()
+            };
+            for f in &fields {
+                deep_read(f, seen)?;
+            }
+            Ok(())
+        }
+        Val::Array(a) => {
+            if seen.contains(&a.addr()) {
+                return Ok(());
+            }
+            seen.push(a.addr());
+            let items = a.borrow().clone();
+            for x in &items {
+                deep_read(x, seen)?;
+            }
+            Ok(())
+        }
+        Val::Map(_) | Val::Set(_) => Err(deep_read_unsupported("a map or set")),
+        Val::DynObject(_) | Val::Boxed(_) => Err(deep_read_unsupported("a dynamic value")),
+        _ => Ok(()),
+    }
+}
+
+fn deep_read_unsupported(what: &str) -> Throw {
+    Throw::new(
+        "RunicUnsupportedError",
+        format!("a deep read (heap.deep-read) reached {what}, which it does not model"),
+    )
+}
+
 fn root_target(t: u64) -> bool {
     matches!(
         js::Element(t),

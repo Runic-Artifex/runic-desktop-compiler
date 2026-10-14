@@ -311,8 +311,61 @@ const COMPONENT_EXPORT =
   'declare const __RunicComponent: import("svelte").Component<__RunicProps>;\nexport default __RunicComponent;\n';
 
 /** A `.svelte` file and its virtual TypeScript module. */
+/**
+ * Svelte's `safe_not_equal(a, b)` of an action's last value `a` and new value
+ * `b` of IR type `t` (`a != a ? b == b : a !== b || a is an object or a
+ * function`), where it is covered: numbers, strings, booleans, objects and
+ * functions (always unequal), and nullable ones of them.
+ */
+function actionDiffers(t: Type): ((a: Expr, b: Expr) => Expr) | undefined {
+  const objectLike = (x: Type) =>
+    x === 'element' ||
+    x === 'event' ||
+    x === 'attrs' ||
+    (typeof x === 'object' &&
+      ['array', 'record', 'map', 'set', 'fn', 'class', 'classes', 'promise'].some(k => k in x));
+  if (objectLike(t)) return () => ({ op: 'lit', value: true });
+  if (t === 'number')
+    return (a, b) => ({
+      op: 'cond',
+      test: { op: 'ne', left: a, right: a },
+      then: { op: 'eq', left: b, right: b },
+      else: { op: 'ne', left: a, right: b },
+    });
+  if (t === 'string' || t === 'boolean') return (a, b) => ({ op: 'ne', left: a, right: b });
+  const inner = maybeInner(t);
+  const nonNull = inner !== undefined ? actionDiffers(inner) : undefined;
+  if (inner === undefined || !nonNull) return undefined;
+  const is = (name: string, x: Expr): Expr => ({
+    op: 'builtin',
+    name: `maybe.is-${name}`,
+    args: [x],
+    type: 'boolean',
+  });
+  // (null and undefined are only equal to themselves; a value that is
+  // neither, compared with a nullish one, differs.)
+  return (a, b) => ({
+    op: 'cond',
+    test: is('null', a),
+    then: { op: 'not', arg: is('null', b) },
+    else: {
+      op: 'cond',
+      test: is('undefined', a),
+      then: { op: 'not', arg: is('undefined', b) },
+      else: {
+        op: 'cond',
+        test: is('nullish', b),
+        then: { op: 'lit', value: true },
+        else: nonNull({ op: 'unwrap', value: a }, { op: 'unwrap', value: b }),
+      },
+    },
+  });
+}
+
 /** The length of each action's function in its unit's virtual module (`use:`). */
 const actionLengths = new WeakMap<SNode, number>();
+/** Where each action's value getter is in its unit's virtual module (`use:`). */
+const actionGetters = new WeakMap<SNode, { at: number; length: number }>();
 
 interface Unit {
   file: string;
@@ -1252,21 +1305,30 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
         }
         // An action (`use:name={value}`), typed as svelte-check types it: a
         // function of the element.
+        // (The action, `A`, called with the element and the value, and the
+        // value's getter, `G`, typed by the action's parameter: Svelte's
+        // `$.action(node, (n, v) => name?.(n, v), () => value)`.)
         else if (a.type === 'UseDirective') {
+          const name = a.start + 'use:'.length;
           s += '(';
           const at = s.length;
-          s += '(__runicActionNode: HTMLElement) => ';
-          const name = a.start + 'use:'.length;
+          s += '(__runicActionNode: HTMLElement';
+          if (a.expression) s += `, __runicActionValue: Parameters<typeof ${a.name}>[1]`;
+          s += ') => ';
           copy(name, name + a.name.length);
-          s += '(__runicActionNode';
-          if (a.expression) {
-            s += ', ';
-            inline(a.expression);
-          }
-          s += ')';
+          s += `(__runicActionNode${a.expression ? ', __runicActionValue' : ''})`;
           u.starts.set(a, at);
           actionLengths.set(a, s.length - at);
           s += ');\n';
+          if (a.expression) {
+            s += '(';
+            const g = s.length;
+            s += `(): Parameters<typeof ${a.name}>[1] => (`;
+            inline(a.expression);
+            s += ')';
+            actionGetters.set(a, { at: g, length: s.length - g });
+            s += ');\n';
+          }
         }
     };
     const fragment = (f: SNode) => {
@@ -4213,6 +4275,28 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
         );
       const fn = nodeIn(u, a, actionLengths.get(a)) as ts.ArrowFunction;
       const { index: call } = lower.function(fn, `use:${a.name}`, undefined, COMPONENT);
+      // The value's getter, which the action's update effect calls again.
+      const getter = actionGetters.get(a);
+      let get: number | undefined;
+      if (getter) {
+        const sf = program.getSourceFile(u.virtual)!;
+        let found: ts.Node | undefined;
+        const walk = (x: ts.Node) => {
+          if (found) return;
+          if (x.getStart(sf) === getter.at && x.end === getter.at + getter.length) found = x;
+          else if (x.getStart(sf) <= getter.at && x.end >= getter.at + getter.length)
+            ts.forEachChild(x, walk);
+        };
+        walk(sf);
+        if (!found || !ts.isArrowFunction(found))
+          fail('E_INTERNAL', 'Action value not mapped', loc(a));
+        get = lower.function(
+          found as ts.ArrowFunction,
+          `use:${a.name}$value`,
+          undefined,
+          COMPONENT,
+        ).index;
+      }
       const payload = lower.functions[call].result;
       const record =
         typeof payload === 'object' && 'record' in payload ? payload.record : undefined;
@@ -4223,24 +4307,140 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
           ? -1
           : lower.types.records[record].fields.findIndex(f => f.name === name);
       const destroy = fieldOf('destroy');
-      const update = fieldOf('update');
-      if (update >= 0)
-        fail(
-          'E_TEMPLATE',
-          "An action's update is planned (next): Svelte calls it when what the value reads deeply changes",
-          loc(a),
-        );
+      const update = get !== undefined ? fieldOf('update') : -1;
       const run = lower.reserve();
       const node: Expr = { op: 'unwrap', value: { op: 'cell', cell: ref } };
+      const args: Expr[] =
+        get !== undefined ? [node, { op: 'call', function: get, args: [] }] : [node];
       const body: Stmt[] = [];
-      const locals: { name: string; type: Type }[] = [];
+      const locals: { name: string; type: Type; boxed?: boolean }[] = [];
       const cleanup: Type = { fn: { params: [], result: 'void' } };
+      const local = (l: number): Expr => ({ op: 'local', local: l });
+      const field = (f: number): Expr => ({ op: 'get', object: local(0), field: f });
+      const nullish = (e: Expr): Expr => ({
+        op: 'builtin',
+        name: 'maybe.is-nullish',
+        args: [e],
+        type: 'boolean',
+      });
       let result: Type = 'void';
       if (record === undefined)
-        body.push({ op: 'expr', value: { op: 'call', function: call, args: [node] } });
+        body.push({ op: 'expr', value: { op: 'call', function: call, args } });
       else {
         locals.push({ name: 'payload', type: payload });
-        body.push({ op: 'let', local: 0, value: { op: 'call', function: call, args: [node] } });
+        body.push({ op: 'let', local: 0, value: { op: 'call', function: call, args } });
+        // `update`: a render effect created in this effect's run (a child
+        // pre effect: it runs at once and again before the instance updates
+        // when what it read changed), reading the value again and deeply
+        // (Svelte's `deep_read_state`), and calling `update` with it from
+        // its second run on, where it is not equal to the last value it was
+        // called with (`safe_not_equal`; the first comparison is with a
+        // fresh object, so never equal).
+        if (update >= 0) {
+          const ut = lower.types.records[record].fields[update].type;
+          const value = lower.functions[get!].result;
+          const differs =
+            actionDiffers(value) ??
+            fail(
+              'E_TEMPLATE',
+              "An action's update compares its value as Svelte's safe_not_equal does, which is covered for primitives, objects and functions, not for values of this type",
+              loc(a),
+            );
+          const [inited, first, prev] = [1, 2, 3];
+          locals.push(
+            { name: 'inited', type: 'boolean', boxed: true },
+            { name: 'first', type: 'boolean', boxed: true },
+            { name: 'prev', type: { maybe: value }, boxed: true },
+          );
+          body.push(
+            { op: 'let', local: inited, value: { op: 'lit', value: false } },
+            { op: 'let', local: first, value: { op: 'lit', value: true } },
+            { op: 'let', local: prev, value: { op: 'undefined', type: { maybe: value } } },
+          );
+          const e2 = lower.reserve();
+          // (In the child: captures payload, inited, first, prev; then v.)
+          const v = local(4);
+          lower.functions[e2] = {
+            name: `use:${a.name}$update`,
+            component: COMPONENT,
+            captures: [
+              { name: 'payload', type: payload },
+              { name: 'inited', type: 'boolean', boxed: true },
+              { name: 'first', type: 'boolean', boxed: true },
+              { name: 'prev', type: { maybe: value }, boxed: true },
+            ],
+            params: [],
+            locals: [{ name: 'value', type: value }],
+            result: 'void',
+            body: [
+              { op: 'let', local: 4, value: { op: 'call', function: get!, args: [] } },
+              {
+                op: 'expr',
+                value: { op: 'builtin', name: 'heap.deep-read', args: [v], type: 'void' },
+              },
+              {
+                op: 'if',
+                test: local(inited),
+                then: [
+                  {
+                    op: 'if',
+                    test: {
+                      op: 'or',
+                      left: local(first),
+                      right: differs({ op: 'unwrap', value: local(prev) }, v),
+                    },
+                    then: [
+                      {
+                        op: 'assign',
+                        target: { place: 'local', local: first },
+                        value: { op: 'lit', value: false },
+                      },
+                      {
+                        op: 'assign',
+                        target: { place: 'local', local: prev },
+                        value: { op: 'some', value: v },
+                      },
+                      {
+                        op: 'expr',
+                        value: {
+                          op: 'call-value',
+                          callee:
+                            maybeInner(ut) !== undefined
+                              ? { op: 'unwrap', value: field(update) }
+                              : field(update),
+                          args: [v],
+                        },
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          };
+          body.push({
+            op: 'if',
+            test:
+              maybeInner(ut) !== undefined
+                ? { op: 'not', arg: nullish(field(update)) }
+                : { op: 'lit', value: true },
+            then: [
+              {
+                op: 'expr',
+                value: {
+                  op: 'builtin',
+                  name: 'effect.pre',
+                  args: [{ op: 'closure', function: e2, captures: [0, inited, first, prev] }],
+                  type: 'void',
+                },
+              },
+              {
+                op: 'assign',
+                target: { place: 'local', local: inited },
+                value: { op: 'lit', value: true },
+              },
+            ],
+          });
+        }
         if (destroy >= 0) {
           const dt = lower.types.records[record].fields[destroy].type;
           const d = lower.reserve();
@@ -4256,10 +4456,10 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
                 op: 'expr',
                 value: {
                   op: 'call-value',
-                  callee: {
-                    op: 'unwrap',
-                    value: { op: 'get', object: { op: 'local', local: 0 }, field: destroy },
-                  },
+                  callee:
+                    maybeInner(dt) !== undefined
+                      ? { op: 'unwrap', value: field(destroy) }
+                      : field(destroy),
                   args: [],
                 },
               },
@@ -4273,12 +4473,7 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
               maybeInner(dt) !== undefined
                 ? {
                     op: 'cond',
-                    test: {
-                      op: 'builtin',
-                      name: 'maybe.is-nullish',
-                      args: [{ op: 'get', object: { op: 'local', local: 0 }, field: destroy }],
-                      type: 'boolean',
-                    },
+                    test: nullish(field(destroy)),
                     then: { op: 'undefined', type: { maybe: cleanup } },
                     else: { op: 'some', value: closure },
                   }

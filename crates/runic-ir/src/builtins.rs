@@ -1547,6 +1547,11 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
         }
         // A keyed read of a collection tracked as a whole (M6): reported where a tracked effect makes it.
         ("reactive", "keyed-read") => arity(args, 0, 0).map(|_| Void),
+        // Svelte 5's `deep_read_state(value)` (M6 script DOM, slice 4: an
+        // action's update): reads, as dependencies of the running effect,
+        // everything reachable from a proxy at the top level or held by a
+        // plain object's top-level fields that are proxies.
+        ("heap", "deep-read") => arity(args, 1, 1).map(|_| Void),
         ("effect", "destroy-root") => arity(args, 1, 1).and(expect(&args[0], &Number, "root")).map(|_| Void),
         // A call whose reads are not dependencies of the running effect or derived value.
         ("reactive", "untrack-call") => {

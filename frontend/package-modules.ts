@@ -580,6 +580,18 @@ function returnedLiteral(fn: ts.FunctionDeclaration): ts.VariableDeclaration | u
  * as a function type or a method; undefined where it is declared otherwise.
  */
 function declaredMemberArity(declared: Declared, fn: string, member: string): number | undefined {
+  return declaredMember(declared, fn, member)?.parameters.length;
+}
+
+/**
+ * The function type (or method signature) member `member` of what function
+ * `fn` returns is declared with (`declaredMemberArity`), if any.
+ */
+function declaredMember(
+  declared: Declared,
+  fn: string,
+  member: string,
+): ts.FunctionTypeNode | ts.MethodSignature | undefined {
   const sf = declared.sf;
   const decl = sf?.statements.find(
     (s): s is ts.FunctionDeclaration => ts.isFunctionDeclaration(s) && s.name?.text === fn,
@@ -600,9 +612,8 @@ function declaredMemberArity(declared: Declared, fn: string, member: string): nu
         : undefined;
   const m = members?.find(x => x.name && ts.isIdentifier(x.name) && x.name.text === member);
   if (!m) return undefined;
-  if (ts.isMethodSignature(m)) return m.parameters.length;
-  if (ts.isPropertySignature(m) && m.type && ts.isFunctionTypeNode(m.type))
-    return m.type.parameters.length;
+  if (ts.isMethodSignature(m)) return m;
+  if (ts.isPropertySignature(m) && m.type && ts.isFunctionTypeNode(m.type)) return m.type;
   return undefined;
 }
 
@@ -801,6 +812,25 @@ export function annotate(
         if (!named)
           for (const [member, fn] of returnedFunctions(stmt)) {
             const m = `ReturnType<${f}>[${JSON.stringify(member)}]`;
+            // A generic member (embla's `groupSlides: <Type>(array: Type[])
+            // => Type[][]`): the function is declared generic, its type
+            // parameters, parameters and result written out from the
+            // declaration file (a generic member of the record type,
+            // TypeMapper `genericFields`).
+            const dm = declaredMember(declared, stmt.name.text, member);
+            if (dm?.typeParameters?.length && declared.sf && !fn.typeParameters) {
+              const local = new Set(dm.typeParameters.map(t => t.name.text));
+              const q = (n: ts.Node) => qualified(n, declared.sf!, declared.top, local, ns);
+              add(fn.name!.end, `<${dm.typeParameters.map(q).join(', ')}>`);
+              fn.parameters.forEach((p, i) => {
+                const dp = dm.parameters[i];
+                if (!dp?.type || p.type || !ts.isIdentifier(p.name) || p.dotDotDotToken) return;
+                const optional = !!dp.questionToken && !p.initializer;
+                add(p.name.end, `${optional ? '?' : ''}: ${q(dp.type)}`);
+              });
+              if (dm.type) result(fn, q(dm.type));
+              continue;
+            }
             // (Parameters the member does not declare, called only by the
             // module itself, are typed from their calls: embla's
             // `scrollTo(index, jump, direction)` of `scrollTo(index, jump?)`.)

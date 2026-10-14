@@ -266,6 +266,18 @@ export type Binding =
     }
   | { kind: 'derived'; fn: number }
   /**
+   * A generic function member destructured from a record (embla's `const {
+   * groupSlides } = slidesToScroll`): the record in `local` of `owner`, a
+   * field per instantiation (`TypeMapper.genericFields`), chosen per call.
+   */
+  | { kind: 'generic-member'; owner: FnBuilder; local: number; record: number; name: string }
+  /**
+   * A generic function declared in a function body (embla's `function
+   * groupSlides<Type>(array: Type[])`): a closure lowered per instantiation
+   * where it is called or stored as a generic member (`genericMemberValues`).
+   */
+  | { kind: 'nested-generic'; decl: ts.FunctionDeclaration; owner: FnBuilder }
+  /**
    * A module `let` (M6): field 0 of the one-field record program global
    * `global` holds it (reactive for `$state`; `Lowerer.moduleVariable`).
    */
@@ -642,6 +654,7 @@ export class Lowerer {
     types.nothingSlot = decl => this.unions.nothingSlot(decl);
     types.nothingInBoxes = decl => this.unions.nothingInBoxes(decl);
     types.anyFnSlot = (decl, box) => this.unions.anyFnSlot(decl, box);
+    types.genericInstantiations = decl => this.genericInstantiations(decl);
     types.lateKey = key => this.lateKey(key, program);
     // Object types implemented with getters (frontend/types.ts `accessorTypes`).
     for (const sf of program.getSourceFiles()) {
@@ -2936,6 +2949,11 @@ export class Lowerer {
   ): { lets: Stmt[]; create: () => Stmt[] } {
     const name = s.name?.text ?? 'fn';
     const sym = s.name ? this.checker.getSymbolAtLocation(s.name) : undefined;
+    // A generic function: lowered per instantiation where it is used.
+    if (s.typeParameters?.length && sym) {
+      this.bindings.set(sym, { kind: 'nested-generic', decl: s, owner: b });
+      return { lets: [], create: () => [] };
+    }
     // Untyped JavaScript whose result no call reads (bits-ui's
     // `trackWhileMountedDeps()`, called for the reads it makes): a
     // function of no result.
@@ -4919,6 +4937,21 @@ export class Lowerer {
           bind(el.name, read, this.irType(read, b), el.initializer);
           continue;
         }
+        // A generic function member: the record, its field chosen per call.
+        if (this.types.genericFields.get(record)?.has(key.text)) {
+          if (!ts.isIdentifier(el.name) || el.initializer)
+            this.fail(el, 'E_DESTRUCTURE', 'A generic function member destructures into a name');
+          const local = b.local(`$${key.text}`, type);
+          out.push({ op: 'let', local, value: source });
+          this.bindings.set(this.checker.getSymbolAtLocation(el.name as ts.Identifier)!, {
+            kind: 'generic-member',
+            owner: b,
+            local,
+            record,
+            name: key.text,
+          });
+          continue;
+        }
         const field = this.types.fieldIndex(record, key.text, el);
         bind(
           el.name,
@@ -6547,6 +6580,100 @@ export class Lowerer {
     return binding?.kind === 'module-let' ? binding : undefined;
   }
 
+  /** The calls of generic function members, by the declaration of their signature. */
+  private genericCalls?: Map<ts.Node, ts.Signature[]>;
+
+  /**
+   * The signatures generic function member `decl` (a property of a generic
+   * function type, or a method signature) is called with in the program, in
+   * source order (`TypeMapper.genericInstantiations`).
+   */
+  genericInstantiations(decl: ts.Declaration): ts.Signature[] {
+    if (!this.genericCalls) {
+      this.genericCalls = new Map();
+      for (const sf of this.program.getSourceFiles()) {
+        if (sf.isDeclarationFile) continue;
+        const visit = (n: ts.Node) => {
+          if (ts.isCallExpression(n)) {
+            const sig = this.checker.getResolvedSignature(n);
+            const d = sig?.declaration;
+            if (sig && d && !ts.isJSDocSignature(d) && sig.typeParameters === undefined) {
+              const list = this.genericCalls!.get(d) ?? [];
+              list.push(sig);
+              this.genericCalls!.set(d, list);
+            }
+          }
+          ts.forEachChild(n, visit);
+        };
+        visit(sf);
+      }
+    }
+    const target =
+      ts.isPropertySignature(decl) || ts.isPropertyDeclaration(decl) ? decl.type : decl;
+    return (target && this.genericCalls.get(target)) ?? [];
+  }
+
+  /**
+   * The values of the fields standing for generic member `name` of record
+   * `record` (`TypeMapper.genericFields`) that object literal member `p`
+   * gives: the generic function it names, specialised per instantiation.
+   * Undefined where the record has no such member.
+   */
+  private genericMemberValues(
+    record: number,
+    name: string,
+    p: ts.ObjectLiteralElementLike,
+    b: FnBuilder,
+  ): { field: string; value: Expr }[] | undefined {
+    const types = this.types.genericFields.get(record)?.get(name);
+    if (!types) return undefined;
+    const id = ts.isShorthandPropertyAssignment(p)
+      ? p.name
+      : ts.isPropertyAssignment(p) && ts.isIdentifier(skipParens(p.initializer))
+        ? (skipParens(p.initializer) as ts.Identifier)
+        : undefined;
+    const sym =
+      id &&
+      (ts.isShorthandPropertyAssignment(p)
+        ? this.checker.getShorthandAssignmentValueSymbol(p)
+        : this.checker.getSymbolAtLocation(id));
+    const binding = sym && this.bindingOf(sym);
+    if (!id || (binding?.kind !== 'generic' && binding?.kind !== 'nested-generic'))
+      return this.fail(
+        p,
+        'E_OBJECT',
+        `The generic member ${name} is supported holding a function the module declares`,
+      );
+    return types.map((t, k) => {
+      const ft = (t as { fn: { params: Type[]; result: Type } }).fn;
+      return {
+        field: `${name}#${k}`,
+        value:
+          binding.kind === 'generic'
+            ? this.genericValue(binding, ft.params, id, b)
+            : this.nestedGenericValue(binding, ft.params, ft.result, b),
+      };
+    });
+  }
+
+  /**
+   * A generic function declared in a function body (`nested-generic`) as a
+   * closure of parameter types `params`, its type parameters bound by them.
+   */
+  private nestedGenericValue(
+    g: Extract<Binding, { kind: 'nested-generic' }>,
+    params: Type[],
+    result: Type,
+    b: FnBuilder,
+  ): Expr {
+    const restore = this.bindTypeParameters(g.decl, params);
+    try {
+      return this.closure(g.decl, b, g.decl.name?.text ?? 'fn', params, result);
+    } finally {
+      restore();
+    }
+  }
+
   /** A value of an initialiser as type `want` (nullable widening, null of the type). */
   private coerceValue(v: Expr, want: Type, at: ts.Node): Expr {
     if (v.op === 'null' || v.op === 'undefined') return { ...v, type: want } as Expr;
@@ -7507,6 +7634,18 @@ export class Lowerer {
           id,
           'E_FUNCTION',
           `${id.text} has untyped parameters, so it can only be called directly; add parameter types to pass it as a value`,
+        );
+      case 'nested-generic':
+        return this.fail(
+          id,
+          'E_FUNCTION',
+          `${id.text} is a generic function: it is supported in direct calls and as a generic member`,
+        );
+      case 'generic-member':
+        return this.fail(
+          id,
+          'E_FUNCTION',
+          `${id.text} is a generic function member: it is supported in direct calls only`,
         );
       case 'rest':
         return this.fail(
@@ -9452,6 +9591,25 @@ export class Lowerer {
     }
     const name = e.name.text;
     if (e.expression.kind === ts.SyntaxKind.SuperKeyword) return this.classes.superRead(e, b);
+    // A generic function member called (`TypeMapper.genericFields`): the
+    // field of the call's instantiation.
+    if (
+      this.types.genericFields.size &&
+      ts.isCallExpression(e.parent) &&
+      e.parent.expression === e &&
+      this.checker
+        .getTypeAtLocation(e)
+        .getCallSignatures()
+        .some(sig => sig.typeParameters?.length)
+    ) {
+      const object = this.expr(e.expression, b);
+      const ot = this.irType(object, b);
+      const sig = this.checker.getResolvedSignature(e.parent);
+      if (typeof ot === 'object' && 'record' in ot && sig) {
+        const field = this.types.genericField(ot.record, name, sig, e.parent);
+        if (field !== undefined && field >= 0) return { op: 'get', object, field };
+      }
+    }
     // A function's static property (`functionStatic`).
     const fnStatic = this.functionStaticOf(e);
     if (fnStatic) {
@@ -10979,6 +11137,32 @@ export class Lowerer {
       if (binding?.kind === 'function')
         return { op: 'call', function: binding.fn, args: this.callArgs(e, b) };
       if (binding?.kind === 'generic') return this.specialise(binding, e, b);
+      if (binding?.kind === 'nested-generic') {
+        const sig = this.checker.getResolvedSignature(e);
+        if (!sig)
+          return this.fail(e, 'E_FUNCTION', `${binding.decl.name?.text} cannot be resolved`);
+        const ft = this.types.signatureType(sig, e) as { fn: { params: Type[]; result: Type } };
+        return {
+          op: 'call-value',
+          callee: this.nestedGenericValue(binding, ft.fn.params, ft.fn.result, b),
+          args: this.callArgs(e, b),
+        };
+      }
+      if (binding?.kind === 'generic-member') {
+        const sig = this.checker.getResolvedSignature(e);
+        const field = sig && this.types.genericField(binding.record, binding.name, sig, e);
+        if (field === undefined || field < 0)
+          return this.fail(e, 'E_TYPE_UNSUPPORTED', `${binding.name} is called at an unknown type`);
+        return {
+          op: 'call-value',
+          callee: {
+            op: 'get',
+            object: { op: 'local', local: b.resolve(binding.owner, binding.local) },
+            field,
+          },
+          args: this.callArgs(e, b),
+        };
+      }
       if (binding) {
         const value = this.calleeOf(this.expr(callee, b), b);
         return {
@@ -14448,6 +14632,17 @@ export class Lowerer {
       }
       let name: string;
       let value: Expr;
+      // A generic function member (`genericMemberValues`).
+      const generic =
+        (ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p)) &&
+        (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name))
+          ? this.genericMemberValues(recordType.record, p.name.text, p, b)
+          : undefined;
+      if (generic) {
+        for (const g of generic)
+          values[this.types.fieldIndex(recordType.record, g.field, p)] = g.value;
+        continue;
+      }
       if (ts.isPropertyAssignment(p)) {
         name =
           ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)
@@ -14468,8 +14663,8 @@ export class Lowerer {
       } else if (ts.isShorthandPropertyAssignment(p)) {
         name = p.name.text;
         const i = this.types.fieldIndex(recordType.record, name, p);
-        const sym = this.checker.getShorthandAssignmentValueSymbol(p);
-        const binding = sym && this.bindingOf(sym);
+        // (An imported name too: the binding of what it imports.)
+        const binding = this.binding(p.name);
         // (Untyped JavaScript: the binding's own type.)
         value = binding
           ? this.bindingExpr(binding, p.name, b, this.types.typeOrUndefined(p.name))
@@ -15491,6 +15686,17 @@ export class Lowerer {
         )
       )
         return this.fail(p, 'E_OBJECT', 'Unsupported object member');
+      const generic = this.genericMemberValues(record, name, p, b);
+      if (generic) {
+        for (const g of generic) {
+          const i = this.types.fieldIndex(record, g.field, p);
+          const local = b.local(g.field, r.fields[i].type);
+          temps.set(g.field, local);
+          values.push({ local, value: g.value });
+          absentLocals.add(local);
+        }
+        continue;
+      }
       const i = this.types.fieldIndex(record, name, p);
       const t = r.fields[i].type;
       let value: Expr;
@@ -15517,8 +15723,8 @@ export class Lowerer {
         value = this.coerce(p.initializer, b, t);
       } else {
         const short = p as ts.ShorthandPropertyAssignment;
-        const sym = this.checker.getShorthandAssignmentValueSymbol(short);
-        const binding = sym && this.bindingOf(sym);
+        // (An imported name too: the binding of what it imports.)
+        const binding = this.binding(short.name);
         value = binding
           ? this.bindingExpr(
               binding,

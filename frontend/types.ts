@@ -79,6 +79,43 @@ export class TypeMapper {
    * ""`), which TypeScript cannot bind (`sliderAttrs.thumb` is typed `string`).
    */
   lateKey?: (key: ts.Expression) => string | undefined;
+  /**
+   * The signatures a generic function member (a property of a generic
+   * function type: embla's `SlidesToScrollType.groupSlides: <Type>(array:
+   * Type[]) => Type[][]`) is called with in the program, in source order of
+   * their first calls (the language layer's `genericInstantiations`).
+   */
+  genericInstantiations?: (decl: ts.Declaration) => ts.Signature[];
+  /**
+   * Records' generic function members (`genericInstantiations`): by record
+   * and member name, the IR function type of each field standing for one
+   * instantiation, in field order. The fields are named `name#k`.
+   */
+  readonly genericFields = new Map<number, Map<string, Type[]>>();
+
+  /**
+   * The field of record `record` standing for generic member `name` called
+   * with signature `sig` (`genericFields`), if the record has the member.
+   */
+  genericField(record: number, name: string, sig: ts.Signature, at: ts.Node): number | undefined {
+    const types = this.genericFields.get(record)?.get(name);
+    if (!types) return undefined;
+    const t = JSON.stringify(this.signatureType(sig, at));
+    const k = types.findIndex(x => JSON.stringify(x) === t);
+    if (k < 0)
+      return this.fail(at, 'E_TYPE_UNSUPPORTED', `No instantiation of ${name} for this call`);
+    return this.records[record].fields.findIndex(f => f.name === `${name}#${k}`);
+  }
+
+  /** The IR function type of an instantiated signature. */
+  signatureType(sig: ts.Signature, at: ts.Node): Type {
+    return {
+      fn: {
+        params: sig.parameters.map(p => this.map(this.paramType(p, at), at)),
+        result: this.map(sig.getReturnType(), at),
+      },
+    };
+  }
   /** While a box property holding nothing is mapped: its `unknown` content. */
   private boxNothing = false;
   /**
@@ -335,6 +372,8 @@ export class TypeMapper {
     } catch (e) {
       if (e !== sentinel) throw e;
       this.records.length = records;
+      for (const r of [...this.genericFields.keys()])
+        if (r >= records) this.genericFields.delete(r);
       this.byType = byType;
       this.byShape = byShape;
       return undefined;
@@ -1140,6 +1179,28 @@ export class TypeMapper {
     for (const p of this.checker.getPropertiesOfType(t)) {
       const decl = p.valueDeclaration ?? p.declarations?.[0];
       let pt = this.checker.getTypeOfSymbolAtLocation(p, decl ?? at);
+      // A generic function member: a field per instantiation the program
+      // calls it with (none where it calls it with none).
+      const [generic, ...overloads] = pt.getCallSignatures();
+      if (
+        generic?.typeParameters?.length &&
+        !overloads.length &&
+        !this.checker.getPropertiesOfType(pt).length &&
+        decl &&
+        this.genericInstantiations
+      ) {
+        const types: Type[] = [];
+        for (const sig of this.genericInstantiations(decl)) {
+          const ft = this.signatureType(sig, at);
+          if (types.some(x => JSON.stringify(x) === JSON.stringify(ft))) continue;
+          placeholder.fields.push({ name: `${p.name}#${types.length}`, type: ft });
+          types.push(ft);
+        }
+        const byName = this.genericFields.get(index) ?? new Map<string, Type[]>();
+        byName.set(p.name, types);
+        this.genericFields.set(index, byName);
+        continue;
+      }
       if (p.flags & ts.SymbolFlags.Optional)
         pt = this.checker.getNullableType(pt, ts.TypeFlags.Undefined);
       // Properties a package's declaration files or the compiler's host
@@ -1277,7 +1338,12 @@ export class TypeMapper {
       // The last record is dropped; one registered before records its
       // fields registered (an equal record among them: a spread's source)
       // stays unused.
-      if (last) this.records.pop();
+      const generic = this.genericFields.get(index);
+      if (generic && !this.genericFields.has(same)) this.genericFields.set(same, generic);
+      if (last) {
+        this.records.pop();
+        this.genericFields.delete(index);
+      }
       this.byType.set(t, same);
       return same;
     }
