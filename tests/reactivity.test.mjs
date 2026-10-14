@@ -241,6 +241,42 @@ test('Vue watchers whose order in a flush may differ from their declaration orde
   );
 });
 
+test('a removed block is torn down where each framework’s update removes it (schedule.teardown)', async () => {
+  // Case teardown-order in Chromium. Svelte 5.57.1 (at-removal): the DOM
+  // leaves, then the teardowns in tree order with the attachment's cleanup
+  // (attachRef sees its node disconnected), before the later pre effects;
+  // a replacing branch or list item is created first.
+  const actions = ['dump', 'drop', 'dump', 'replace', 'dump', 'clear', 'dump', 'refill', 'dump'];
+  const rest = ['flip', 'dump', 'hide', 'dump'];
+  const svelte = interpret(
+    (await lowered('fixtures/teardown-order-svelte')).ir,
+    [...actions, ...rest].map(click),
+    {},
+  );
+  assert.match(
+    shown(svelte[3], 'log'),
+    /\| cell cleanup 0 0 \| cleanup 2 0 \| detach 2 \| cell cleanup 2 0 \| cell destroy 2 \| effect cleanup 2 0 \| destroy 2 \| cleanup 1 0 \| row 1 1 \|/,
+  );
+  assert.match(shown(svelte[7], 'log'), /\| row 99 3 \| cleanup 4 2 \| detach 4 \|/);
+  assert.match(shown(svelte[11], 'log'), /\| row 20 5 \| cleanup 10 4 \| detach 10 \|/);
+  // Vue 3.5.43 (before-at-removal): onBeforeUnmount, then the watcher's
+  // cleanup, parent first, where the patch unmounts; onUnmounted last; a
+  // v-else branch mounted after the old one is unmounted.
+  const vue = interpret(
+    (await lowered('fixtures/teardown-order-vue')).ir,
+    [...actions, ...rest].map(click),
+    {},
+  );
+  assert.equal(
+    shown(vue[3], 'log'),
+    'cleanup 0 0 | row 0 1 | cleanup 1 0 | row 1 1 | cleanup 3 0 | row 3 1 | destroy 2 | cleanup 2 0 | cell destroy 2 | cleanup 10 0 | row 10 1 | cleanup 9 0 | row 9 1 | unmounted 2',
+  );
+  assert.match(
+    shown(vue[11], 'log'),
+    /\| destroy 10 \| cleanup 10 4 \| cell destroy 10 \| row 20 5 \|/,
+  );
+});
+
 test('keyed list items create and update in the order of each framework’s keyed diff', async () => {
   // Case list-order in Chromium. Svelte 5.57.1: new items (their
   // $effect.pre) first, in array order, then the others in document order.
@@ -254,7 +290,10 @@ test('keyed list items create and update in the order of each framework’s keye
     shown(svelte[7], 'log'),
     'row 5 3 | cell 5 3 | cleanup 4 2 | row 4 3 | cell 4 3 | cleanup 1 2 | row 1 3 | cell 1 3 | cleanup 2 2 | row 2 3 | cell 2 3 | cleanup 3 2 | row 3 3 | cell 3 3',
   );
-  assert.match(shown(svelte[13], 'log'), /^row 6 6 \| cell 6 6 \| row 7 6 \| cell 7 6 \| cleanup 5 5/);
+  assert.match(
+    shown(svelte[13], 'log'),
+    /^row 6 6 \| cell 6 6 \| row 7 6 \| cell 7 6 \| cleanup 5 5/,
+  );
   // Vue 3.5.43 (patchKeyedChildren): the common suffix backward before a
   // mount at the front, the middle in its previous order, mounts backward.
   const vue = interpret(

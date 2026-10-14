@@ -446,3 +446,49 @@ order does not change the DOM.
   Chromium observations).
 - Found with the first version of `list-order`: a removed block's
   teardowns run where the walk removes it (Svelte and Vue); the next step.
+
+## Teardown order (2026-10-14)
+
+The frameworks tear down a block an update removes where their update walk
+reaches it, before what follows it updates; Runic ran every teardown after
+the whole tree updated (Svelte: silent; Vue: rejected by
+`rejectUnmountOrder`). A new adapter-declared schedule policy,
+`schedule.teardown` (additive within schema 5, user decision 2026-10-14),
+selects each framework's behaviour; the interpreter and generated code
+implement each. Checked in Chromium first with case `teardown-order` (a
+list item removed, a list emptied into its `else` and refilled, an item
+replaced, an if/else switched, a branch hidden and shown, each with a prop
+update in the same handler):
+
+- Svelte 5.57.1 (`at-removal`): the block's DOM leaves, then its effects'
+  teardowns run in tree order, attachments included (`cleanup 2 0 | detach
+  2 | cell cleanup 2 0 | cell destroy 2 | effect cleanup 2 0 | destroy 2`
+  before the surviving items' `cleanup 1 0 | row 1 1`); new items, the
+  `else` content and a replacing branch are created before what they
+  replace is destroyed. Before: every teardown after the update, and
+  attachRef's cleanup then ran after the instances' (in the interpreter its
+  node still read as connected during the render).
+- Vue 3.5.43 (`before-at-removal`): `onBeforeUnmount`, then the watchers'
+  cleanups, parent first, where the patch unmounts the component (`destroy
+  2 | cleanup 2 0 | cell destroy 2` between the suffix's patches and the
+  next sibling's), a `v-else` branch mounted after; `onUnmounted` in the post
+  flush. `rejectUnmountOrder` is removed.
+- React 19.3.0 (`deferred`): unchanged.
+
+Imperatively mounted content (`mount`/`unmount`) follows the same policy at
+`unmount`.
+
+- Interpreter vs Chromium: `teardown-order` (2 fixtures, 16 steps each)
+  agrees; `tests/reactivity.test.mjs` pins its key steps.
+- Native conformance with pixels, 800x600 and 420x600
+  (`artifacts/reactivity/teardown-1`, `-2`): `teardown-order`,
+  `list-order` and `effects` 16/16; `portal`, `bits-dialog`, `toolbelt`,
+  `roving` (attachments), `teardown-vue`, `teardown-proxy`,
+  `unmount-updates`, `effect-root`, `effect-order`, `todomvc` and
+  `7guis-crud` (all three frameworks) 30/30.
+- `npm test` 515/515 (the effects-vue edits that `rejectUnmountOrder`
+  rejected are still rejected, now by R10's instance rule, which they also
+  meet).
+- Example census (404 examples, `conformance/triage.mjs`): 280 lowered
+  before (a copy of 15889dd) and after, with the same first diagnostics
+  (`artifacts/census-base`, `census-after` of the worktree).

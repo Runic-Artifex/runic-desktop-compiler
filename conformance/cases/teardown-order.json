@@ -1,0 +1,21 @@
+{
+  "description": "Teardowns of blocks an update removes, logged into one plain array with the pre effects (Svelte $effect.pre, Vue watchers) of the components after them, each with a prop update in the same handler: a list item removed, a list emptied (its else branch) and refilled, an item replaced, an if/else branch switched and a branch hidden and shown again. Svelte destroys a block where its effect tree walk reaches it (DOM first, then the teardowns in tree order, attachments included), after creating a branch that replaces it; Vue unmounts where its patch reaches the component (onBeforeUnmount, then watcher cleanups, parent first), before mounting a branch that replaces it, and runs onUnmounted in its post flush",
+  "fixtures": ["teardown-order-svelte", "teardown-order-vue"],
+  "actions": [
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "drop" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "replace" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "clear" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "refill" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "flip" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "hide" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "hide" },
+    { "kind": "click", "id": "dump" }
+  ]
+}

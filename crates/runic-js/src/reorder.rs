@@ -72,7 +72,11 @@ pub enum Step {
 /// before the first node of the nearest following block that is in its final
 /// place (reused blocks `keep` leaves `true`, and blocks mounted or moved
 /// before); see `runic-codegen`'s keyed list update.
-pub fn schedule(strategy: Reorder, old: &[Option<usize>], old_len: usize) -> (Vec<Step>, Vec<bool>) {
+pub fn schedule(
+    strategy: Reorder,
+    old: &[Option<usize>],
+    old_len: usize,
+) -> (Vec<Step>, Vec<bool>) {
     let keep = keep(strategy, old, old_len);
     let steps = match strategy {
         Reorder::Lis => schedule_lis(old, old_len, &keep),
@@ -103,7 +107,11 @@ fn schedule_stash(old: &[Option<usize>], old_len: usize, keep: &[bool]) -> Vec<S
             .map(Step::Move),
     );
     steps.extend(removed(old, old_len).map(Step::Remove));
-    steps.extend((0..old.len()).filter(|&j| old[j].is_some()).map(Step::Patch));
+    steps.extend(
+        (0..old.len())
+            .filter(|&j| old[j].is_some())
+            .map(Step::Patch),
+    );
     steps
 }
 
@@ -539,7 +547,10 @@ mod tests {
     #[test]
     fn svelte_creates_first_then_updates_in_order() {
         // Case list-order in Chromium (Svelte 5.57.1).
-        assert_eq!(steps(Reorder::Stash, &[1, 2, 3], &[4, 1, 2, 3]), ["+4", "1", "2", "3"]);
+        assert_eq!(
+            steps(Reorder::Stash, &[1, 2, 3], &[4, 1, 2, 3]),
+            ["+4", "1", "2", "3"]
+        );
         assert_eq!(
             steps(Reorder::Stash, &[4, 1, 2, 3], &[4, 1, 2, 3, 5]),
             ["+5", "4", "1", "2", "3"]
@@ -557,7 +568,10 @@ mod tests {
     #[test]
     fn vue_patches_as_its_keyed_diff() {
         // Case list-order in Chromium (Vue 3.5.43).
-        assert_eq!(steps(Reorder::Lis, &[1, 2, 3], &[4, 1, 2, 3]), ["3", "2", "1", "+4"]);
+        assert_eq!(
+            steps(Reorder::Lis, &[1, 2, 3], &[4, 1, 2, 3]),
+            ["3", "2", "1", "+4"]
+        );
         assert_eq!(
             steps(Reorder::Lis, &[4, 1, 2, 3], &[4, 1, 2, 3, 5]),
             ["4", "1", "2", "3", "+5"]

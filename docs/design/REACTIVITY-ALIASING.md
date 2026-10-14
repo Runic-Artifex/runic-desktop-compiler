@@ -80,6 +80,13 @@ Items of one list get the same exception since 2026-10-14. Vue patches a keyed l
 
 The interpreter renders the blocks in these steps' order and assembles the tree in document order; generated code runs the steps, inserting each block before the first node of the nearest following block already in its final place, which keeps the DOM order whatever the steps' order.
 
+**Teardown order** (2026-10-14, `schedule.teardown`, an adapter-declared policy, D4). The frameworks tear down a block an update removes where their update walk reaches it, before what follows it updates; Runic ran every teardown after the whole tree updated (case `teardown-order` in Chromium: a list item removed, a list emptied into its `else` and refilled, an item replaced, an if/else switched, a branch hidden and shown, each with a prop update in the same handler):
+- Svelte (`at-removal`): `destroy_effect` removes the block's DOM, then runs its effects' teardowns in tree order, attachments among them (an element's before its children, as Svelte creates its attachment effect there): `cleanup 2 0 | detach 2 | cell cleanup 2 0 | cell destroy 2 | effect cleanup 2 0 | destroy 2` before the surviving items' `cleanup 1 0 | row 1 1`. The each block creates new items and its `else` before it destroys what they replace, and an `{#if}` creates the new branch first (`row 20 5 | cleanup 10 4 | …`). attachRef's cleanup sees its node disconnected.
+- Vue (`before-at-removal`): `unmountComponent` runs `onBeforeUnmount`, then the watchers' cleanups (`scope.stop()`), parent first, then removes the DOM, where the patch reaches the component (a list item where the keyed diff removes it: `destroy 1 | cleanup 1 1 | cell destroy 1 | row 4 2` in a replacement); a `v-else` branch is mounted after the old one is unmounted; `onUnmounted` waits for the post flush (`… | unmounted 2` last).
+- React (`deferred`): cleanups in the commit (batched), as before.
+
+The interpreter records, per region (an `if` branch, a list block, a list's `else`, a mounted instance), the instances it entered and left and the elements it rendered, and replays that trace where the region is removed: an instance's `pre`-ordered cleanups as entered, its `post`-ordered ones as left, an element's attachment cleanups where it rendered; the region's elements read as disconnected from then on. Generated code walks the removed block's structure the same way (`teardown_s`). Instances torn down at removal skip those cleanups in the deferred teardown.
+
 Coverage:
 - Accepted shapes, each checked in Chromium:
   - case `watch-declared`: a later watcher's signals are a subset of an earlier one's, in both write orders and through a prop's record field; two watchers no handler triggers together;
@@ -111,7 +118,7 @@ The approved exact model (later work, a schema change; [ROADMAP](../ROADMAP.md),
 
 ## What the IR expresses
 
-No schema change. The meaning of existing constructs is made precise (docs/IR.md):
+One additive field within schema 5, `schedule.teardown` (2026-10-14, user decision); otherwise the meaning of existing constructs is made precise (docs/IR.md), among them the order a list's `reorder` strategy gives its steps:
 - `proxied` cells and `state` class fields store overlays (R3); `deep` cells mark what they hold reactive.
 - Reads through overlays and reactive objects are dependencies of effects, derived values and template bindings, wherever the value is held (R1, R2).
 - An effect run that changes what it read is due again (R4); cleanups under `cleanupReadsPrevious` read overlays' before-images (R5).
@@ -130,7 +137,6 @@ For every template expression of an accepted program: whenever the value it comp
 | Maps and Sets in `$state` mutated, class instances in `$state` mutated in place | `E_REACTIVITY` (unchanged) | Proxies do not wrap them |
 | Teardown reads under Svelte 5.49.2's last-write rule | not modelled yet (5.57.1's rule) | Version policy, added when an example needs it |
 | Two Vue watchers of one component whose effects do not commute and whose order in a flush is not proven to be declaration order | `E_EFFECT` | Vue runs them in trigger order (R10); the exact model is a planned schedule policy |
-| Teardowns of removed blocks before later components' pre effects (Svelte: not detected; Vue: `rejectUnmountOrder`) | until the teardown policy lands | Runic runs them after the DOM update; the frameworks where the walk removes the block (resume list) |
 
 ## Steps
 
@@ -149,7 +155,7 @@ The React and Vue rows (2026-10-14, [results](../../conformance/results/reactivi
 Remaining plan (resume here; one conformance case per row that differs, checked in Chromium first, a fix or a located rejection with a gap row for each divergence):
 - Done (2026-10-14): a write of the value a Vue deep ref's slot already holds notifies nothing (case `equal-writes`); `reverse`, `sort` and `fill` read and set element by element, and `fill` stores a new proxy at each index (case `array-writes`; R4).
 - Done (2026-10-14): the order of a keyed list's steps (case `list-order`, above): each framework's keyed diff creates and updates blocks in its own order, which the interpreter and generated code follow; R10's list exception is lifted (case `watch-list`).
-- Next, the teardown order (found with `list-order`, 2026-10-14; schema addition approved by the user the same day): Svelte destroys a removed block where the update walk reaches it, its effect teardowns and `onDestroy` before the later components' `$effect.pre` (a removed list item after the new items are created and before the others update; an `{#if}` branch after its replacement is created); Vue unmounts a removed component where its patch reaches it (`onBeforeUnmount`, watcher cleanups), and runs `onUnmounted` in its post flush. Runic ran every teardown after the DOM update; Vue's shape is rejected (`rejectUnmountOrder`), Svelte's was silent. Plan: a schedule policy for when destroyed instances' cleanups run, the interpreter and generated code running them at the block's removal; then lift `rejectUnmountOrder` where exact.
+- Done (2026-10-14): the teardown order (**Teardown order** above; case `teardown-order`; the schema addition `schedule.teardown` approved by the user the same day). Vue's `rejectUnmountOrder` is lifted.
 - Then the same per-element reads and writes for `pop`, `shift`, `unshift`, `splice` and `copyWithin` (gap row in FRAMEWORKS; an effect reading an element `splice` leaves before its start runs again natively).
 - Svelte, recorded gaps, ordered by what they put at risk (none is the first blocker of a census example; the first is a silent divergence):
   - raw props whose value comes from a function's result or parameter (R6: accepted today; extend `raw_capable_props` with R8's facts for results and parameters, run the census for TodoMVC-like `{#each derived as item}` sites);
@@ -180,6 +186,7 @@ What each framework does, what the native model does, and the case that detects 
 | Values mutated while rendering | — | — | `useRef` read or written while rendering (also in callbacks a child calls while rendering): `E_REF`; module state mutated while rendering: `E_REACTIVITY` | rejected (React does not re-render for refs; render counts would show) | `tests/reactivity.test.mjs` |
 | Order of one component's watchers in a flush | declaration (effect tree) order | the order the flush triggers them: by write, then by the written signal's link order, with Vue's `endBatch` and `activeLink` effects (verified) | effects of a phase in declaration order | declaration order; Vue pairs not proven in order rejected (R10), the exact model planned | `watch-declared`; `tests/reactivity.test.mjs` (`watch-order-vue`, `watch-cleanup-computed-vue`) |
 | Order of watchers of different instances | tree order | by instance creation (uid), except watchers an instance's patch runs (prop updates), in patch order (verified) | — | patch order; Vue instances possibly created out of document order rejected unless triggered by props only (R10) | `watch-instances`, `watch-list`; `tests/reactivity.test.mjs` (`watch-instances-deep-vue`) |
+| Teardown of a block an update removes | where the effect tree walk destroys it: DOM first, then teardowns in tree order with attachments; a replacing branch created first (verified) | where the patch unmounts it: `onBeforeUnmount`, watcher cleanups, then the DOM; `onUnmounted` in the post flush; a `v-else` mounted after (verified) | cleanups in the commit (batched) | `schedule.teardown` (`at-removal`, `before-at-removal`, `deferred`) | `teardown-order` |
 | Order of a keyed list's items (creation, pre effects) | new items created first, in array order, then the others' dirty effects in document order (verified) | the keyed diff's patch order: prefix forward, suffix backward, the rest in previous order, mounts as the diff takes them (verified) | effects in the commit, document order (verified) | the list's `reorder` strategy schedules the steps (`runic_js::reorder::schedule`) | `list-order` |
 | Template granularity | per block, calls memoized (verified) | per component render | per component render (with children) | per binding, validator R7 | `untrack-template`, `prop-raw` |
 | Derived caching | `$derived`: recomputed lazily, `===` (also over arrays changed in place: verified) | `computed`: lazy, `Object.is` | render constants every render; `useMemo` rejected | derived functions | `derived-timing`, `derived-equality`, `derived-arrays` |

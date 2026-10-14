@@ -6053,8 +6053,10 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
     components,
     root: units.get(rootFile!)!.index,
     // Delegated listeners and microtask flushes (the defaults); teardowns
-    // read state as it was before the batch that destroys or re-runs them.
-    schedule: { cleanupReadsPrevious: true },
+    // read state as it was before the batch that destroys or re-runs them,
+    // and run where the effect tree walk destroys their block (case
+    // teardown-order).
+    schedule: { cleanupReadsPrevious: true, teardown: 'at-removal' },
     ...(fragments.list.length ? { fragments: fragments.list } : {}),
   };
   lower.widenRecords(ir);
