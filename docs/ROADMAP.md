@@ -24,7 +24,7 @@ How each kind of work is executed (standalone, subagents or workflows) is define
 | M3 | Components, slots and snippets, keyed lists, instance lifetimes | 7GUIs CRUD, TodoMVC (in memory) | Standalone core, then subagents per adapter | Done 2026-10-03 ([results](../conformance/results/m3.md)) |
 | M4 | Effects, timers, async, event loop | 7GUIs Timer, TodoMVC with persistence | Standalone core, ordering research subagent, subagents per adapter | Done 2026-10-03 ([results](../conformance/results/m4.md)) |
 | M5 | Full event model, forms, layout/measurement APIs, host services | 7GUIs Circle Drawer, Cells; a virtualized list | Subagents per service; desktop track standalone | Done 2026-10-04 ([results](../conformance/results/m5.md)) |
-| M6 | Blitz fork; npm and component libraries, Tailwind/CSS pipeline, SvelteKit SPA subset, mapping packs, corpus scan, QuickJS islands | shadcn-svelte component examples, corpus apps | Workflows for corpus and packs | In progress |
+| M6 | Blitz fork; npm and component libraries, Tailwind/CSS pipeline, SvelteKit SPA subset, mapping packs, corpus scan, QuickJS islands | shadcn-svelte component examples, corpus apps | Workflows for corpus and packs | In progress, paused 2026-10-23 ([status](#paused-2026-10-23)) |
 | M7 | **North star on Linux:** the shadcn-svelte site, and the shadcn/ui and shadcn-vue examples, compiled, verified and packaged | shadcn-svelte, shadcn/ui, shadcn-vue | Workflow for triage, standalone integration | Planned |
 | M8 | Embedding: a host-agnostic embedder interface, a Godot host first, then the Runic application bridge to .NET and the Translations Editor | a Godot sample, an SDK sample app, then the Runic Translations Editor | Standalone + spike | Planned |
 | M9 | Angular adapter | 7GUIs + TodoMVC in Angular, an SDK Angular sample | Standalone design, subagents for cases | Planned |
@@ -40,6 +40,49 @@ How each kind of work is executed (standalone, subagents or workflows) is define
 - **Desktop input.** OS keyboard, IME, Wayland resize and accessibility on Linux. This needs real compositor sessions, so it is done standalone with computer use. It never blocks compiler milestones, but M8 requires it complete for the editor.
 - **Blitz upstream.** Report and fix renderer and control bugs upstream and keep the pin current (D11). Known gaps and the fork assessment: [BLITZ-GAPS.md](BLITZ-GAPS.md).
 - **Native coverage.** From M6 on, island count and native-coverage % of the north-star and corpus apps are tracked per milestone and must not regress.
+
+## Paused (2026-10-23)
+
+The project is paused (user decision 2026-10-23, decisions log). Main is at `6a348e4`, with `npm test`, the cargo workspace, conformance and the differential passing there.
+
+**Where M6 stands:**
+- **Lowering (Oct 13):** 264 of 404 shadcn-svelte examples lower; the rest are rejected ([census](../conformance/results/shadcn-svelte-census.md)).
+- **Rendering (Oct 12):** of 253 examples built natively, 194 match Chromium, 11 differ and 48 report something unsupported ([render census](../conformance/results/shadcn-svelte-render-census.md)).
+- **React and Vue:** the shadcn/ui and shadcn-vue examples are not started beyond the core adapters.
+
+**Work kept on local branches, not merged:**
+- `worktree-agent-a3c51bf2617db872b` (script DOM, 23 commits after main). It holds three pieces of work:
+  - **Task 1** (`60cf512`, stopPropagation during capture). Its verification passed apart from declared gaps. Still to do: the docs commit from `.cache/probes/task1-design.md`, then merge.
+  - **Task 2** (`26d2b16`, `22c4357`, React's `schedule.rootDispatch`). Not mergeable: its own case `root-dispatch-react` fails 17 differential traces (interpreter against native). Logs are in that worktree's `.cache/rescreen/diff-t2-06.log`.
+  - **Slice 4, embla-carousel**, up to `a8c355a`. The next blocker is the `reduce` accumulator typed from an empty `[]` ("Slice 4 progress" in [M6-SCRIPT-DOM](design/M6-SCRIPT-DOM.md)).
+- `worktree-agent-aa013b8815c0eff2d` (CSS slice 3b part 2, scroll-driven animations, 8 commits after `ad92849`):
+  - Verified on the branch ([record](../conformance/results/scroll-timelines.md) on the branch).
+  - Before merging: a rebase onto main, a full differential, and the open `animationDuration` serialisation (`0s` where Chromium gives `auto`).
+  - Its fork commits are pushed as `scroll-timelines` branches: Stylo `6388603`, Blitz `8572b83`.
+  - Handoff: `artifacts/css/STATUS.md`.
+- **Reactivity:** no branch. The resume list is in [REACTIVITY-ALIASING](design/REACTIVITY-ALIASING.md), with `schedule.bindingsLast` written up in M6-SCRIPT-DOM ("Svelte's fragment order").
+
+**Upstream drift when paused**, our fork pins against upstream `main`:
+
+| Fork | Our commits | Upstream commits not in our fork | Forked from |
+|---|---|---|---|
+| Blitz | 103 | 125 (137 files, about 13.7k changed lines) | 2026-10-04 |
+| Stylo | 46 | 192 | 2026-09-02 |
+| Vello | 5 | 22 | 2026-10-02 |
+| AnyRender | 6 | 4 | 2026-10-03 |
+
+**What upstream Blitz changed:**
+- Dependency upgrades: Stylo 0.23-pre, Parley 0.12, repeated Taffy bumps.
+- A split of the inline layout module, the area most of our parity commits change.
+- Work that overlaps ours: `:focus-within`, ARIA nodes, `getComputedStyle` used values, offset sizes.
+- A scripting experiment ("vibey-script") that is relevant to the script DOM design.
+
+**On resuming:**
+- **First, rebase the forks** onto a stable upstream point (a Blitz release, or once its Stylo 0.23 upgrade has landed) rather than a moving `main`. Drop our commits that upstream now covers, and offer upstream the rest as we go.
+- **Then a full conformance rerun**, and only after that new feature work.
+- **Estimate made when pausing**, at the measured pace of about 3 person-weeks per active day:
+  - about 19–28 active days to M8;
+  - about 14–20 to a Svelte-only path to the Translations Editor (React and Vue after M8).
 
 ## M0: Restructure (done)
 
@@ -300,3 +343,4 @@ Added by the user on 2026-10-13 (decisions log). It builds on the M6 script DOM 
 - 2026-10-14 (M6, user decision on the reactivity audit): Vue runs a component's watchers in trigger order, native code in declaration order. A located `E_EFFECT` rejection of conflicting watcher pairs comes first, with a gap row. The exact model is approved as planned later work, not done: a new IR schedule policy (a schema change), for example `watcherOrder: "triggered"`, that ports Vue's ordering into the interpreter, the runtime and codegen ([design](design/REACTIVITY-ALIASING.md)).
 - 2026-10-14 (M6, user decision on the script DOM's slice 4): embla-carousel is compiled from what npm installs, its untyped ESM bundle (`esm/embla-carousel.esm.js`) typed through the `.d.ts` files the package ships, by extending the package-typing rules. No pinned fetch of its TypeScript sources and no new dependency ([design](design/M6-SCRIPT-DOM.md#slices)).
 - 2026-10-14 (M6, user decision on the reactivity workstream): teardowns of blocks an update removes run where each framework runs them, as a new adapter-declared schedule policy, `schedule.teardown`, approved to be done at once. It is an additive field within schema 5, with no schema bump. Values: `deferred` (default, React: after the tree updated, batched cleanups in their phase walks); `at-removal` (Svelte: every cleanup where the effect tree walk destroys the block, after its DOM leaves, in tree order with the block's attachments, a replacing branch created first); `before-at-removal` (Vue: `onBeforeUnmount` and watcher cleanups where the patch unmounts the component, `onUnmounted` in the post flush, a replacing branch mounted after the removal). Each framework's list patch order follows its own keyed diff (the list's `reorder` strategy). Per D4, each framework's behaviour is its own policy, never a shared approximation; a located rejection is only a stopgap ([design](design/REACTIVITY-ALIASING.md)).
+- 2026-10-23 (user decision): the project is paused. The forks' upstreams are moving fast (Blitz 125 and Stylo 192 commits ahead of our pins), so resuming starts with rebasing the forks onto a stable upstream point. The stopping point, branch states and drift are recorded in "Paused (2026-10-23)" above.
