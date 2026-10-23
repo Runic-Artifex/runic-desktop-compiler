@@ -43,22 +43,19 @@ How each kind of work is executed (standalone, subagents or workflows) is define
 
 ## Paused (2026-10-23)
 
-The project is paused (user decision 2026-10-23, decisions log). Main is at `6a348e4`, with `npm test`, the cargo workspace, conformance and the differential passing there.
+The project is paused (user decision 2026-10-23, decisions log). Main as of the merge of CSS slice 3b part 2 (`6fc7e80`) has with `npm test`, the cargo workspace, conformance and the differential passing there.
 
 **Where M6 stands:**
 - **Lowering (Oct 13):** 264 of 404 shadcn-svelte examples lower; the rest are rejected ([census](../conformance/results/shadcn-svelte-census.md)).
 - **Rendering (Oct 12):** of 253 examples built natively, 194 match Chromium, 11 differ and 48 report something unsupported ([render census](../conformance/results/shadcn-svelte-render-census.md)).
 - **React and Vue:** the shadcn/ui and shadcn-vue examples are not started beyond the core adapters.
 
-**Work kept on local branches, not merged:**
+**Work not merged:**
 - `worktree-agent-a3c51bf2617db872b` (script DOM, 23 commits after main). It holds three pieces of work:
   - **Task 1** (`60cf512`, stopPropagation during capture). Its verification passed apart from declared gaps. Still to do: the docs commit from `.cache/probes/task1-design.md`, then merge.
   - **Task 2** (`26d2b16`, `22c4357`, React's `schedule.rootDispatch`). Not mergeable: its own case `root-dispatch-react` fails 17 differential traces (interpreter against native). Logs are in that worktree's `.cache/rescreen/diff-t2-06.log`.
   - **Slice 4, embla-carousel**, up to `a8c355a`. The next blocker is the `reduce` accumulator typed from an empty `[]` ("Slice 4 progress" in [M6-SCRIPT-DOM](design/M6-SCRIPT-DOM.md)).
-- `worktree-agent-aa013b8815c0eff2d` (CSS slice 3b part 2, scroll-driven animations):
-  - Rebased onto `6c154fc` and verified there, the full differential included ([record](../conformance/results/scroll-timelines.md) on the branch); `animation-duration: auto` now reads back as in Chromium. Ready to merge.
-  - Its fork commits are pushed as `scroll-timelines` branches: Stylo `0edab19`, Blitz `8572b83`.
-  - Handoff: `artifacts/css/STATUS.md`.
+- CSS slice 3b part 2 (scroll-driven animations) was merged on 2026-10-23 (`6fc7e80`, [record](../conformance/results/scroll-timelines.md)), with the forks' `runic` branches at Stylo `0edab19` and Blitz `8572b83`. The CSS handoff (KDE/Qt preferences, then slice 4, generated content) is `artifacts/css/STATUS.md`.
 - **Reactivity:** no branch. The resume list is in [REACTIVITY-ALIASING](design/REACTIVITY-ALIASING.md), with `schedule.bindingsLast` written up in M6-SCRIPT-DOM ("Svelte's fragment order").
 
 **Upstream drift when paused**, our fork pins against upstream `main`:
