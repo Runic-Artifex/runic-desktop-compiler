@@ -104,3 +104,20 @@ commit).
 | `node conformance/run.mjs capture-stop-svelte capture-stop-react element-listeners-vue --pixels` (new cases; the Vue case gets back its three capture-stop steps) | every gate passed at both viewports |
 | Svelte cases with `--pixels` (169 cases with a Svelte fixture, 18 batches under 2 h) | 523 viewport runs: every gate passed apart from declared known gaps (capitalize, fieldset and text-elements pixels, reorder-navigation semantics, bits-toggle-group 420x700) |
 | Full differential (20 traces x 25 actions, 9 chunks) | 242 fixtures: 188 complete, 0 failures, 100067 steps |
+
+## React's root dispatch, and both tasks on main (2026-10-23)
+
+`schedule.rootDispatch` (React 19 runs its handlers from listeners at the
+container in both phases) with task 1, rebased onto main `6c154fc` (CSS
+slice 3b part 1, keyed-list order, teardown). The differential found the
+interpreter skipping a checkbox's native `change` event after the click
+under the root dispatch (17 traces of `root-dispatch-react`); native code
+and Chromium fire it for script listeners, and the interpreter now does too.
+
+| Check | Result |
+|---|---|
+| `node conformance/run.mjs <every case with a React fixture> --fixture <its React fixtures> --pixels` (57 case and fixture pairs in 4 batches, among them root-dispatch-react, nested-order-react, capture-stop-react and the new list-order-react) | 110 viewport runs: every gate passed apart from the declared text-elements-react pixels gap |
+| Svelte and Vue event and dispatch cases, `--pixels`: animation-events, array-methods, teardown-order, watch-list, capture-stop-svelte, element-listeners-vue, script-dom-events, bits-dropdown-menu, form-submit-element-listeners, form-submit-stops, and the Svelte and Vue fixtures of hover-events, shortcuts, form-submit and list-order | 39 viewport runs: every gate passed |
+| Full differential (20 traces x 25 actions, 7 chunks of at most 40 fixtures) | 254 fixtures: 197 complete, 57 incomplete, 0 failures, 104775 steps. root-dispatch-react is complete; nested-order-react is incomplete (its traces end at a hidden pointer target); the other incomplete fixtures are the known categories (layout reads, among them main's animation-events fixtures, which the interpreter fires none of; images; hidden pointer targets; focus events without a differential action; and those with no reason given on main too) |
+| `npm test` | 522 passed, 0 failed (new: the checkbox's native change event under the root dispatch, `tests/script-events.test.mjs`) |
+| `node compiler/cargo.mjs test --offline --workspace` | 199 passed, 0 failed |

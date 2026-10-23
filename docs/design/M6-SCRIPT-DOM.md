@@ -196,6 +196,8 @@ Stopgaps that remain (PLATFORM P3 rows): listeners script adds for over or out e
 
 Verification: cases `root-dispatch-react` (19 actions over capture and bubble groups, native and synthetic stops in both phases, the checkbox's onChange, onSubmit after a native submit listener, nested `click()` and `dispatchEvent`, a script click at a disabled button), `nested-order-react` (new case for the fixture: requestSubmit and dispatchEvent from handlers) and `capture-stop-react`, then every React case.
 
+Outcome (2026-10-23, rebased onto main `6c154fc`): the full differential first failed 17 traces of `root-dispatch-react`, every one at a click on the checkbox. The interpreter linked the checkbox's change event into the root's click group, as the runtime does, but then skipped the native `change` dispatch as it does without a root dispatch, so a `change` listener script adds never ran. The IR (the native change event follows the click for the other listeners) and the runtime (`activate_checkbox`) were right, and Chromium agrees (the case's semantics match at both box clicks). The interpreter now dispatches it under `rootDispatch`, where the root's group skips the checkbox's own onChange (`group_skips`); regression test in `tests/script-events.test.mjs`. Verification: [results](../../conformance/results/script-dom.md).
+
 Next dispatch items, after embla: React's EnterLeave plugin as part of the root dispatch (the related-node rule, enter and leave dispatched from the root's out and over listeners), replacing the enter/leave stopgap; then React's value tracker and its re-application of controlled values at each commit of the input, replacing the controlled-render report.
 
 ## Slice 4 plan: embla-carousel (2026-10-14)
