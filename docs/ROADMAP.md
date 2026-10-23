@@ -43,7 +43,7 @@ How each kind of work is executed (standalone, subagents or workflows) is define
 
 ## Paused (2026-10-23)
 
-The project is paused (user decision 2026-10-23, decisions log). Main as of the merge of CSS slice 3b part 2 (`6fc7e80`) has with `npm test`, the cargo workspace, conformance and the differential passing there.
+The project is paused (user decision 2026-10-23, decisions log). On main as of the merge of CSS slice 3b part 2 (`6fc7e80`), `npm test`, the cargo workspace, conformance and the differential pass.
 
 **Where M6 stands:**
 - **Lowering (Oct 13):** 264 of 404 shadcn-svelte examples lower; the rest are rejected ([census](../conformance/results/shadcn-svelte-census.md)).
