@@ -295,21 +295,44 @@ test("Vue's template listeners are its elements' own; nested dispatches check th
     log(steps[3]),
     'soc stc tt st m ti si to soc n< tx sx ts >n ti si to soc r< tf sf >r ti si to',
   );
-  // React declares neither: a listener script adds below its root, of a type
-  // known only at run time, is reported where a nested dispatch reaches it,
-  // in the interpreter and in the generated code alike (the differential
-  // compares the two over nested-order-react).
+  // React declares its root dispatch (schedule.rootDispatch): a listener
+  // script adds below the root, of a type known only at run time, runs
+  // before React's bubbling handlers, which run from the root, also for
+  // nested dispatches (requestSubmit and dispatchEvent from a handler); the
+  // conformance case nested-order-react checks the order against Chromium.
   const react = (await lowered(path.resolve('fixtures/nested-order-react'))).ir;
   assert.equal(react.schedule.elementListeners, undefined);
-  // (requestSubmit: the order check of the nested dispatch; dispatchEvent
-  // of a native type: first the report of one reaching a template listener.)
-  for (const [id, message] of [
-    ['request', /submit listener added with addEventListener on the path of a template listener/],
-    ['dispatch', /dispatchEvent of a native click event reaching a template listener/],
+  assert.ok(react.schedule.rootDispatch.kinds.includes('submit'));
+  for (const [id, expected] of [
+    ['request', 'script submit'],
+    ['dispatch', 'script other'],
   ]) {
     const [, step] = interpret(react, [{ kind: 'click', id }]);
-    assert.match(step.outcome?.rejected?.message ?? '', message, id);
+    assert.ok(!step.outcome?.rejected, JSON.stringify(step.outcome));
+    assert.equal(text(byId(step.state.dom, 'log')), expected, id);
   }
   const rust = generate(react);
   assert.match(rust, /if elements \{ cx\.dom\.check_listener_order\(&path, kind\); \}/);
+});
+
+test("React's checkbox onChange runs in its root's click group, and the native change event follows for script listeners", async () => {
+  // schedule.changeWithClick with schedule.rootDispatch: the root's click
+  // group runs onChange after the onClick handlers; the browser's change
+  // event follows the click (its group skips the checkbox's own onChange),
+  // so a change listener script added runs last (Chromium: case
+  // root-dispatch-react; the interpreter once dropped it).
+  const react = (await lowered(path.resolve('fixtures/root-dispatch-react'))).ir;
+  assert.equal(react.schedule.changeWithClick, true);
+  const steps = interpret(react, [
+    { kind: 'click', id: 'box' },
+    { kind: 'click', id: 'box' },
+  ]);
+  assert.ok(
+    steps.every(s => !s.outcome?.rejected),
+    JSON.stringify(steps.map(s => s.outcome)),
+  );
+  const log = step => text(byId(step.state.dom, 'log'));
+  const once = 'Wc rOc Rc Oc Bclick Ob rBclick rOb rBchange Rb D Bchange';
+  assert.equal(log(steps[1]), once);
+  assert.equal(log(steps[2]), `${once} ${once}`);
 });

@@ -138,6 +138,17 @@ pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
     listeners.body_whitespace = A::CONTAINER_ATTRS.is_some();
     listeners.delegation = A::DELEGATION.map(|k| k.to_vec());
     listeners.element_listeners = A::ELEMENT_LISTENERS;
+    // (Its reported kinds are checked where script adds listeners.)
+    listeners.root_dispatch = A::ROOT_DISPATCH.map(|(kinds, skip, _)| crate::dom::RootDispatch {
+        kinds: kinds.to_vec(),
+        skip_disabled: skip.to_vec(),
+    });
+    listeners.change_with_click = A::CHANGE_WITH_CLICK;
+    // The container is a delegation root from the start of the mount, as
+    // Svelte's `mount` listens before it creates the component (listeners
+    // script adds while mounting, in effects, come after it; none can be
+    // added before: the document is attached at the mount).
+    listeners.delegation_root(mount);
     app.mount(
         &mut Dom {
             doc: &mut doc,
@@ -145,8 +156,6 @@ pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
         },
         mount,
     );
-    // The container is a delegation root once the app is mounted.
-    listeners.delegation_root(mount);
     // Fonts arrive through the net provider and register on resolve.
     for _ in 0..4 {
         crate::timeline::resolve(&mut doc);

@@ -2314,12 +2314,40 @@ pub fn validate(p: &Program) -> Result<()> {
     }
     // (A framework either runs template listeners from a delegation root or
     // registers them at their elements.)
-    if p.schedule.delegation.is_some() && p.schedule.element_listeners {
+    // (A framework either runs template listeners from a delegation root,
+    // registers them at their elements, or runs them from its root's
+    // listeners in both phases.)
+    let policies = [
+        p.schedule.delegation.is_some(),
+        p.schedule.element_listeners,
+        p.schedule.root_dispatch.is_some(),
+    ];
+    if policies.iter().filter(|&&on| on).count() > 1 {
         return err(
             "E_IR",
-            "schedule.delegation and schedule.elementListeners are exclusive",
+            "schedule.delegation, schedule.elementListeners and schedule.rootDispatch are exclusive",
             None,
         );
+    }
+    if let Some(r) = &p.schedule.root_dispatch {
+        // (The root listens for events that reach it from below.)
+        if let Some(k) = r.kinds.iter().find(|k| !k.bubbles()) {
+            return err(
+                "E_IR",
+                format!("Root-dispatched event {} does not bubble", k.name()),
+                None,
+            );
+        }
+        if let Some(k) = r.skip_disabled.iter().find(|k| !r.kinds.contains(k)) {
+            return err(
+                "E_IR",
+                format!(
+                    "schedule.rootDispatch.skipDisabled lists {}, which the root does not dispatch",
+                    k.name()
+                ),
+                None,
+            );
+        }
     }
     // (Frameworks delegate only events that bubble.)
     if let Some(kinds) = &p.schedule.delegation {
@@ -3550,7 +3578,7 @@ impl<'p> NodeCx<'_, 'p> {
                     let Some(h) = c.handlers.get(l.handler) else {
                         return err("E_IR", "Listener refers to an unknown handler", src);
                     };
-                    if h.event != l.event || !kinds.insert(l.event) {
+                    if h.event != l.event || !kinds.insert((l.event, l.capture)) {
                         return err(
                             "E_IR",
                             "Listener and handler event kinds differ or repeat",
@@ -6184,5 +6212,52 @@ mod union_tests {
             json!({"op": "match-union", "value": x(), "cases": [case("boolean", 1, n.clone())], "else": n}),
             "not a member",
         );
+    }
+}
+
+#[cfg(test)]
+mod dispatch_policy_tests {
+    use super::*;
+    use serde_json::{Value as Json, json};
+
+    fn check(schedule: Json) -> Result<()> {
+        let p: Program = serde_json::from_value(json!({
+            "schema": SCHEMA,
+            "meta": {"title": "policies", "sourceHash": "0".repeat(64), "frontend": {}},
+            "capabilities": ["dom"],
+            "styles": {"css": ""},
+            "schedule": schedule,
+            "components": [{"name": "App", "template": []}],
+            "root": 0
+        }))
+        .unwrap();
+        validate(&p)
+    }
+
+    /// A framework declares at most one of the dispatch policies (M6 script
+    /// DOM): delegation roots, element listeners, or its root's listeners.
+    #[test]
+    fn dispatch_policies_are_exclusive() {
+        let delegation = json!(["click"]);
+        let root = json!({"kinds": ["click", "submit"], "skipDisabled": ["click"]});
+        check(json!({"delegation": delegation})).unwrap();
+        check(json!({"elementListeners": true})).unwrap();
+        check(json!({"rootDispatch": root})).unwrap();
+        for pair in [
+            json!({"delegation": delegation, "elementListeners": true}),
+            json!({"delegation": delegation, "rootDispatch": root}),
+            json!({"elementListeners": true, "rootDispatch": root}),
+        ] {
+            let e = check(pair).unwrap_err();
+            assert_eq!(e.code, "E_IR", "{e}");
+            assert!(e.message.contains("exclusive"), "{e}");
+        }
+        // The root dispatches events that bubble; it skips only kinds it
+        // dispatches.
+        let e = check(json!({"rootDispatch": {"kinds": ["focus"]}})).unwrap_err();
+        assert!(e.message.contains("does not bubble"), "{e}");
+        let e = check(json!({"rootDispatch": {"kinds": ["click"], "skipDisabled": ["mousedown"]}}))
+            .unwrap_err();
+        assert!(e.message.contains("skipDisabled"), "{e}");
     }
 }

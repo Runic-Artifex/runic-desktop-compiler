@@ -1,5 +1,5 @@
 {
-  "description": "Vue template listeners are native listeners at their elements, added when Vue creates the element (IR schedule.elementListeners): listeners script adds after mount run after them at the same element and phase, in registration order, capture listeners at the target before its bubble listeners; stopPropagation in a script listener below an element keeps that element template listeners from running, and stopImmediatePropagation in a template listener keeps the script listeners of the element from running; nested dispatches from a listener (dispatchEvent of a MouseEvent, requestSubmit) follow the same order, and a microtask a listener queues runs after that listener. Not claimed: a capture listener at an ancestor stopping propagation keeps that ancestor's own bubbling listeners from running in Chromium, while both engines still run them (a dispatch gap of every framework, docs/gaps/PLATFORM.md; the fixture's mode-capture-stop button shows it)",
+  "description": "Vue template listeners are native listeners at their elements, added when Vue creates the element (IR schedule.elementListeners): listeners script adds after mount run after them at the same element and phase, in registration order, capture listeners at the target before its bubble listeners; stopPropagation in a script listener below an element keeps that element template listeners from running, and stopImmediatePropagation in a template listener keeps the script listeners of the element from running; nested dispatches from a listener (dispatchEvent of a MouseEvent, requestSubmit) follow the same order, and a microtask a listener queues runs after that listener. A capture listener that stops propagation keeps the bubbling-phase listeners of its own element from running, here at an ancestor (the fixture's mode-capture-stop button), as in Chromium (the DOM standard's invocation per node and phase).",
   "fixtures": [
     "element-listeners-vue"
   ],
@@ -23,6 +23,18 @@
     {
       "kind": "click",
       "id": "mode-inner-stop"
+    },
+    {
+      "kind": "click",
+      "id": "target"
+    },
+    {
+      "kind": "click",
+      "id": "nested-click"
+    },
+    {
+      "kind": "click",
+      "id": "mode-capture-stop"
     },
     {
       "kind": "click",
