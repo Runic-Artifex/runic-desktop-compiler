@@ -314,3 +314,25 @@ test("Vue's template listeners are its elements' own; nested dispatches check th
   const rust = generate(react);
   assert.match(rust, /if elements \{ cx\.dom\.check_listener_order\(&path, kind\); \}/);
 });
+
+test("React's checkbox onChange runs in its root's click group, and the native change event follows for script listeners", async () => {
+  // schedule.changeWithClick with schedule.rootDispatch: the root's click
+  // group runs onChange after the onClick handlers; the browser's change
+  // event follows the click (its group skips the checkbox's own onChange),
+  // so a change listener script added runs last (Chromium: case
+  // root-dispatch-react; the interpreter once dropped it).
+  const react = (await lowered(path.resolve('fixtures/root-dispatch-react'))).ir;
+  assert.equal(react.schedule.changeWithClick, true);
+  const steps = interpret(react, [
+    { kind: 'click', id: 'box' },
+    { kind: 'click', id: 'box' },
+  ]);
+  assert.ok(
+    steps.every(s => !s.outcome?.rejected),
+    JSON.stringify(steps.map(s => s.outcome)),
+  );
+  const log = step => text(byId(step.state.dom, 'log'));
+  const once = 'Wc rOc Rc Oc Bclick Ob rBclick rOb rBchange Rb D Bchange';
+  assert.equal(log(steps[1]), once);
+  assert.equal(log(steps[2]), `${once} ${once}`);
+});

@@ -8820,7 +8820,14 @@ impl<'p> Machine<'p> {
                 self.render()?;
             }
         }
-        if let Some(d) = change.filter(|_| !with_click) {
+        // The native change event follows the click as in the browser
+        // unless the change listeners ran in the click's dispatch; under the
+        // framework's root dispatch they ran in its click group, and the
+        // native event follows for the other listeners (the root's group
+        // skips the checkbox's own: `group_skips`; the runtime's
+        // `Handler::activate_checkbox`).
+        let rooted = self.program.schedule.root_dispatch.is_some();
+        if let Some(d) = change.filter(|_| !with_click || rooted) {
             if !cancelled {
                 self.dispatch(target, EventKind::Change, d, None, s)?;
             }
