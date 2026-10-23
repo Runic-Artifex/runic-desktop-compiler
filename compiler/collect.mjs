@@ -1383,8 +1383,157 @@ function unsupportedFilter(value, values) {
   return visit(valueParser(value).nodes, new Set());
 }
 
-const SCROLL_DRIVEN =
-  /^(animation-timeline|animation-range(-start|-end)?|scroll-timeline(-name|-axis)?|view-timeline(-name|-axis|-inset)?|timeline-scope)$/;
+// Scroll-driven animations (CSS slice 3b part 2, conformance/results/
+// scroll-timelines.md; runic_css::inline mirrors these): anonymous scroll()
+// timelines with ranges of lengths and percentages run in the Stylo and
+// Blitz forks; named and view timelines, and named ranges, do not.
+const TIMELINE_DEFINITIONS =
+  /^(scroll-timeline(-name|-axis)?|view-timeline(-name|-axis|-inset)?|timeline-scope)$/;
+const ANIMATION_RANGE = /^animation-range(-start|-end)?$/;
+const CSS_WIDE_KEYWORDS = new Set(['inherit', 'initial', 'unset', 'revert', 'revert-layer']);
+const SCROLLERS = new Set(['self', 'nearest', 'root']);
+const SCROLL_AXES = new Set(['block', 'inline', 'x', 'y']);
+const TIMELINE_RANGE_NAMES = new Set([
+  'cover',
+  'contain',
+  'entry',
+  'exit',
+  'entry-crossing',
+  'exit-crossing',
+  'scroll',
+]);
+const LENGTH_UNITS = new Set(
+  (
+    'px em rem ex rex ch rch cap rcap ic ric lh rlh vw vh vi vb vmin vmax svw svh svi svb svmin svmax ' +
+    'lvw lvh lvi lvb lvmin lvmax dvw dvh dvi dvb dvmin dvmax cqw cqh cqi cqb cqmin cqmax cm mm q in pt pc'
+  ).split(' '),
+);
+const LENGTH_FUNCTIONS = new Set(['calc', 'min', 'max', 'clamp']);
+
+/** The top-level comma-separated entries of a parsed value, each a list of its non-space nodes. */
+function commaEntries(nodes) {
+  const entries = [[]];
+  for (const n of nodes) {
+    if (n.type === 'div' && n.value === ',') entries.push([]);
+    else if (n.type !== 'space' && n.type !== 'comment') entries.at(-1).push(n);
+  }
+  return entries;
+}
+
+/**
+ * Why an `animation-timeline` value names a timeline the forks do not run,
+ * or undefined: each entry must be `auto` or `scroll()` with at most one
+ * scroller and one axis keyword.
+ */
+function unsupportedAnimationTimeline(value) {
+  const entries = commaEntries(valueParser(value).nodes);
+  if (entries.length === 1 && entries[0].length === 1 && entries[0][0].type === 'word') {
+    if (CSS_WIDE_KEYWORDS.has(entries[0][0].value.toLowerCase())) return undefined;
+  }
+  for (const entry of entries) {
+    if (entry.length !== 1)
+      return `${valueParser.stringify(entry)} is not one timeline (auto or scroll())`;
+    const [n] = entry;
+    const name = n.value.toLowerCase();
+    if (n.type === 'word') {
+      if (name === 'auto') continue;
+      if (name === 'none')
+        return 'animation-timeline: none (an animation without a timeline) is not supported; auto and scroll() timelines are';
+      if (name.startsWith('--'))
+        return `named timeline ${n.value} is not supported (scroll-timeline-name, view-timeline-name); anonymous scroll() timelines are`;
+      return `${n.value} is not a timeline (auto or scroll())`;
+    }
+    if (n.type !== 'function')
+      return `${valueParser.stringify(n)} is not a timeline (auto or scroll())`;
+    if (name === 'var')
+      return 'var() in animation-timeline is not supported (the timeline must be written out: auto or scroll())';
+    if (name === 'view')
+      return 'view() timelines (view progress) are not supported; scroll() timelines are';
+    if (name !== 'scroll') return `${name}() is not a timeline (auto or scroll())`;
+    let scroller = 0;
+    let axis = 0;
+    for (const arg of n.nodes) {
+      if (arg.type === 'space' || arg.type === 'comment') continue;
+      const word = arg.type === 'word' ? arg.value.toLowerCase() : undefined;
+      if (SCROLLERS.has(word)) scroller++;
+      else if (SCROLL_AXES.has(word)) axis++;
+      else
+        return `${valueParser.stringify(n)} is not a scroll() timeline: ${valueParser.stringify(arg)} is neither a scroller (self, nearest, root) nor an axis (block, inline, x, y)`;
+    }
+    if (scroller > 1 || axis > 1)
+      return `${valueParser.stringify(n)} takes at most one scroller (self, nearest, root) and one axis (block, inline, x, y)`;
+  }
+  return undefined;
+}
+
+/**
+ * Why an `animation-range`, `-start` or `-end` value is outside what the
+ * forks run, or undefined: every entry must be `normal` or a
+ * <length-percentage> (named timeline ranges are not supported). Through
+ * each var() every value the stylesheet gives the custom property is
+ * checked; what a var() resolves to at run time is reported there.
+ */
+function unsupportedAnimationRange(prop, value, values) {
+  const entries = commaEntries(valueParser(value).nodes);
+  if (entries.length === 1 && entries[0].length === 1 && entries[0][0].type === 'word') {
+    if (CSS_WIDE_KEYWORDS.has(entries[0][0].value.toLowerCase())) return undefined;
+  }
+  const named = name =>
+    `named timeline ranges (${name}) are not supported; animation ranges must be normal or lengths and percentages`;
+  const visit = (nodes, seen) => {
+    for (const n of nodes) {
+      if (n.type === 'space' || n.type === 'comment' || n.type === 'div') continue;
+      const name = n.value.toLowerCase();
+      if (n.type === 'word') {
+        if (name === 'normal') continue;
+        if (TIMELINE_RANGE_NAMES.has(name)) return named(name);
+        const number = valueParser.unit(n.value);
+        if (
+          number &&
+          (number.unit === '%' ||
+            LENGTH_UNITS.has(number.unit.toLowerCase()) ||
+            (number.unit === '' && Number(number.number) === 0))
+        )
+          continue;
+        return `${n.value} is not normal or a length-percentage`;
+      }
+      if (n.type === 'function' && name === 'var') {
+        const { name: property, alternatives } = varAlternatives(n, values, seen);
+        const inner = new Set([...seen, property]);
+        for (const v of alternatives) {
+          const problem = visit(valueParser(v).nodes, inner);
+          if (problem) return problem;
+        }
+        continue;
+      }
+      if (n.type === 'function' && LENGTH_FUNCTIONS.has(name)) continue;
+      return `${valueParser.stringify(n)} is not normal or a length-percentage`;
+    }
+    return undefined;
+  };
+  for (const entry of entries) {
+    const problem = visit(entry, new Set());
+    if (problem) return problem;
+    // Literal values: one per longhand entry, a start and an end for the shorthand.
+    const literal = entry.every(n => n.type !== 'function' || n.value.toLowerCase() !== 'var');
+    if (literal && entry.length > (prop === 'animation-range' ? 2 : 1))
+      return `${valueParser.stringify(entry)} is not normal or a length-percentage${prop === 'animation-range' ? ' for the start and the end' : ''}`;
+  }
+  return undefined;
+}
+
+/**
+ * Why a scroll-driven animation declaration is outside what the forks run,
+ * or undefined.
+ */
+function unsupportedScrollDriven(decl, values) {
+  const prop = decl.prop.toLowerCase();
+  if (TIMELINE_DEFINITIONS.test(prop))
+    return 'named scroll and view timelines (scroll-timeline, view-timeline, timeline-scope) are not supported; anonymous scroll() timelines are';
+  if (prop === 'animation-timeline') return unsupportedAnimationTimeline(decl.value);
+  if (ANIMATION_RANGE.test(prop)) return unsupportedAnimationRange(prop, decl.value, values);
+  return undefined;
+}
 
 /**
  * Why a time-based declaration is outside what the runtime reproduces
@@ -1393,8 +1542,8 @@ const SCROLL_DRIVEN =
  * from Chromium or are missing.
  */
 function unsupportedTimeBased(decl, values) {
-  if (SCROLL_DRIVEN.test(decl.prop))
-    return 'scroll-driven animations (animation and scroll timelines) are not supported';
+  const scrollDriven = unsupportedScrollDriven(decl, values);
+  if (scrollDriven) return scrollDriven;
   if (
     (decl.prop === 'transition' || decl.prop === 'transition-behavior') &&
     possibleKeywords(decl.value, values).has('allow-discrete')

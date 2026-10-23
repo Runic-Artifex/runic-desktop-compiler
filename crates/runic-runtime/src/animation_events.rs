@@ -107,6 +107,34 @@ impl<A: App> Native<A> {
         self.host_tasks();
     }
 
+    /// Animation event listeners on the path of an element with a
+    /// scroll-driven animation (crate::scroll_driven) are reported: Chromium
+    /// fires `animationstart`, `animationiteration`, `animationend` and
+    /// `animationcancel` for scroll-driven animations by rules of their own
+    /// (elapsed times in converted units, a start and an end again when
+    /// scrolled back before the range), which the forks do not model.
+    pub(crate) fn report_scroll_driven_listeners(&self) {
+        for (node, animation) in crate::scroll_driven::elements(&self.doc) {
+            if self.doc.get_node(node).is_none() {
+                continue;
+            }
+            let chain = crate::events::element_chain(&self.doc, node);
+            for kind in [
+                Event::Animationstart,
+                Event::Animationiteration,
+                Event::Animationend,
+                Event::Animationcancel,
+            ] {
+                if self.listened(&chain, kind) {
+                    crate::scroll_driven::report_once(format!(
+                        "{} listeners on the path of {animation}: Chromium fires them for scroll-driven animations by rules the runtime does not model",
+                        kind.name()
+                    ));
+                }
+            }
+        }
+    }
+
     /// Whether a listener of `kind` is registered on the event's path
     /// (elements, the document and the window).
     fn listened(&self, chain: &[blitz_traits::node_id::NodeId], kind: Event) -> bool {

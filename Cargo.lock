@@ -377,7 +377,7 @@ dependencies = [
 [[package]]
 name = "blitz-dom"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/Runic-Artifex/blitz?rev=767545c049cbbdc8fad0dd5d62245a86151119aa#767545c049cbbdc8fad0dd5d62245a86151119aa"
+source = "git+https://github.com/Runic-Artifex/blitz?rev=8572b83c7ae822a8c8ff79fe7ade19b61a522f1b#8572b83c7ae822a8c8ff79fe7ade19b61a522f1b"
 dependencies = [
  "app_units",
  "atomic_refcell",
@@ -386,7 +386,7 @@ dependencies = [
  "color",
  "cssparser",
  "cursor-icon",
- "debug_timer 0.1.3 (git+https://github.com/Runic-Artifex/blitz?rev=767545c049cbbdc8fad0dd5d62245a86151119aa)",
+ "debug_timer 0.1.3 (git+https://github.com/Runic-Artifex/blitz?rev=8572b83c7ae822a8c8ff79fe7ade19b61a522f1b)",
  "euclid",
  "html-escape",
  "image",
@@ -421,7 +421,7 @@ dependencies = [
 [[package]]
 name = "blitz-html"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/Runic-Artifex/blitz?rev=767545c049cbbdc8fad0dd5d62245a86151119aa#767545c049cbbdc8fad0dd5d62245a86151119aa"
+source = "git+https://github.com/Runic-Artifex/blitz?rev=8572b83c7ae822a8c8ff79fe7ade19b61a522f1b#8572b83c7ae822a8c8ff79fe7ade19b61a522f1b"
 dependencies = [
  "blitz-dom",
  "blitz-traits",
@@ -432,7 +432,7 @@ dependencies = [
 [[package]]
 name = "blitz-paint"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/Runic-Artifex/blitz?rev=767545c049cbbdc8fad0dd5d62245a86151119aa#767545c049cbbdc8fad0dd5d62245a86151119aa"
+source = "git+https://github.com/Runic-Artifex/blitz?rev=8572b83c7ae822a8c8ff79fe7ade19b61a522f1b#8572b83c7ae822a8c8ff79fe7ade19b61a522f1b"
 dependencies = [
  "anyrender",
  "anyrender_svg",
@@ -454,7 +454,7 @@ dependencies = [
 [[package]]
 name = "blitz-shell"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/Runic-Artifex/blitz?rev=767545c049cbbdc8fad0dd5d62245a86151119aa#767545c049cbbdc8fad0dd5d62245a86151119aa"
+source = "git+https://github.com/Runic-Artifex/blitz?rev=8572b83c7ae822a8c8ff79fe7ade19b61a522f1b#8572b83c7ae822a8c8ff79fe7ade19b61a522f1b"
 dependencies = [
  "android-activity",
  "anyrender",
@@ -474,7 +474,7 @@ dependencies = [
 [[package]]
 name = "blitz-traits"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/Runic-Artifex/blitz?rev=767545c049cbbdc8fad0dd5d62245a86151119aa#767545c049cbbdc8fad0dd5d62245a86151119aa"
+source = "git+https://github.com/Runic-Artifex/blitz?rev=8572b83c7ae822a8c8ff79fe7ade19b61a522f1b#8572b83c7ae822a8c8ff79fe7ade19b61a522f1b"
 dependencies = [
  "atomic_refcell",
  "bitflags 2.13.2",
@@ -817,7 +817,7 @@ checksum = "da220af51a1a335e9a930beaaef53d261e41ea9eecfb3d973a3ddae1a7284b9c"
 [[package]]
 name = "debug_timer"
 version = "0.1.3"
-source = "git+https://github.com/Runic-Artifex/blitz?rev=767545c049cbbdc8fad0dd5d62245a86151119aa#767545c049cbbdc8fad0dd5d62245a86151119aa"
+source = "git+https://github.com/Runic-Artifex/blitz?rev=8572b83c7ae822a8c8ff79fe7ade19b61a522f1b#8572b83c7ae822a8c8ff79fe7ade19b61a522f1b"
 
 [[package]]
 name = "defmt"
@@ -1043,7 +1043,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2379,7 +2379,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3005,7 +3005,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3051,7 +3051,7 @@ dependencies = [
 [[package]]
 name = "selectors"
 version = "0.41.0"
-source = "git+https://github.com/Runic-Artifex/stylo?rev=fa4e96529e91882238b4cd5e063e71ce1bd58a2d#fa4e96529e91882238b4cd5e063e71ce1bd58a2d"
+source = "git+https://github.com/Runic-Artifex/stylo?rev=0edab19856dbc125bf6dda69dd7c6a797abb534f#0edab19856dbc125bf6dda69dd7c6a797abb534f"
 dependencies = [
  "bitflags 2.13.2",
  "cssparser",
@@ -3138,7 +3138,7 @@ dependencies = [
 [[package]]
 name = "servo_arc"
 version = "0.5.0"
-source = "git+https://github.com/Runic-Artifex/stylo?rev=fa4e96529e91882238b4cd5e063e71ce1bd58a2d#fa4e96529e91882238b4cd5e063e71ce1bd58a2d"
+source = "git+https://github.com/Runic-Artifex/stylo?rev=0edab19856dbc125bf6dda69dd7c6a797abb534f#0edab19856dbc125bf6dda69dd7c6a797abb534f"
 dependencies = [
  "serde",
  "stable_deref_trait",
@@ -3389,7 +3389,7 @@ dependencies = [
 [[package]]
 name = "stylo"
 version = "0.22.0"
-source = "git+https://github.com/Runic-Artifex/stylo?rev=fa4e96529e91882238b4cd5e063e71ce1bd58a2d#fa4e96529e91882238b4cd5e063e71ce1bd58a2d"
+source = "git+https://github.com/Runic-Artifex/stylo?rev=0edab19856dbc125bf6dda69dd7c6a797abb534f#0edab19856dbc125bf6dda69dd7c6a797abb534f"
 dependencies = [
  "app_units",
  "arrayvec",
@@ -3445,7 +3445,7 @@ dependencies = [
 [[package]]
 name = "stylo_atoms"
 version = "0.22.0"
-source = "git+https://github.com/Runic-Artifex/stylo?rev=fa4e96529e91882238b4cd5e063e71ce1bd58a2d#fa4e96529e91882238b4cd5e063e71ce1bd58a2d"
+source = "git+https://github.com/Runic-Artifex/stylo?rev=0edab19856dbc125bf6dda69dd7c6a797abb534f#0edab19856dbc125bf6dda69dd7c6a797abb534f"
 dependencies = [
  "string_cache",
  "string_cache_codegen",
@@ -3454,7 +3454,7 @@ dependencies = [
 [[package]]
 name = "stylo_derive"
 version = "0.22.0"
-source = "git+https://github.com/Runic-Artifex/stylo?rev=fa4e96529e91882238b4cd5e063e71ce1bd58a2d#fa4e96529e91882238b4cd5e063e71ce1bd58a2d"
+source = "git+https://github.com/Runic-Artifex/stylo?rev=0edab19856dbc125bf6dda69dd7c6a797abb534f#0edab19856dbc125bf6dda69dd7c6a797abb534f"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -3466,7 +3466,7 @@ dependencies = [
 [[package]]
 name = "stylo_dom"
 version = "0.22.0"
-source = "git+https://github.com/Runic-Artifex/stylo?rev=fa4e96529e91882238b4cd5e063e71ce1bd58a2d#fa4e96529e91882238b4cd5e063e71ce1bd58a2d"
+source = "git+https://github.com/Runic-Artifex/stylo?rev=0edab19856dbc125bf6dda69dd7c6a797abb534f#0edab19856dbc125bf6dda69dd7c6a797abb534f"
 dependencies = [
  "bitflags 2.13.2",
  "stylo_malloc_size_of",
@@ -3475,7 +3475,7 @@ dependencies = [
 [[package]]
 name = "stylo_malloc_size_of"
 version = "0.22.0"
-source = "git+https://github.com/Runic-Artifex/stylo?rev=fa4e96529e91882238b4cd5e063e71ce1bd58a2d#fa4e96529e91882238b4cd5e063e71ce1bd58a2d"
+source = "git+https://github.com/Runic-Artifex/stylo?rev=0edab19856dbc125bf6dda69dd7c6a797abb534f#0edab19856dbc125bf6dda69dd7c6a797abb534f"
 dependencies = [
  "app_units",
  "cssparser",
@@ -3493,7 +3493,7 @@ dependencies = [
 [[package]]
 name = "stylo_static_prefs"
 version = "0.22.0"
-source = "git+https://github.com/Runic-Artifex/stylo?rev=fa4e96529e91882238b4cd5e063e71ce1bd58a2d#fa4e96529e91882238b4cd5e063e71ce1bd58a2d"
+source = "git+https://github.com/Runic-Artifex/stylo?rev=0edab19856dbc125bf6dda69dd7c6a797abb534f#0edab19856dbc125bf6dda69dd7c6a797abb534f"
 dependencies = [
  "toml",
 ]
@@ -3501,7 +3501,7 @@ dependencies = [
 [[package]]
 name = "stylo_taffy"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/Runic-Artifex/blitz?rev=767545c049cbbdc8fad0dd5d62245a86151119aa#767545c049cbbdc8fad0dd5d62245a86151119aa"
+source = "git+https://github.com/Runic-Artifex/blitz?rev=8572b83c7ae822a8c8ff79fe7ade19b61a522f1b#8572b83c7ae822a8c8ff79fe7ade19b61a522f1b"
 dependencies = [
  "bitflags 2.13.2",
  "stylo",
@@ -3512,7 +3512,7 @@ dependencies = [
 [[package]]
 name = "stylo_traits"
 version = "0.22.0"
-source = "git+https://github.com/Runic-Artifex/stylo?rev=fa4e96529e91882238b4cd5e063e71ce1bd58a2d#fa4e96529e91882238b4cd5e063e71ce1bd58a2d"
+source = "git+https://github.com/Runic-Artifex/stylo?rev=0edab19856dbc125bf6dda69dd7c6a797abb534f#0edab19856dbc125bf6dda69dd7c6a797abb534f"
 dependencies = [
  "app_units",
  "bitflags 2.13.2",
@@ -3610,7 +3610,7 @@ dependencies = [
  "getrandom",
  "once_cell",
  "rustix 1.1.5",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3744,7 +3744,7 @@ checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 [[package]]
 name = "to_shmem"
 version = "0.6.0"
-source = "git+https://github.com/Runic-Artifex/stylo?rev=fa4e96529e91882238b4cd5e063e71ce1bd58a2d#fa4e96529e91882238b4cd5e063e71ce1bd58a2d"
+source = "git+https://github.com/Runic-Artifex/stylo?rev=0edab19856dbc125bf6dda69dd7c6a797abb534f#0edab19856dbc125bf6dda69dd7c6a797abb534f"
 dependencies = [
  "cssparser",
  "servo_arc",
@@ -3757,7 +3757,7 @@ dependencies = [
 [[package]]
 name = "to_shmem_derive"
 version = "0.2.0"
-source = "git+https://github.com/Runic-Artifex/stylo?rev=fa4e96529e91882238b4cd5e063e71ce1bd58a2d#fa4e96529e91882238b4cd5e063e71ce1bd58a2d"
+source = "git+https://github.com/Runic-Artifex/stylo?rev=0edab19856dbc125bf6dda69dd7c6a797abb534f#0edab19856dbc125bf6dda69dd7c6a797abb534f"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -4502,7 +4502,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

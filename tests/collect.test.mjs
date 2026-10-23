@@ -164,7 +164,38 @@ test('CSS transitions and keyframe animations are accepted where the runtime rep
     undefined,
   );
   await check('p { transition: display 1s allow-discrete }', 'E_CSS_PROPERTY', 1);
-  await check('p { animation-timeline: scroll() }', 'E_CSS_PROPERTY', 1);
+  // Scroll-driven animations: anonymous scroll() timelines with ranges of
+  // lengths and percentages (shadcn's scroll-fade as Tailwind 4 compiles
+  // it), also through custom properties.
+  await check(
+    'p { animation: a 1ms, b 1ms; animation-timeline: scroll(self y), scroll(); animation-fill-mode: both;\n' +
+      '  animation-range: 0 var(--reveal, calc(var(--spacing) * 24)), calc(100% - 96px) 100% }\n' +
+      'p { animation-timeline: auto, scroll(nearest inline), scroll(x root); animation-range-start: normal, 10%;\n' +
+      '  animation-range-end: min(50%, 4em) }\n' +
+      'p { animation-timeline: inherit; animation-range: normal }\n' +
+      '@supports (animation-timeline: scroll()) { p { animation-range: 0 } }',
+    undefined,
+  );
+  for (const declaration of [
+    'animation-timeline: view()',
+    'animation-timeline: --list',
+    'animation-timeline: none',
+    'animation-timeline: var(--t)',
+    'animation-timeline: scroll(self root)',
+    'animation-timeline: scroll(x y)',
+    'animation-range: cover',
+    'animation-range: entry 10% exit 90%',
+    'animation-range-start: contain 0%',
+    'animation-range-end: 2s',
+    'animation-range: 0 10px 20px',
+    'scroll-timeline: --list y',
+    'scroll-timeline-name: --list',
+    'view-timeline-inset: 10px',
+    'timeline-scope: --list',
+  ])
+    await check(`p {\n  ${declaration} }`, 'E_CSS_PROPERTY', 2);
+  // A custom property the range reads may hold a named range.
+  await check('p { animation-range: var(--r) }\n.x { --r: entry }', 'E_CSS_PROPERTY', 1);
   await check('@starting-style { p { opacity: 0 } }', 'E_CSS', 1);
   // Blitz generates the strings of `content` only.
   await check('p::before { content: "\\201C" } p::after { content: "" }', undefined);

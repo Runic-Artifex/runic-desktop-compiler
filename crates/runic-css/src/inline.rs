@@ -468,6 +468,195 @@ fn functions(value: &str) -> Vec<String> {
     out
 }
 
+/// Length units of a `<length-percentage>` (collect.mjs `LENGTH_UNITS`).
+const LENGTH_UNITS: &[&str] = &[
+    "px", "em", "rem", "ex", "rex", "ch", "rch", "cap", "rcap", "ic", "ric", "lh", "rlh", "vw",
+    "vh", "vi", "vb", "vmin", "vmax", "svw", "svh", "svi", "svb", "svmin", "svmax", "lvw", "lvh",
+    "lvi", "lvb", "lvmin", "lvmax", "dvw", "dvh", "dvi", "dvb", "dvmin", "dvmax", "cqw", "cqh",
+    "cqi", "cqb", "cqmin", "cqmax", "cm", "mm", "q", "in", "pt", "pc",
+];
+
+const CSS_WIDE_KEYWORDS: &[&str] = &["inherit", "initial", "unset", "revert", "revert-layer"];
+
+const TIMELINE_RANGE_NAMES: &[&str] = &[
+    "cover",
+    "contain",
+    "entry",
+    "exit",
+    "entry-crossing",
+    "exit-crossing",
+    "scroll",
+];
+
+/// One top-level component of a scroll-driven declaration's value.
+enum Component {
+    Ident(String),
+    /// A length, a percentage or zero.
+    LengthPercentage,
+    /// A function, lower-cased, with the identifiers among its arguments
+    /// (`None` for another argument).
+    Function(String, Vec<Option<String>>),
+    Other(String),
+}
+
+/// The top-level comma-separated entries of `value`.
+fn components(value: &str) -> Vec<Vec<Component>> {
+    use cssparser::{Parser, Token};
+    let mut p = Parser::new(value);
+    let mut entries = vec![vec![]];
+    while let Ok(token) = p.next() {
+        let component = match token.clone() {
+            Token::Comma => {
+                entries.push(vec![]);
+                continue;
+            }
+            Token::Ident(name) => Component::Ident(name.to_ascii_lowercase()),
+            Token::Percentage { .. } => Component::LengthPercentage,
+            Token::Number { value, .. } if value == 0.0 => Component::LengthPercentage,
+            Token::Dimension { unit, .. }
+                if LENGTH_UNITS.contains(&unit.to_ascii_lowercase().as_str()) =>
+            {
+                Component::LengthPercentage
+            }
+            Token::Function(name) => {
+                let name = name.to_ascii_lowercase();
+                let mut args = vec![];
+                let _ = p.parse_nested_block(|p| -> Result<(), cssparser::ParseError<()>> {
+                    while let Ok(t) = p.next() {
+                        args.push(match t {
+                            Token::Ident(a) => Some(a.to_ascii_lowercase()),
+                            _ => None,
+                        });
+                    }
+                    Ok(())
+                });
+                Component::Function(name, args)
+            }
+            t => Component::Other(match t {
+                Token::Dimension {
+                    value, ref unit, ..
+                } => format!("{value}{unit}"),
+                Token::Number { value, .. } => value.to_string(),
+                ref t => format!("{t:?}"),
+            }),
+        };
+        entries.last_mut().unwrap().push(component);
+    }
+    entries
+}
+
+/// Why a scroll-driven animation declaration is outside what the forks run
+/// (collect.mjs `unsupportedScrollDriven`), or `None`: anonymous `scroll()`
+/// timelines and ranges of `normal` and lengths and percentages run;
+/// named and view timelines and named ranges do not. A `var()` in a range
+/// is resolved at run time, where a named range it gives is reported.
+pub fn unsupported_scroll_driven(name: &str, value: &str) -> Option<String> {
+    let name = name.to_ascii_lowercase();
+    if name.starts_with("scroll-timeline")
+        || name.starts_with("view-timeline")
+        || name == "timeline-scope"
+    {
+        return Some(
+            "named scroll and view timelines (scroll-timeline, view-timeline, timeline-scope) are not supported; anonymous scroll() timelines are"
+                .into(),
+        );
+    }
+    let range = matches!(
+        name.as_str(),
+        "animation-range" | "animation-range-start" | "animation-range-end"
+    );
+    if name != "animation-timeline" && !range {
+        return None;
+    }
+    let entries = components(value);
+    if let [entry] = &entries[..]
+        && let [Component::Ident(word)] = &entry[..]
+        && CSS_WIDE_KEYWORDS.contains(&word.as_str())
+    {
+        return None;
+    }
+    for entry in &entries {
+        if !range {
+            let [component] = &entry[..] else {
+                return Some(format!(
+                    "{value} is not a list of timelines (auto or scroll())"
+                ));
+            };
+            match component {
+                Component::Ident(w) if w == "auto" => {}
+                Component::Ident(w) if w == "none" => {
+                    return Some(
+                        "animation-timeline: none (an animation without a timeline) is not supported; auto and scroll() timelines are"
+                            .into(),
+                    );
+                }
+                Component::Ident(w) if w.starts_with("--") => {
+                    return Some(format!(
+                        "named timeline {w} is not supported (scroll-timeline-name, view-timeline-name); anonymous scroll() timelines are"
+                    ));
+                }
+                Component::Function(f, _) if f == "var" => {
+                    return Some(
+                        "var() in animation-timeline is not supported (the timeline must be written out: auto or scroll())"
+                            .into(),
+                    );
+                }
+                Component::Function(f, _) if f == "view" => {
+                    return Some(
+                        "view() timelines (view progress) are not supported; scroll() timelines are"
+                            .into(),
+                    );
+                }
+                Component::Function(f, args) if f == "scroll" => {
+                    let scrollers = args
+                        .iter()
+                        .filter(|a| matches!(a.as_deref(), Some("self" | "nearest" | "root")))
+                        .count();
+                    let axes = args
+                        .iter()
+                        .filter(|a| matches!(a.as_deref(), Some("block" | "inline" | "x" | "y")))
+                        .count();
+                    if scrollers + axes != args.len() || scrollers > 1 || axes > 1 {
+                        return Some(
+                            "scroll() takes at most one scroller (self, nearest, root) and one axis (block, inline, x, y)"
+                                .into(),
+                        );
+                    }
+                }
+                _ => {
+                    return Some(format!(
+                        "{value} is not a list of timelines (auto or scroll())"
+                    ));
+                }
+            }
+            continue;
+        }
+        for component in entry {
+            match component {
+                Component::Ident(w) if w == "normal" => {}
+                Component::Ident(w) if TIMELINE_RANGE_NAMES.contains(&w.as_str()) => {
+                    return Some(format!(
+                        "named timeline ranges ({w}) are not supported; animation ranges must be normal or lengths and percentages"
+                    ));
+                }
+                Component::LengthPercentage => {}
+                Component::Function(f, _)
+                    if matches!(f.as_str(), "calc" | "min" | "max" | "clamp" | "var") => {}
+                Component::Ident(w) | Component::Function(w, _) | Component::Other(w) => {
+                    return Some(format!("{w} is not normal or a length-percentage"));
+                }
+            }
+        }
+        let literal = !entry
+            .iter()
+            .any(|c| matches!(c, Component::Function(f, _) if f == "var"));
+        if literal && entry.len() > if name == "animation-range" { 2 } else { 1 } {
+            return Some(format!("{value} is not normal or a length-percentage"));
+        }
+    }
+    None
+}
+
 fn reject(declaration: &str, reason: impl Into<String>) -> Problem {
     Problem {
         kind: Kind::Reject,
@@ -495,26 +684,8 @@ pub fn problems(css: &str, element: Element<'_>) -> Vec<Problem> {
         let words = idents(value);
         let calls = functions(value);
         // collect.mjs `unsupportedTimeBased`.
-        if [
-            "animation-timeline",
-            "animation-range",
-            "animation-range-start",
-            "animation-range-end",
-            "scroll-timeline",
-            "scroll-timeline-name",
-            "scroll-timeline-axis",
-            "view-timeline",
-            "view-timeline-name",
-            "view-timeline-axis",
-            "view-timeline-inset",
-            "timeline-scope",
-        ]
-        .contains(&name.as_str())
-        {
-            out.push(reject(
-                &written,
-                "scroll-driven animations (animation and scroll timelines) are not supported",
-            ));
+        if let Some(reason) = unsupported_scroll_driven(name, value) {
+            out.push(reject(&written, reason));
             continue;
         }
         if (name == "transition" || name == "transition-behavior")
@@ -729,7 +900,7 @@ mod tests {
         );
         assert_eq!(
             kinds(
-                "animation: spin 1s forwards; filter: url(#f); animation-timeline: scroll(); text-transform: full-width; stroke: url(#g)",
+                "animation: spin 1s forwards; filter: url(#f); animation-timeline: view(); text-transform: full-width; stroke: url(#g)",
                 div
             )
             .into_iter()
@@ -737,6 +908,37 @@ mod tests {
             .collect::<Vec<_>>(),
             [Kind::Reject; 4]
         );
+        // Scroll-driven animations: anonymous scroll() timelines and ranges
+        // of lengths and percentages (case `scroll-timeline`); named and
+        // view timelines and named ranges are rejected.
+        assert_eq!(
+            kinds(
+                "animation-timeline: scroll(self y), auto, scroll(); animation-range: 0 var(--r, calc(4px * 24)), calc(100% - 96px) 100%; animation-range-start: normal; animation-range-end: min(50%, 4em); animation-timeline: inherit",
+                div
+            ),
+            []
+        );
+        for declaration in [
+            "animation-timeline: view()",
+            "animation-timeline: --list",
+            "animation-timeline: none",
+            "animation-timeline: var(--t)",
+            "animation-timeline: scroll(self root)",
+            "animation-timeline: scroll(x, y)",
+            "animation-range: cover",
+            "animation-range: entry 10% exit 90%",
+            "animation-range-end: 2s",
+            "animation-range: 0 10px 20px",
+            "scroll-timeline: --list y",
+            "view-timeline-inset: 10px",
+            "timeline-scope: --list",
+        ] {
+            assert_eq!(
+                kinds(declaration, div),
+                [(Kind::Reject, declaration.into())],
+                "{declaration}"
+            );
+        }
         // Filled animations stay in effect as in Chromium (case `animation-fill`).
         assert_eq!(
             kinds(

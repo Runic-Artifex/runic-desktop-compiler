@@ -55,10 +55,9 @@ The project is paused (user decision 2026-10-23, decisions log). Main is at `6a3
   - **Task 1** (`60cf512`, stopPropagation during capture). Its verification passed apart from declared gaps. Still to do: the docs commit from `.cache/probes/task1-design.md`, then merge.
   - **Task 2** (`26d2b16`, `22c4357`, React's `schedule.rootDispatch`). Not mergeable: its own case `root-dispatch-react` fails 17 differential traces (interpreter against native). Logs are in that worktree's `.cache/rescreen/diff-t2-06.log`.
   - **Slice 4, embla-carousel**, up to `a8c355a`. The next blocker is the `reduce` accumulator typed from an empty `[]` ("Slice 4 progress" in [M6-SCRIPT-DOM](design/M6-SCRIPT-DOM.md)).
-- `worktree-agent-aa013b8815c0eff2d` (CSS slice 3b part 2, scroll-driven animations, 8 commits after `ad92849`):
-  - Verified on the branch ([record](../conformance/results/scroll-timelines.md) on the branch).
-  - Before merging: a rebase onto main, a full differential, and the open `animationDuration` serialisation (`0s` where Chromium gives `auto`).
-  - Its fork commits are pushed as `scroll-timelines` branches: Stylo `6388603`, Blitz `8572b83`.
+- `worktree-agent-aa013b8815c0eff2d` (CSS slice 3b part 2, scroll-driven animations):
+  - Rebased onto `6c154fc` and verified there, the full differential included ([record](../conformance/results/scroll-timelines.md) on the branch); `animation-duration: auto` now reads back as in Chromium. Ready to merge.
+  - Its fork commits are pushed as `scroll-timelines` branches: Stylo `0edab19`, Blitz `8572b83`.
   - Handoff: `artifacts/css/STATUS.md`.
 - **Reactivity:** no branch. The resume list is in [REACTIVITY-ALIASING](design/REACTIVITY-ALIASING.md), with `schedule.bindingsLast` written up in M6-SCRIPT-DOM ("Svelte's fragment order").
 
