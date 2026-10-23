@@ -36,3 +36,7 @@ p { margin: 0 0 2px; }
 /* Inactive: the content does not overflow, so the animation has no effect, whatever its fill. */
 #inactive { animation: tint 1ms linear both; animation-timeline: scroll(self y); }
 #grow { animation: fade 1ms linear both; animation-timeline: scroll(self y); }
+/* animation-duration: auto from the stylesheet, on a scroll timeline (no
+   animation name): its computed value reads auto. */
+#sheet { animation-duration: auto; animation-timeline: scroll(); }
+pre { margin: 0; font-family: RunicFixture; font-size: 13px; line-height: 16px; }

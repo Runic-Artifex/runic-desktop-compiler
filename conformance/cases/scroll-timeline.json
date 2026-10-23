@@ -1,12 +1,13 @@
 {
-  "description": "Scroll-driven animations (animation-timeline: scroll()) as Chromium 153 runs them: each scroller's offset over its maximum drives background colour, opacity and transform animations (filled both ways); ranges of lengths (0 96px) and calc(100% - 96px) 100% resolved against the maximum offset; a delay and two alternating iterations converted to proportions of the range; scroll(nearest) from a sticky child; the x axis and the inline axis of a right-to-left scroller (from its right-hand origin); an inactive timeline (no overflow: no effect); content that grows changes the range. Wheel turns, programmatic scrolling (scrollTop, scrollLeft past the end) and a growing scroll range",
+  "description": "Scroll-driven animations (animation-timeline: scroll()) as Chromium 153 runs them: each scroller's offset over its maximum drives background colour, opacity and transform animations (filled both ways); ranges of lengths (0 96px) and calc(100% - 96px) 100% resolved against the maximum offset; a delay and two alternating iterations converted to proportions of the range; scroll(nearest) from a sticky child; the x axis and the inline axis of a right-to-left scroller (from its right-hand origin); an inactive timeline (no overflow: no effect); content that grows changes the range. Wheel turns, programmatic scrolling (scrollTop, scrollLeft past the end) and a growing scroll range; animation-duration read back from the inline style and getComputedStyle (auto, a list with auto, auto from the stylesheet on a scroll timeline), before and after a script style write, which keeps a scroll-driven auto duration running",
   "fixtures": ["scroll-timeline-svelte"],
   "viewports": [
     [800, 600],
     [420, 600]
   ],
-  "pixelRegions": ["self", "len", "calc", "delay", "nearest", "x", "rtl", "inactive", "grow"],
+  "pixelRegions": ["self", "len", "calc", "delay", "nearest", "x", "rtl", "inactive", "grow", "auto"],
   "actions": [
+    { "kind": "click", "id": "read" },
     { "kind": "wheel", "id": "self", "deltaY": 60 },
     { "kind": "wheel", "id": "len", "deltaY": 48 },
     { "kind": "wheel", "id": "calc", "deltaY": 150 },
@@ -16,6 +17,9 @@
     { "kind": "wheel", "id": "rtl", "deltaX": -100 },
     { "kind": "wheel", "id": "inactive", "deltaY": 40 },
     { "kind": "wheel", "id": "grow", "deltaY": 40 },
+    { "kind": "wheel", "id": "auto", "deltaY": 60 },
+    { "kind": "click", "id": "restyle" },
+    { "kind": "wheel", "id": "auto", "deltaY": 60 },
     { "kind": "click", "id": "jump" },
     { "kind": "click", "id": "more" },
     { "kind": "click", "id": "end" },

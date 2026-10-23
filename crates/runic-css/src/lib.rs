@@ -223,6 +223,16 @@ mod tests {
         );
         assert_eq!(remove_property("--a: 1; color: red", "--a"), "color: red;");
         assert_eq!(get_property("margin: 1px 2px", "margin-left"), "2px");
+        // `animation-duration: auto` reads back as `auto` (Chromium), also
+        // after the block is rewritten.
+        assert_eq!(
+            get_property("animation-duration: auto, 2s", "animation-duration"),
+            "auto, 2s"
+        );
+        assert_eq!(
+            set_property("animation-duration: auto", "opacity", "0.5", false).unwrap(),
+            "animation-duration: auto; opacity: 0.5;"
+        );
         // Parsed with Blitz's preferences (grid is behind one in Stylo).
         assert_eq!(
             css_text("display: inline-grid; grid-template-columns: 1fr"),

@@ -16833,6 +16833,9 @@ const COMPUTED_PROPERTIES = new Set([
   'margin-right',
   'margin-bottom',
   'margin-left',
+  // CSS slice 3b part 2: as Chromium resolves it, `auto` reads `0s` while
+  // animation-timeline is the single initial `auto` (Stylo's resolved value).
+  'animation-duration',
 ]);
 
 /** Array methods whose callbacks take (element, index, array), or two elements (sort). */
