@@ -43,27 +43,27 @@ How each kind of work is executed (standalone, subagents or workflows) is define
 
 ## Paused (2026-10-23)
 
-The project is paused (user decision 2026-10-23, decisions log). On main as of the merge of CSS slice 3b part 2 (`6fc7e80`), `npm test`, the cargo workspace, conformance and the differential pass.
+The project is paused (user decision 2026-10-23, decisions log). Before pausing, the two branches close to done were finished and merged; on the merged main (`6f0cedc`), `npm test` (522) and the cargo workspace (200) pass, and so do the conformance and differential runs of both merges' cases.
 
 **Where M6 stands:**
 - **Lowering (Oct 13):** 264 of 404 shadcn-svelte examples lower; the rest are rejected ([census](../conformance/results/shadcn-svelte-census.md)).
 - **Rendering (Oct 12):** of 253 examples built natively, 194 match Chromium, 11 differ and 48 report something unsupported ([render census](../conformance/results/shadcn-svelte-render-census.md)).
 - **React and Vue:** the shadcn/ui and shadcn-vue examples are not started beyond the core adapters.
 
-**Work not merged:**
-- `worktree-agent-a3c51bf2617db872b` (script DOM, 23 commits after main). It holds three pieces of work:
-  - **Task 1** (`60cf512`, stopPropagation during capture). Its verification passed apart from declared gaps. Still to do: the docs commit from `.cache/probes/task1-design.md`, then merge.
-  - **Task 2** (`26d2b16`, `22c4357`, React's `schedule.rootDispatch`). Not mergeable: its own case `root-dispatch-react` fails 17 differential traces (interpreter against native). Logs are in that worktree's `.cache/rescreen/diff-t2-06.log`.
-  - **Slice 4, embla-carousel**, up to `a8c355a`. The next blocker is the `reduce` accumulator typed from an empty `[]` ("Slice 4 progress" in [M6-SCRIPT-DOM](design/M6-SCRIPT-DOM.md)).
-- CSS slice 3b part 2 (scroll-driven animations) was merged on 2026-10-23 (`6fc7e80`, [record](../conformance/results/scroll-timelines.md)), with the forks' `runic` branches at Stylo `0edab19` and Blitz `8572b83`. The CSS handoff (KDE/Qt preferences, then slice 4, generated content) is `artifacts/css/STATUS.md`.
+**Merged on 2026-10-23:**
+- **CSS slice 3b part 2**, scroll-driven animations (`6fc7e80`, [record](../conformance/results/scroll-timelines.md)), with the forks' `runic` branches at Stylo `0edab19` and Blitz `8572b83`. The CSS handoff (KDE/Qt preferences, then slice 4, generated content) is `artifacts/css/STATUS.md`.
+- **Script DOM tasks 1 and 2** (`6f0cedc`, [record](../conformance/results/script-dom.md)): a stopped dispatch ends at its node and phase, and React's handlers run from its root in both phases (`schedule.rootDispatch`). Its differential failure was the interpreter's: it skipped the checkbox's native `change` after the click under the root dispatch. Follow-up: React's animation and transition event props stay rejected until their kinds join `ROOT_KINDS`.
+
+**Not merged:**
+- **Script DOM slice 4, embla-carousel:** branch `script-dom-slice4-embla` on origin (`a8c355a`, 20 commits of groundwork on top of tasks 1 and 2). Rebase it onto main and drop its first three commits (`60cf512`, `26d2b16`, `22c4357`, merged in rewritten form). The next blocker is the `reduce` accumulator typed from an empty `[]` ("Slice 4 progress" in [M6-SCRIPT-DOM](design/M6-SCRIPT-DOM.md)); native verification of the groundwork (bits-command, an IntersectionObserver root case, the differential of the `fn.adapted` fixtures) is still to run.
 - **Reactivity:** no branch. The resume list is in [REACTIVITY-ALIASING](design/REACTIVITY-ALIASING.md), with `schedule.bindingsLast` written up in M6-SCRIPT-DOM ("Svelte's fragment order").
 
-**Upstream drift when paused**, our fork pins against upstream `main`:
+**Upstream drift when paused**, our fork pins against upstream `main` (measured before the two merges, which added 5 Stylo and 2 Blitz commits):
 
 | Fork | Our commits | Upstream commits not in our fork | Forked from |
 |---|---|---|---|
-| Blitz | 103 | 125 (137 files, about 13.7k changed lines) | 2026-10-04 |
-| Stylo | 46 | 192 | 2026-09-02 |
+| Blitz | 105 | 125 (137 files, about 13.7k changed lines) | 2026-10-04 |
+| Stylo | 51 | 192 | 2026-09-02 |
 | Vello | 5 | 22 | 2026-10-02 |
 | AnyRender | 6 | 4 | 2026-10-03 |
 
